@@ -208,3 +208,6 @@ __marimo__/
 
 # Visual studio code settings
 .vscode
+
+# UV lock file
+uv.lock
