@@ -1,0 +1,52 @@
+[project]
+name = "pyhilbert"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "multipledispatch>=1.0.0",
+    "pandas>=2.3.3",
+    "sympy>=1.14.0",
+]
+
+[project.optional-dependencies]
+cpu = [
+  "torch>=2.7.0",
+  "torchvision>=0.22.0",
+]
+cu129 = [
+  "torch>=2.7.0",
+  "torchvision>=0.22.0",
+]
+
+[tool.uv]
+package = true
+
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "cu129" },
+  ],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu",  extra = "cpu" },
+  { index = "pytorch-cu129", extra = "cu129" },
+]
+torchvision = [
+  { index = "pytorch-cpu",  extra = "cpu" },
+  { index = "pytorch-cu129", extra = "cu129" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url  = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url  = "https://download.pytorch.org/whl/cu129"
+explicit = true
