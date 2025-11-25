@@ -13,6 +13,12 @@ from .spatials import Spatial, ReciprocalLattice, cartes
 
 @dataclass(frozen=True)
 class Mode(Spatial):
+    """
+    Mode:
+    - r: Real space offset of the mode (unit-cell offset + basis)
+    - orb: Symmetry information Orbital class (PointGroupBasis, eigenvalue)
+    - spin: Spin information
+    """
     count: int
     attr: FrozenDict
 

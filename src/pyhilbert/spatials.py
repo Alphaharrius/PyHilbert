@@ -11,7 +11,7 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix, sympify
 
 from .utils import FrozenDict
-from .abstracts import Operable
+from .abstracts import Operable, HasDual
 
 
 @dataclass(frozen=True)
@@ -39,31 +39,27 @@ class AffineSpace(Spatial):
     
 
 @dataclass(frozen=True)
-class Lattice(AffineSpace):
+class Lattice(AffineSpace, HasDual):
     shape: Tuple[int, ...]
 
     @property
     def affine(self) -> AffineSpace:
         return AffineSpace(basis=self.basis)
-    
+
+    @property
+    @lru_cache
+    def dual(self) -> 'ReciprocalLattice':
+        reciprocal_basis = 2 * sy.pi * self.basis.inv().T
+        return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
+
 
 @dataclass(frozen=True)
 class ReciprocalLattice(Lattice):
-    pass
-
-
-@dispatch(AffineSpace)
-@lru_cache
-def dual(lattice: Lattice) -> ReciprocalLattice:
-    reciprocal_basis = 2 * sy.pi * lattice.basis.inv().T
-    return ReciprocalLattice(basis=reciprocal_basis, shape=lattice.shape)
-
-
-@dispatch(ReciprocalLattice)
-@lru_cache
-def dual(lattice: ReciprocalLattice) -> Lattice:
-    basis = (1 / (2 * sy.pi)) * lattice.basis.inv().T
-    return Lattice(basis=basis, shape=lattice.shape)
+    @property
+    @lru_cache
+    def dual(self) -> 'Lattice':
+        basis = (1 / (2 * sy.pi)) * self.basis.inv().T
+        return Lattice(basis=basis, shape=self.shape)
 
 
 @dataclass(frozen=True)
@@ -127,7 +123,7 @@ class PointGroupBasis(Spatial):
 
 
 @dataclass(frozen=True)
-class PointGroupOrder:
+class AbelianGroupOrder:
     irrep: sy.ImmutableDenseMatrix
     axes: Tuple[sy.Symbol, ...]
     basis_function_order: int
@@ -139,7 +135,7 @@ class PointGroupOrder:
     @lru_cache
     def __commute_indices(self):
         indices = self.__full_indices()
-        _, select_rules = PointGroupOrder.__get_contract_select_rules(indices)
+        _, select_rules = AbelianGroupOrder.__get_contract_select_rules(indices)
         sorted_rules = sorted(select_rules, key=lambda x: x[1])
         return tuple(indices[n] for n, _ in sorted_rules)
     
@@ -210,14 +206,14 @@ class PointGroupOrder:
     
 
 @dataclass(frozen=True)
-class PointGroup(Operable):
+class AbelianGroup(Operable):
     irrep: sy.ImmutableDenseMatrix
     axes: Tuple[sy.Symbol, ...]
     order: int
 
     @lru_cache
     def group_order(self, order: int):
-        return PointGroupOrder(self.irrep, self.axes, order)
+        return AbelianGroupOrder(self.irrep, self.axes, order)
 
     @property
     @lru_cache
@@ -234,11 +230,11 @@ class PointGroup(Operable):
         return FrozenDict(tbl)
     
 
-@dispatch(PointGroup, PointGroupBasis)
-def operator_mul(g: PointGroup, basis: PointGroupBasis) -> Tuple[sy.Expr, PointGroupBasis]:
+@dispatch(AbelianGroup, PointGroupBasis)
+def operator_mul(g: AbelianGroup, basis: PointGroupBasis) -> Tuple[sy.Expr, PointGroupBasis]:
     if set(g.axes) != set(basis.axes):
-        raise ValueError(f"Axes of PointGroup and PointGroupBasis must match: {g.axes} != {basis.axes}")
-    
+        raise ValueError(f"Axes of AbelianGroup and PointGroupBasis must match: {g.axes} != {basis.axes}")
+
     g_irrep = g.group_order(basis.order).rep
     basis_rep = basis.rep
     transformed_rep = g_irrep @ basis_rep
