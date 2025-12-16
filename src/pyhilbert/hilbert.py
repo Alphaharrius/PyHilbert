@@ -48,7 +48,7 @@ class Mode(Spatial, Updatable):
         updated_attr = {**self.attr}
         for k, v in kwargs.items():
             if k not in updated_attr:
-                raise KeyError(f"Cannot update non-existing attribute '{k}', available keys: {list(updated_attr.keys())}")
+                continue # Sometimes the changes are not happened globally
             if callable(v):
                 updated_attr[k] = v(updated_attr[k])
             else:
