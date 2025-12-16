@@ -34,7 +34,7 @@ class Mode(Spatial, Updatable):
     @dispatch(tuple)
     def __getitem__(self, names: Tuple[str, ...]):
         items = {name: self.attr[name] for name in names}
-        return Mode(count=len(items), attr=FrozenDict(items))
+        return replace(self, attr=FrozenDict(items))
     
     def extend(self, **kwargs) -> 'Mode':
         extended_attr = FrozenDict({**self.attr, **kwargs})
