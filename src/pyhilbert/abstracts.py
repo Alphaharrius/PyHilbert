@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from multipledispatch import dispatch
 
@@ -115,3 +116,19 @@ def operator_and(a, b):
 @dispatch(Operable, Operable)
 def operator_or(a, b):
     return NotImplementedError(f'Logical OR of {type(a)} and {type(b)} is not supported!')
+
+
+class Updatable(ABC):
+    """
+    An object that can be updated to a new state.
+    """
+
+    def update(self, **kwargs) -> 'Updatable':
+        out = self._updated(**kwargs)
+        if out is self:
+            raise RuntimeError(f"{type(self).__name__}._updated() must not return self; return a new object.")
+        return out
+
+    @abstractmethod
+    def _updated(self, **kwargs) -> 'Updatable':
+        pass
