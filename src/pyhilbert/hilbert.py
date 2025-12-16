@@ -47,13 +47,14 @@ class Mode(Spatial, Updatable):
     def _updated(self, **kwargs) -> 'Mode':
         updated_attr = {**self.attr}
         for k, v in kwargs.items():
-            if k not in updated_attr:
-                continue # Sometimes the changes are not happened globally
             if callable(v):
+                if k not in updated_attr: continue # skip if key not present
                 updated_attr[k] = v(updated_attr[k])
-            else:
-                updated_attr[k] = v
-        return Mode(count=self.count, attr=FrozenDict(updated_attr))
+                continue
+
+            updated_attr[k] = v # Insert or update directly
+        
+        return replace(self, attr=FrozenDict(updated_attr))
 
 
 @dataclass(frozen=True)
