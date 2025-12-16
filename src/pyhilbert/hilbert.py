@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Tuple
 from collections import OrderedDict
 from collections.abc import Iterable
