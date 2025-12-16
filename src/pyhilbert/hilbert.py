@@ -160,9 +160,20 @@ class MomentumSpace(StateSpace):
 
 
 @dataclass(frozen=True)
-class HilbertSpace(StateSpace):
+class HilbertSpace(StateSpace, Updatable):
     __hash__ = StateSpace.__hash__
-    pass
+
+    def _updated(self, **kwargs):
+        updated_structure = {}
+        for m, s in self.structure.items():
+            if not isinstance(m, Mode):
+                raise RuntimeError(
+                    f'Implementation error: found {type(m)} in HilbertSpace structure!')
+            updated_m = m.update(**kwargs)
+            updated_structure[updated_m] = s
+
+        # Don't need StateSpace.restructure here since the slices are unchanged
+        return HilbertSpace(structure=updated_structure)
 
 
 @dispatch(Iterable)
