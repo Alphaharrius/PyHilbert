@@ -36,10 +36,6 @@ class Mode(Spatial, Updatable):
         items = {name: self.attr[name] for name in names}
         return replace(self, attr=FrozenDict(items))
     
-    def extend(self, **kwargs) -> 'Mode':
-        extended_attr = FrozenDict({**self.attr, **kwargs})
-        return Mode(count=self.count, attr=extended_attr)
-    
     @property
     def dim(self) -> int:
         return self.count
