@@ -110,6 +110,7 @@ class StateSpace(Spatial):
         return tuple(chain.from_iterable(ordered_groups))
 
     def __hash__(self):
+        # TODO: Do we need to consider the order of the structure?
         return hash(tuple((k, s.start, s.stop) for k, s in self.structure.items()))
     
 
