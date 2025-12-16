@@ -4,7 +4,7 @@ from multipledispatch import dispatch
 
 
 @dataclass(frozen=True)
-class Operable:
+class Operable(ABC):
     def __add__(self, other: 'Operable'):
         return operator_add(self, other)
 
