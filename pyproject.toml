@@ -9,6 +9,7 @@ dependencies = [
     "multipledispatch>=1.0.0",
     "pandas>=2.3.3",
     "sympy>=1.14.0",
+    "plotly>=6.5.0",
 ]
 
 [project.optional-dependencies]
