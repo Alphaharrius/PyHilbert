@@ -1,4 +1,3 @@
-import inspect
 import types
 from dataclasses import dataclass, replace
 from typing import Tuple
