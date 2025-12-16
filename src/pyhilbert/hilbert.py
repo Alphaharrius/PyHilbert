@@ -7,12 +7,13 @@ from itertools import chain
 
 from multipledispatch import dispatch
 
+from .abstracts import Updatable
 from .utils import FrozenDict
 from .spatials import Spatial, ReciprocalLattice, cartes
 
 
 @dataclass(frozen=True)
-class Mode(Spatial):
+class Mode(Spatial, Updatable):
     """
     Mode:
     - r: Real space offset of the mode (unit-cell offset + basis)
@@ -42,6 +43,17 @@ class Mode(Spatial):
     @property
     def dim(self) -> int:
         return self.count
+    
+    def _updated(self, **kwargs) -> 'Mode':
+        updated_attr = {**self.attr}
+        for k, v in kwargs.items():
+            if k not in updated_attr:
+                raise KeyError(f"Cannot update non-existing attribute '{k}', available keys: {list(updated_attr.keys())}")
+            if callable(v):
+                updated_attr[k] = v(updated_attr[k])
+            else:
+                updated_attr[k] = v
+        return Mode(count=self.count, attr=FrozenDict(updated_attr))
 
 
 @dataclass(frozen=True)
