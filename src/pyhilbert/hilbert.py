@@ -1,3 +1,5 @@
+import inspect
+import types
 from dataclasses import dataclass, replace
 from typing import Tuple
 from collections import OrderedDict
@@ -42,13 +44,15 @@ class Mode(Spatial, Updatable):
     
     def _updated(self, **kwargs) -> 'Mode':
         updated_attr = {**self.attr}
+        _MISSING = object()
         for k, v in kwargs.items():
-            if callable(v):
-                if k not in updated_attr: continue # skip if key not present
-                updated_attr[k] = v(updated_attr[k])
-                continue
-
-            updated_attr[k] = v # Insert or update directly
+            old = updated_attr.get(k, _MISSING)
+            if isinstance(v, types.FunctionType):
+                if old is _MISSING: 
+                    continue
+                updated_attr[k] = v(old)
+            else:
+                updated_attr[k] = v
         
         return replace(self, attr=FrozenDict(updated_attr))
 
