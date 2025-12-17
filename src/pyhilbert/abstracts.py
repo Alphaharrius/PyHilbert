@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 from multipledispatch import dispatch
 
 
@@ -45,6 +46,14 @@ class Operable:
     
     def __or__(self, other: 'Operable'):
         return operator_or(self, other)
+
+
+class HasDual(ABC):
+    """Abstract base class for objects that have a dual (e.g., real space <-> reciprocal space)"""
+    @property
+    @abstractmethod
+    def dual(self):
+        raise NotImplementedError()
 
 
 @dispatch(Operable, Operable)
