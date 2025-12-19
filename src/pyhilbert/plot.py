@@ -3,7 +3,6 @@ import numpy as np
 import sympy as sy
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
-from multipledispatch import dispatch
 from typing import Optional, List, Union, Dict, Callable
 from .spatials import Lattice, cartes, Offset
 
@@ -147,10 +146,10 @@ class LatticePlotter:
                 showlegend=False
             )
 
-    def plot(self, spin_data: Optional[Union[np.ndarray, torch.Tensor]] = None, 
-             show: bool = True, plot_type: str = 'edge-and-node') -> go.Figure:
+    def plot_system(self, spin_data: Optional[Union[np.ndarray, torch.Tensor]] = None, 
+                    show: bool = True, plot_type: str = 'edge-and-node') -> go.Figure:
         """
-        Main plotting method.
+        Main plotting method for the lattice system (sites, bonds, spins).
         """
         valid_types = ['edge-and-node', 'scatter']
         if plot_type not in valid_types:
@@ -248,132 +247,283 @@ class LatticePlotter:
             fig.show()
         return fig
 
-@dispatch(Lattice)
-def plot_system(lattice: Lattice, spin_data: Optional[Union[np.ndarray, torch.Tensor]] = None, 
-                show: bool = True, plot_type: str = 'edge-and-node', 
-                subs: Optional[Dict] = None, offsets: Optional[List[Offset]] = None):
-    """
-    Wrapper for LatticePlotter to maintain backward compatibility.
-    """
-    plotter = LatticePlotter(lattice, subs=subs, offsets=offsets)
-    return plotter.plot(spin_data=spin_data, show=show, plot_type=plot_type)
+    def plot_wavefunction(self, psi: Union[np.ndarray, torch.Tensor], 
+                          scale: float = 1.0, show: bool = True,
+                          title: str = "Wavefunction Visualization") -> go.Figure:
+        """
+        Visualizes a complex scalar field (wavefunction) on the lattice.
+        
+        Args:
+            psi: Complex vector of shape (num_sites,).
+            scale: Scaling factor for marker sizes.
+            show: Whether to show the plot immediately.
+            title: Plot title.
+        """
+        if isinstance(psi, torch.Tensor):
+            psi = psi.detach().cpu().numpy()
+        elif not isinstance(psi, np.ndarray):
+             psi = np.array(psi)
 
-def _generate_k_path(points: Dict[str, Union[List, np.ndarray, torch.Tensor]], 
-                    path_labels: List[str], 
-                    resolution: int) -> tuple:
-    """Helper to generate k-path vectors and distances."""
-    k_path_vecs = []
-    k_dist = [0.0]
-    current_dist = 0.0
-    indices = [0]
-    
-    # Ensure points are numpy/torch compatible
-    pts = {}
-    for k, v in points.items():
-        if isinstance(v, torch.Tensor):
-            pts[k] = v.numpy()
+        coords = self.coords
+        coords_np = coords.numpy()
+        
+        if psi.shape[0] != coords_np.shape[0]:
+             # Try to handle basis atoms if psi is provided per unit cell but flattened? 
+             # Or just raise error.
+             raise ValueError(f"Wavefunction shape {psi.shape} does not match number of sites {coords_np.shape[0]}.")
+
+        x = coords_np[:, 0]
+        y = coords_np[:, 1]
+        z = coords_np[:, 2] if self.lattice.dim == 3 else None
+        
+        # Amplitude -> Size
+        amp = np.abs(psi)
+        max_amp = amp.max()
+        if max_amp < 1e-9:
+            sizes = np.zeros_like(amp)
         else:
-            pts[k] = np.array(v)
-            
-    for i in range(len(path_labels) - 1):
-        start_label = path_labels[i]
-        end_label = path_labels[i+1]
+            # Normalize and scale. 
+            sizes = 20 * (amp / max_amp) * scale
         
-        start_vec = pts[start_label]
-        end_vec = pts[end_label]
+        # Phase -> Color (Hue)
+        # Angle is in (-pi, pi]
+        phase = np.angle(psi) 
         
-        segment_len = np.linalg.norm(end_vec - start_vec)
+        fig = go.Figure()
         
-        # Generate points for this segment
-        # We exclude the endpoint to avoid duplicate points (it becomes start of next segment)
-        # except for the very last segment
-        if i == len(path_labels) - 2:
-            num = resolution + 1 # Include end
+        # Add faint bonds for context
+        bonds_trace = self._generate_bonds_traces()
+        if bonds_trace:
+            if isinstance(bonds_trace, go.Scatter3d):
+                 bonds_trace.line.color = 'rgba(200,200,200,0.2)'
+            else:
+                 bonds_trace.line.color = 'rgba(200,200,200,0.2)'
+            fig.add_trace(bonds_trace)
+
+        marker_dict = dict(
+            size=sizes,
+            color=phase, 
+            colorscale='HSV', 
+            colorbar=dict(
+                title="Phase", 
+                tickvals=[-np.pi, -np.pi/2, 0, np.pi/2, np.pi],
+                ticktext=["-π", "-π/2", "0", "π/2", "π"]
+            ),
+            cmin=-np.pi, 
+            cmax=np.pi,
+            opacity=0.9,
+            line=dict(width=0)
+        )
+
+        if self.lattice.dim == 3:
+            fig.add_trace(go.Scatter3d(
+                x=x, y=y, z=z, 
+                mode='markers', 
+                marker=marker_dict,
+                name='Amplitude/Phase',
+                text=[f"Amp: {a:.3f}, Phase: {p:.3f}" for a, p in zip(amp, phase)]
+            ))
+            fig.update_layout(scene=dict(aspectmode='data'))
         else:
-            num = resolution # Exclude end
+            fig.add_trace(go.Scatter(
+                x=x, y=y, 
+                mode='markers', 
+                marker=marker_dict,
+                name='Amplitude/Phase',
+                text=[f"Amp: {a:.3f}, Phase: {p:.3f}" for a, p in zip(amp, phase)]
+            ))
+            fig.update_yaxes(scaleanchor="x", scaleratio=1)
             
-        t = np.linspace(0, 1, num, endpoint=(i == len(path_labels) - 2))
+        fig.update_layout(title=title)
+            
+        if show:
+            fig.show()
+        return fig
+
+    def _generate_k_path(self, points: Dict[str, Union[List, np.ndarray, torch.Tensor]], 
+                        path_labels: List[str], 
+                        resolution: int) -> tuple:
+        """Helper to generate k-path vectors and distances."""
+        k_path_vecs = []
+        k_dist = [0.0]
+        current_dist = 0.0
+        indices = [0]
         
-        for ti in t:
-            # Vector
-            vec = (1 - ti) * start_vec + ti * end_vec
-            k_path_vecs.append(vec)
-            
-            # Distance (approximate for linear segment)
-            dist = current_dist + ti * segment_len
-            if len(k_path_vecs) > 1: # don't append dist for first point yet, we rebuild it properly
-                pass
+        # Ensure points are numpy/torch compatible
+        pts = {}
+        for k, v in points.items():
+            if isinstance(v, torch.Tensor):
+                pts[k] = v.numpy()
+            else:
+                pts[k] = np.array(v)
                 
-        # Update current distance for next segment
-        current_dist += segment_len
-        
-        # Record index of high sym point
-        # The start point is at current index (before adding this segment's points, but after previous)
-        # Actually indices should track where the labels are.
-        # k_indices[0] = 0 (Start)
-        # k_indices[1] = resolution (End of seg 1 / Start of seg 2)
-        indices.append(indices[-1] + resolution)
-        
-    # Rebuild distances array to match vec length precisely
-    # Or simplified: construct full distance array
-    k_path_vecs = np.array(k_path_vecs)
-    
-    # Calculate distances from vectors to be exact
-    diffs = np.linalg.norm(k_path_vecs[1:] - k_path_vecs[:-1], axis=1)
-    dists = np.concatenate(([0.0], np.cumsum(diffs)))
-    
-    return k_path_vecs, dists, indices
-
-def plot_bands(k_node_indices: Optional[List[int]] = None, 
-               k_node_labels: Optional[List[str]] = None, 
-               energies: Optional[Union[np.ndarray, torch.Tensor]] = None,
-               k_path_distances: Optional[Union[np.ndarray, torch.Tensor]] = None,
-               # New auto-calculation args
-               hamiltonian: Optional[Callable] = None,
-               points: Optional[Dict[str, Union[List, np.ndarray, torch.Tensor]]] = None,
-               path_labels: Optional[List[str]] = None,
-               k_resolution: int = 30,
-               show: bool = True) -> go.Figure:
-    """
-    Plot band structure.
-    
-    Can be used in two modes:
-    1. Data mode: Provide `energies` (and optionally `k_node_indices`, `k_node_labels`).
-    2. Calculation mode: Provide `hamiltonian`, `points`, and `path_labels`.
-       The function will generate the path, calculate energies, and plot.
-    
-    Args:
-        k_node_indices: Indices of high-symmetry points (Data mode).
-        k_node_labels: Labels of high-symmetry points.
-        energies: Band energies (Data mode).
-        k_path_distances: Distance array (Data mode).
-        hamiltonian: Function taking k_vectors (N, 3) and returning Hamiltonian matrices (N, D, D) (Calc mode).
-        points: Dictionary of high-symmetry point coordinates (Calc mode).
-        path_labels: List of labels defining the path (Calc mode).
-        k_resolution: Number of points per path segment (Calc mode).
-        show: Show plot immediately.
-    """
-    
-    # Auto-calculation logic
-    if hamiltonian is not None:
-        if points is None or path_labels is None:
-            raise ValueError("If 'hamiltonian' is provided, 'points' and 'path_labels' must also be provided.")
+        for i in range(len(path_labels) - 1):
+            start_label = path_labels[i]
+            end_label = path_labels[i+1]
             
-        # Generate path
-        k_vecs, k_dists, indices = _generate_k_path(points, path_labels, k_resolution)
+            start_vec = pts[start_label]
+            end_vec = pts[end_label]
+            
+            segment_len = np.linalg.norm(end_vec - start_vec)
+            
+            # Generate points for this segment
+            if i == len(path_labels) - 2:
+                num = resolution + 1 # Include end
+            else:
+                num = resolution # Exclude end
+                
+            t = np.linspace(0, 1, num, endpoint=(i == len(path_labels) - 2))
+            
+            for ti in t:
+                # Vector
+                vec = (1 - ti) * start_vec + ti * end_vec
+                k_path_vecs.append(vec)
+                
+            # Update current distance for next segment
+            current_dist += segment_len
+            
+            indices.append(indices[-1] + resolution)
+            
+        k_path_vecs = np.array(k_path_vecs)
         
-        # Calculate energies
-        # Convert to torch if needed
-        k_vecs_t = torch.tensor(k_vecs)
+        diffs = np.linalg.norm(k_path_vecs[1:] - k_path_vecs[:-1], axis=1)
+        dists = np.concatenate(([0.0], np.cumsum(diffs)))
         
-        # Assume hamiltonian returns (N, D, D) or (D, D)
-        # We try passing batch first
+        return k_path_vecs, dists, indices
+
+    def plot_bands(self, energies: Optional[Union[np.ndarray, torch.Tensor]] = None,
+                   k_path_distances: Optional[Union[np.ndarray, torch.Tensor]] = None,
+                   k_node_indices: Optional[List[int]] = None, 
+                   k_node_labels: Optional[List[str]] = None,
+                   hamiltonian: Optional[Callable] = None,
+                   points: Optional[Dict[str, Union[List, np.ndarray, torch.Tensor]]] = None,
+                   path_labels: Optional[List[str]] = None,
+                   k_resolution: int = 30,
+                   show: bool = True) -> go.Figure:
+        """
+        Plot band structure.
+        
+        Can be used in two modes:
+        1. Data mode: Provide `energies` (and optionally `k_node_indices`, `k_node_labels`).
+        2. Calculation mode: Provide `hamiltonian`, `points`, and `path_labels`.
+           The function will generate the path, calculate energies, and plot.
+        """
+        
+        # Auto-calculation logic
+        if hamiltonian is not None:
+            if points is None or path_labels is None:
+                raise ValueError("If 'hamiltonian' is provided, 'points' and 'path_labels' must also be provided.")
+                
+            # Generate path
+            k_vecs, k_dists, indices = self._generate_k_path(points, path_labels, k_resolution)
+            
+            # Calculate energies
+            k_vecs_t = torch.tensor(k_vecs)
+            
+            try:
+                H_k = hamiltonian(k_vecs_t) # (N, D, D)
+                evals = torch.linalg.eigvalsh(H_k) # (N, D)
+                energies = evals.detach().numpy() if isinstance(evals, torch.Tensor) else evals
+            except Exception:
+                # Fallback to loop
+                evals_list = []
+                for k in k_vecs_t:
+                    H = hamiltonian(k)
+                    e = torch.linalg.eigvalsh(H)
+                    evals_list.append(e)
+                energies = torch.stack(evals_list).detach().numpy()
+                
+            # Set variables for plotting
+            k_path_distances = k_dists
+            k_node_indices = indices
+            k_node_labels = path_labels
+            
+        # Validation
+        if energies is None:
+            raise ValueError("Must provide either 'energies' or 'hamiltonian' (with 'points' and 'path_labels').")
+
+        if isinstance(energies, torch.Tensor):
+            energies = energies.numpy()
+            
+        num_k_points = energies.shape[0]
+        
+        if k_path_distances is None:
+            k_path_distances = np.arange(num_k_points)
+        elif isinstance(k_path_distances, torch.Tensor):
+            k_path_distances = k_path_distances.numpy()
+
+        fig = go.Figure()
+        
+        num_bands = energies.shape[1]
+        
+        for b in range(num_bands):
+            fig.add_trace(go.Scatter(
+                x=k_path_distances,
+                y=energies[:, b],
+                mode='lines',
+                line=dict(color='black', width=1.5),
+                name=f'Band {b}',
+                showlegend=False
+            ))
+            
+        # Add vertical lines for high-symmetry points
+        if k_node_indices:
+            for idx in k_node_indices:
+                if 0 <= idx < len(k_path_distances):
+                    x_val = k_path_distances[idx]
+                    fig.add_vline(x=x_val, line_width=1, line_dash="dash", line_color="grey")
+                
+        # Set x-axis ticks to labels
+        if k_node_indices and k_node_labels and len(k_node_indices) == len(k_node_labels):
+            tick_vals = [k_path_distances[i] for i in k_node_indices if 0 <= i < len(k_path_distances)]
+            valid_labels = [label for i, label in zip(k_node_indices, k_node_labels) if 0 <= i < len(k_path_distances)]
+            
+            fig.update_xaxes(
+                ticktext=valid_labels,
+                tickvals=tick_vals
+            )
+            
+        fig.update_layout(
+            title="Band Structure",
+            xaxis_title="Wave Vector",
+            yaxis_title="Energy",
+            template="simple_white"
+        )
+        
+        if show:
+            fig.show()
+        return fig
+
+    def plot_band_surface(self, hamiltonian: Callable, 
+                          k_range_x: tuple = (-np.pi, np.pi), 
+                          k_range_y: tuple = (-np.pi, np.pi),
+                          resolution: int = 50,
+                          show: bool = True) -> go.Figure:
+        """
+        Plots the 2D band structure as 3D surfaces.
+        
+        Args:
+            hamiltonian: Function k_vec (2,) -> H (D,D) (or batch version).
+            k_range_x: (min, max) for kx.
+            k_range_y: (min, max) for ky.
+            resolution: Grid resolution.
+        """
+        kx = np.linspace(k_range_x[0], k_range_x[1], resolution)
+        ky = np.linspace(k_range_y[0], k_range_y[1], resolution)
+        KX, KY = np.meshgrid(kx, ky)
+        
+        # Flatten for calculation
+        k_vecs = np.stack([KX.flatten(), KY.flatten()], axis=1) # (N, 2)
+        
+        k_vecs_t = torch.tensor(k_vecs, dtype=torch.float64) # Ensure float64 or whatever H expects
+        
         try:
-            H_k = hamiltonian(k_vecs_t) # (N, D, D)
-            evals = torch.linalg.eigvalsh(H_k) # (N, D)
-            energies = evals.detach().numpy() if isinstance(evals, torch.Tensor) else evals
+            # Try batch
+            H_k = hamiltonian(k_vecs_t)
+            evals = torch.linalg.eigvalsh(H_k)
+            energies = evals.detach().numpy()
         except Exception:
-            # Fallback to loop
+            # Loop fallback
             evals_list = []
             for k in k_vecs_t:
                 H = hamiltonian(k)
@@ -381,63 +531,86 @@ def plot_bands(k_node_indices: Optional[List[int]] = None,
                 evals_list.append(e)
             energies = torch.stack(evals_list).detach().numpy()
             
-        # Set variables for plotting
-        k_path_distances = k_dists
-        k_node_indices = indices
-        k_node_labels = path_labels # Labels match the path definition
+        num_bands = energies.shape[1]
         
-    # Validation
-    if energies is None:
-        raise ValueError("Must provide either 'energies' or 'hamiltonian' (with 'points' and 'path_labels').")
-
-    if isinstance(energies, torch.Tensor):
-        energies = energies.numpy()
+        fig = go.Figure()
         
-    num_k_points = energies.shape[0]
-    
-    if k_path_distances is None:
-        k_path_distances = np.arange(num_k_points)
-    elif isinstance(k_path_distances, torch.Tensor):
-        k_path_distances = k_path_distances.numpy()
-
-    fig = go.Figure()
-    
-    num_bands = energies.shape[1]
-    
-    for b in range(num_bands):
-        fig.add_trace(go.Scatter(
-            x=k_path_distances,
-            y=energies[:, b],
-            mode='lines',
-            line=dict(color='black', width=1.5),
-            name=f'Band {b}',
-            showlegend=False
-        ))
-        
-    # Add vertical lines for high-symmetry points
-    if k_node_indices:
-        for idx in k_node_indices:
-            if 0 <= idx < len(k_path_distances):
-                x_val = k_path_distances[idx]
-                fig.add_vline(x=x_val, line_width=1, line_dash="dash", line_color="grey")
+        for b in range(num_bands):
+            E_grid = energies[:, b].reshape(resolution, resolution)
+            fig.add_trace(go.Surface(
+                x=KX, y=KY, z=E_grid,
+                colorscale='Viridis',
+                opacity=0.9,
+                name=f'Band {b}',
+                showscale=(b==0) # Only show one colorbar
+            ))
             
-    # Set x-axis ticks to labels
-    if k_node_indices and k_node_labels and len(k_node_indices) == len(k_node_labels):
-        tick_vals = [k_path_distances[i] for i in k_node_indices if 0 <= i < len(k_path_distances)]
-        valid_labels = [label for i, label in zip(k_node_indices, k_node_labels) if 0 <= i < len(k_path_distances)]
-        
-        fig.update_xaxes(
-            ticktext=valid_labels,
-            tickvals=tick_vals
+        fig.update_layout(
+            title="2D Band Structure Surface",
+            scene=dict(
+                xaxis_title="kx",
+                yaxis_title="ky",
+                zaxis_title="Energy"
+            )
         )
         
-    fig.update_layout(
-        title="Band Structure",
-        xaxis_title="Wave Vector",
-        yaxis_title="Energy",
-        template="simple_white"
-    )
-    
-    if show:
-        fig.show()
-    return fig
+        if show:
+            fig.show()
+        return fig
+
+    @staticmethod
+    def plot_matrix(matrix: Union[np.ndarray, torch.Tensor], title: str = "Matrix Visualization", show: bool = True) -> go.Figure:
+        """
+        Plots Real and Imaginary parts of a matrix side-by-side.
+        """
+        if isinstance(matrix, torch.Tensor):
+            matrix = matrix.detach().cpu().numpy()
+            
+        real_part = np.real(matrix)
+        imag_part = np.imag(matrix)
+        
+        from plotly.subplots import make_subplots
+        fig = make_subplots(rows=1, cols=2, subplot_titles=("Real Part", "Imaginary Part"))
+        
+        fig.add_trace(go.Heatmap(z=real_part, colorscale='RdBu', zmid=0, showscale=True), row=1, col=1)
+        fig.add_trace(go.Heatmap(z=imag_part, colorscale='RdBu', zmid=0, showscale=True), row=1, col=2)
+        
+        fig.update_yaxes(autorange="reversed") # Matrix convention
+        
+        fig.update_layout(title=title)
+        
+        if show:
+            fig.show()
+        return fig
+
+    @staticmethod
+    def plot_spectrum(eigenvalues: Union[np.ndarray, torch.Tensor, List], 
+                      title: str = "Eigenvalue Spectrum", 
+                      show: bool = True) -> go.Figure:
+        """
+        Plots sorted eigenvalues. Useful for entanglement spectrum.
+        """
+        if isinstance(eigenvalues, torch.Tensor):
+            ev = eigenvalues.detach().cpu().numpy()
+        else:
+            ev = np.array(eigenvalues)
+            
+        ev_sorted = np.sort(ev)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            y=ev_sorted,
+            mode='markers+lines',
+            marker=dict(size=6),
+            name='Eigenvalues'
+        ))
+        
+        fig.update_layout(
+            title=title,
+            xaxis_title="Index",
+            yaxis_title="Eigenvalue"
+        )
+        
+        if show:
+            fig.show()
+        return fig
