@@ -63,19 +63,19 @@ def test_stacked_hulls_shifted():
     center_corner_unshifted = basis_num @ np.array([1.0, 1.0, 1.0])
     center_corner = center_corner_unshifted + shift_vec # The "Center Corner" relative to the atoms
     
-    # --- HIGHLIGHT 14 NEAREST ATOMS ---
+    # --- HIGHLIGHT ATOMS INSIDE SPHERE (R=5) ---
     dists = np.linalg.norm(atom_coords - center_corner, axis=1)
-    k = 14
-    closest_indices = np.argpartition(dists, k)[:k]
+    r = 4
+    inside_indices = np.where(dists <= r)[0]
     
     colors = np.array(['rgba(100, 100, 255, 0.3)'] * len(atom_coords), dtype=object)
-    colors[closest_indices] = 'red'
+    colors[inside_indices] = 'red'
     
     for trace in fig.data:
         if trace.name == 'Sites':
             trace.marker.color = colors
             sizes = np.full(len(atom_coords), 6)
-            sizes[closest_indices] = 12
+            sizes[inside_indices] = 12
             trace.marker.size = sizes
             break
 
@@ -124,7 +124,7 @@ def test_stacked_hulls_shifted():
         name='Shifted Center Corner'
     ))
 
-    fig.update_layout(title="8 Stacked Hulls (Shifted) with 14 Closest Sites")
+    fig.update_layout(title="8 Stacked Hulls (Shifted) with Sites Inside Sphere R=5")
     fig.show()
     fig.write_html("my_interactive_plot2.html")
 
