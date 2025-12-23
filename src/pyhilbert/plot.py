@@ -133,7 +133,7 @@ class LatticePlotter:
             return go.Scatter3d(
                 x=x_lines, y=y_lines, z=z_lines,
                 mode='lines',
-                line=dict(color='rgba(100,100,100,0.5)', width=2),
+                line=dict(color='black', width=1),
                 name='Bonds',
                 showlegend=False
             )
@@ -141,7 +141,7 @@ class LatticePlotter:
             return go.Scatter(
                 x=x_lines, y=y_lines,
                 mode='lines',
-                line=dict(color='rgba(100,100,100,0.5)', width=1),
+                line=dict(color='black', width=2),
                 name='Bonds',
                 showlegend=False
             )
@@ -296,8 +296,10 @@ class LatticePlotter:
         if bonds_trace:
             if isinstance(bonds_trace, go.Scatter3d):
                  bonds_trace.line.color = 'rgba(200,200,200,0.2)'
+                 bonds_trace.line.width = 2
             else:
                  bonds_trace.line.color = 'rgba(200,200,200,0.2)'
+                 bonds_trace.line.width = 1
             fig.add_trace(bonds_trace)
 
         marker_dict = dict(

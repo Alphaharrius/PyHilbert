@@ -58,7 +58,7 @@ def main():
         
         # Use plotter.plot_system
         fig = plotter.plot_system(
-            plot_type='scatter', 
+            plot_type='edge-and-node', 
             show=True, 
             spin_data=spins
         )
