@@ -132,3 +132,10 @@ class Updatable(ABC):
     @abstractmethod
     def _updated(self, **kwargs) -> 'Updatable':
         pass
+
+
+class HasDual(ABC):
+    @property
+    @abstractmethod
+    def dual(self):
+        pass

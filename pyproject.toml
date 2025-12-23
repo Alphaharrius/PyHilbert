@@ -9,9 +9,13 @@ dependencies = [
     "multipledispatch>=1.0.0",
     "pandas>=2.3.3",
     "sympy>=1.14.0",
+    "pytest==9.0.2",
 ]
 
 [project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
 cpu = [
   "torch>=2.7.0",
   "torchvision>=0.22.0",
