@@ -22,6 +22,23 @@ class Tensor(Operable):
 
 @dispatch(Tensor, Tensor)
 def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
+    """
+    Perform matrix multiplication (contraction) between two Tensors with
+    the same order of dimensions. If the intra-ordering within the `StateSpace`s differ, 
+    the `right` tensor is permuted to match the ordering of the `left` tensor before multiplication.
+    
+    Parameters
+    ----------
+    left : `Tensor`
+        The left tensor to multiply.
+    right : `Tensor`
+        The right tensor to multiply.
+
+    Returns
+    -------
+    `Tensor`
+        The resulting tensor after multiplication.
+    """
     left_dim = left.dims[-1]
     right_dim = right.dims[-2]
 
