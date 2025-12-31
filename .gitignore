@@ -211,3 +211,6 @@ __marimo__/
 
 # UV lock file
 uv.lock
+
+# MacOS settings
+.DS_Store
