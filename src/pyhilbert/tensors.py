@@ -49,6 +49,24 @@ class Tensor(Operable):
             raise RuntimeError("CUDA is not available on this system.")
         return Tensor(data=self.data.cuda(), dims=self.dims)
     
+    def metal(self) -> 'Tensor':
+        """
+        Copy the tensor data to Metal device memory and create a new `Tensor` instance.
+
+        Returns
+        -------
+        `Tensor`
+            The new `Tensor` instance with copied data on Metal device.
+
+        Raises
+        ------
+        RuntimeError
+            If Metal device is not available on this system.
+        """
+        if not torch.backends.mps.is_available():
+            raise RuntimeError("Metal device is not available on this system.")
+        return Tensor(data=self.data.to('mps'), dims=self.dims)
+    
     # TODO: Add informative print-outs
 
 
