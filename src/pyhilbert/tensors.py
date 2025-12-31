@@ -31,7 +31,7 @@ class Tensor(Operable):
         """
         return Tensor(data=self.data.cpu(), dims=self.dims)
     
-    def cuda(self) -> 'Tensor':
+    def gpu(self) -> 'Tensor':
         """
         Copy the tensor data to GPU memory and create a new `Tensor` instance.
 
@@ -43,29 +43,14 @@ class Tensor(Operable):
         Raises
         ------
         RuntimeError
-            If CUDA is not available on this system.
+            If GPU is not available on this system.
         """
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is not available on this system.")
-        return Tensor(data=self.data.cuda(), dims=self.dims)
-    
-    def metal(self) -> 'Tensor':
-        """
-        Copy the tensor data to Metal device memory and create a new `Tensor` instance.
-
-        Returns
-        -------
-        `Tensor`
-            The new `Tensor` instance with copied data on Metal device.
-
-        Raises
-        ------
-        RuntimeError
-            If Metal device is not available on this system.
-        """
-        if not torch.backends.mps.is_available():
-            raise RuntimeError("Metal device is not available on this system.")
-        return Tensor(data=self.data.to('mps'), dims=self.dims)
+        if torch.cuda.is_available():
+            return Tensor(data=self.data.cuda(), dims=self.dims)
+        elif torch.backends.mps.is_available():
+            return Tensor(data=self.data.to('mps'), dims=self.dims)
+        else:
+            raise RuntimeError("Only CUDA and MPS devices are supported for GPU operations!")
     
     # TODO: Add informative print-outs
 
