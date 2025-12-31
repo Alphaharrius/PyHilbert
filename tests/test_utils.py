@@ -37,3 +37,4 @@ def test_frozendict_eq():
     d3 = FrozenDict({'a': 2})
     assert d1 != d3
 
+

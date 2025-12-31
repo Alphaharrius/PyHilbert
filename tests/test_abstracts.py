@@ -72,3 +72,4 @@ def test_updatable_bad_implementation():
     with pytest.raises(RuntimeError, match="must not return self"):
         b.update(foo='bar')
 
+

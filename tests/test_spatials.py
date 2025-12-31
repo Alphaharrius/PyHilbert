@@ -113,3 +113,4 @@ def test_cartes_reciprocal_lattice():
     assert (sy.Rational(1, 2), sy.Rational(1, 2)) in coords
 
 
+
