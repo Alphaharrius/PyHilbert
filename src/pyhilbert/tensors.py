@@ -16,6 +16,7 @@ class Tensor(Operable):
     def conj(self) -> 'Tensor':
         return Tensor(data=self.data.conj(), dims=self.dims)
     
+    # TODO: Use *args and **kwargs to allow for more flexible operations?
     def permute(self, order) -> 'Tensor':
         return permute(self, order)
 
@@ -80,6 +81,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     `Tensor`
         The resulting tensor after addition.
     """
+    # TODO: Implement addition
     raise NotImplementedError()
 
 
@@ -98,6 +100,7 @@ def operator_neg(tensor: Tensor) -> Tensor:
     `Tensor`
         The negated tensor.
     """
+    # TODO: Implement negation
     raise NotImplementedError()
 
 
@@ -123,6 +126,7 @@ def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     return left + (-right)
 
 
+# TODO: Use *args and **kwargs to allow for more flexible operations?
 def permute(tensor: Tensor, order: Tuple[int, ...]) -> Tensor:
     """
     Permute the dimensions of the tensor according to the specified order.
@@ -139,6 +143,7 @@ def permute(tensor: Tensor, order: Tuple[int, ...]) -> Tensor:
     `Tensor`
         The permuted tensor.
     """
+    # TODO: Implement permutation
     raise NotImplementedError()
 
 
