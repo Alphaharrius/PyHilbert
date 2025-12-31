@@ -38,3 +38,68 @@ def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
     new_dims = left.dims[:-1] + right.dims[:-2] + (right.dims[-1],)
 
     return Tensor(data=new_data, dims=new_dims)
+
+
+@dispatch(Tensor, Tensor)
+def operator_add(left: Tensor, right: Tensor) -> Tensor:
+    """
+    Add two tensors with the same order of dimensions.
+    If the intra-ordering within the `StateSpace`s differ, 
+    the `right` tensor is permuted to match the ordering 
+    of the `left` tensor before addition.
+    
+    Parameters
+    ----------
+    left : `Tensor`
+        The left tensor to add.
+    right : `Tensor`
+        The right tensor to add.
+
+    Returns
+    -------
+    `Tensor`
+        The resulting tensor after addition.
+    """
+    raise NotImplementedError()
+
+
+@dispatch(Tensor)
+def operator_neg(tensor: Tensor) -> Tensor:
+    """
+    Perform negation on the given tensor.
+    
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to negate.
+
+    Returns
+    -------
+    `Tensor`
+        The negated tensor.
+    """
+    raise NotImplementedError()
+
+
+@dispatch(Tensor, Tensor)
+def operator_sub(left: Tensor, right: Tensor) -> Tensor:
+    """
+    Subtract the right tensor from the left tensor with the same order of dimensions.
+    If the intra-ordering within the `StateSpace`s differ, the `right` tensor is 
+    permuted to match the ordering of the `left` tensor before addition.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        The tensor from which to subtract.
+    right : `Tensor`
+        The tensor to subtract.
+
+    Returns
+    -------
+    `Tensor`
+        The resulting tensor after subtraction.
+    """
+    return left + (-right)
+
+
