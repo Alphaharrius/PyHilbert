@@ -11,7 +11,7 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix, sympify
 
 from .utils import FrozenDict
-from .abstracts import Operable, HasDual
+from .abstracts import Operable, HasDual, Plottable
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ class AffineSpace(Spatial):
     
 
 @dataclass(frozen=True)
-class Lattice(AffineSpace, HasDual):
+class Lattice(AffineSpace, HasDual, Plottable):
     shape: Tuple[int, ...]
 
     @property

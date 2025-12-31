@@ -53,7 +53,7 @@ def operator_add(a, b):
     return NotImplementedError(f'Addition of {type(a)} and {type(b)} is not supported!')
 
 
-@dispatch(Operable, Operable)
+@dispatch(Operable)
 def operator_neg(a):
     return NotImplementedError(f'Negation of {type(a)} is not supported!')
 
