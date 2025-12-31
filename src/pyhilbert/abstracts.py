@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from multipledispatch import dispatch
-
+from typing import Callable, Dict, ClassVar
 
 @dataclass(frozen=True)
 class Operable(ABC):
@@ -132,3 +132,33 @@ class Updatable(ABC):
     @abstractmethod
     def _updated(self, **kwargs) -> 'Updatable':
         pass
+
+class Plottable:
+    """
+    An object that can be plottable.
+    """
+    _plot_methods: ClassVar[Dict[str, Callable]] = {}
+    @classmethod
+    def register_plot_method(cls, name: str):
+        def decorator(func: Callable):
+            cls._plot_methods[name] = func
+            return func
+        return decorator
+    
+    def plot(self, method: str,*args, **kwargs):
+        """
+        Dispatch the plot method to the registered function.
+        """
+        if method not in self._plot_methods:
+            raise ValueError(f"Plot method {method} not found. Available methods: {list(self._plot_methods.keys())}")
+        return self._plot_methods[method](self, *args, **kwargs)
+
+
+class HasDual(ABC):
+    """
+    An object that has a dual.
+    """
+    @property
+    @abstractmethod
+    def dual(self):
+        raise NotImplementedError()
