@@ -19,6 +19,35 @@ class Tensor(Operable):
     # TODO: Use *args and **kwargs to allow for more flexible operations?
     def permute(self, order) -> 'Tensor':
         return permute(self, order)
+    
+    def cpu(self) -> 'Tensor':
+        """
+        Copy the tensor data to CPU memory and create a new `Tensor` instance.
+        
+        Returns
+        -------
+        `Tensor`
+            The new `Tensor` instance with copied data on CPU.
+        """
+        return Tensor(data=self.data.cpu(), dims=self.dims)
+    
+    def cuda(self) -> 'Tensor':
+        """
+        Copy the tensor data to GPU memory and create a new `Tensor` instance.
+
+        Returns
+        -------
+        `Tensor`
+            The new `Tensor` instance with copied data on GPU.
+
+        Raises
+        ------
+        RuntimeError
+            If CUDA is not available on this system.
+        """
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA is not available on this system.")
+        return Tensor(data=self.data.cuda(), dims=self.dims)
 
 
 @dispatch(Tensor, Tensor)
