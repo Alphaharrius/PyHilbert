@@ -140,3 +140,24 @@ def permute(tensor: Tensor, order: Tuple[int, ...]) -> Tensor:
         The permuted tensor.
     """
     raise NotImplementedError()
+
+
+def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
+    """
+    Transpose the specified dimensions of the tensor.
+    
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to transpose.
+    dim0 : `int`
+        The first dimension to transpose.
+    dim1 : `int`
+        The second dimension to transpose.
+
+    Returns
+    -------
+    `Tensor`
+        The transposed tensor.
+    """
+    raise NotImplementedError()
