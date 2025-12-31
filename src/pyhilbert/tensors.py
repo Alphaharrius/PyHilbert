@@ -15,6 +15,9 @@ class Tensor(Operable):
 
     def conj(self) -> 'Tensor':
         return Tensor(data=self.data.conj(), dims=self.dims)
+    
+    def permute(self, order) -> 'Tensor':
+        return permute(self, order)
 
 
 @dispatch(Tensor, Tensor)
@@ -103,3 +106,20 @@ def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     return left + (-right)
 
 
+def permute(tensor: Tensor, order: Tuple[int, ...]) -> Tensor:
+    """
+    Permute the dimensions of the tensor according to the specified order.
+    
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to permute.
+    order : `Tuple[int, ...]`
+        The desired order of dimensions.
+
+    Returns
+    -------
+    `Tensor`
+        The permuted tensor.
+    """
+    raise NotImplementedError()
