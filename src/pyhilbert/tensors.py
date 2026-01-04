@@ -197,8 +197,15 @@ def permute(tensor: Tensor, order: Tuple[int, ...]) -> Tensor:
     `Tensor`
         The permuted tensor.
     """
-    # TODO: Implement permutation
-    raise NotImplementedError()
+    if len(order) != len(tensor.dims):
+        raise ValueError(
+            f"Permutation order length {len(order)} does not match tensor dimensions {len(tensor.dims)}!"
+        )
+    
+    new_data = tensor.data.permute(order)
+    new_dims = tuple(tensor.dims[i] for i in order)
+    
+    return Tensor(data=new_data, dims=new_dims)
 
 
 def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
@@ -219,4 +226,11 @@ def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
     `Tensor`
         The transposed tensor.
     """
-    raise NotImplementedError()
+    new_data = tensor.data.transpose(dim0, dim1)
+    
+    # Convert tuple to list to modify
+    new_dims_list = list(tensor.dims)
+    # Swap elements
+    new_dims_list[dim0], new_dims_list[dim1] = new_dims_list[dim1], new_dims_list[dim0]
+    
+    return Tensor(data=new_data, dims=tuple(new_dims_list))
