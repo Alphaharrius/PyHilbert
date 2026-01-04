@@ -115,8 +115,29 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     `Tensor`
         The resulting tensor after addition.
     """
-    # TODO: Implement addition
-    raise NotImplementedError()
+    if len(left.dims) != len(right.dims):
+        raise ValueError("Tensors must have the same number of dimensions to be added.")
+
+    right_data = right.data
+
+    for i, (l_dim, r_dim) in enumerate(zip(left.dims, right.dims)):
+        if l_dim == r_dim:
+            continue
+        if type(l_dim) is not type(r_dim):
+            raise ValueError(
+                f"Cannot add Tensors with different types of StateSpaces at dim {i}: "
+                f"{type(l_dim)} and {type(r_dim)}!"
+            )
+
+        try:
+            perm_indices = StateSpace.flat_permutation_order(r_dim, l_dim)
+        except Exception:
+            raise ValueError(f"StateSpaces at dim {i} are incompatible (different spans)!")
+
+        idx_tensor = torch.tensor(perm_indices, dtype=torch.long, device=right_data.device)
+        right_data = torch.index_select(right_data, i, idx_tensor)
+
+    return Tensor(data=left.data + right_data, dims=left.dims)
 
 
 @dispatch(Tensor)
@@ -134,8 +155,7 @@ def operator_neg(tensor: Tensor) -> Tensor:
     `Tensor`
         The negated tensor.
     """
-    # TODO: Implement negation
-    raise NotImplementedError()
+    return Tensor(data=-tensor.data, dims=tensor.dims)
 
 
 @dispatch(Tensor, Tensor)
