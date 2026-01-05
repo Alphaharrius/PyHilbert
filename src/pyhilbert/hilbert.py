@@ -95,6 +95,13 @@ class StateSpace(Spatial):
         """ The total dimension of the state space, calculated as the count of elements regardless of their lengths. """
         return len(self.structure)
     
+    @property
+    def size(self) -> int:
+        """ The total size of the vector space (sum of all sector dimensions). """
+        if not self.structure:
+            return 0
+        return self.structure[next(reversed(self.structure))].stop
+    
     @staticmethod
     def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, slice]:
         """ Return a new OrderedDict with contiguous, ordered slices preserving lengths. """
@@ -118,6 +125,19 @@ class StateSpace(Spatial):
         index_groups = [tuple(range(s.start, s.stop)) for s in src.structure.values()]
         ordered_groups = (index_groups[i] for i in StateSpace.permutation_order(src, dest))
         return tuple(chain.from_iterable(ordered_groups))
+
+    @staticmethod
+    @lru_cache
+    def embedding_indices(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
+        """ Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`). """
+        indices = []
+        sup_slices = sup.structure
+        for key, sub_slice in sub.structure.items():
+            if key not in sup_slices:
+                 raise ValueError(f"Key {key} not found in superspace")
+            sup_slice = sup_slices[key]
+            indices.append(range(sup_slice.start, sup_slice.stop))
+        return tuple(chain.from_iterable(indices))
 
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?

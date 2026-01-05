@@ -113,31 +113,28 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     Returns
     -------
     `Tensor`
-        The resulting tensor after addition.
+        The resulting tensor on the union of StateSpaces.
     """
     if len(left.dims) != len(right.dims):
         raise ValueError("Tensors must have the same number of dimensions to be added.")
+    if left.dims == right.dims:
+        return Tensor(data=left.data + right.data, dims=left.dims)
+    # calculate the union of the StateSpaces
+    union_dims = []
+    for l_dim, r_dim in zip(left.dims, right.dims):
+        union_dims.append(l_dim + r_dim)
+    # calculate the new shape
+    new_shape = tuple(u.size for u in union_dims)
+    new_data = torch.zeros(new_shape, dtype=left.data.dtype, device=left.data.device)
+    # fill the left tensor into the new data
+    left_slices = tuple(slice(0, d.size) for d in left.dims)
+    new_data[left_slices] = left.data
+    # fill the right tensor into the new data
+    grid_indices = (torch.tensor(StateSpace.embedding_indices(r, u), dtype=torch.long, device=left.data.device) 
+                    for r, u in zip(right.dims, union_dims))
+    new_data.index_put_(torch.meshgrid(*grid_indices, indexing='ij'), right.data, accumulate=True)
 
-    right_data = right.data
-
-    for i, (l_dim, r_dim) in enumerate(zip(left.dims, right.dims)):
-        if l_dim == r_dim:
-            continue
-        if type(l_dim) is not type(r_dim):
-            raise ValueError(
-                f"Cannot add Tensors with different types of StateSpaces at dim {i}: "
-                f"{type(l_dim)} and {type(r_dim)}!"
-            )
-
-        try:
-            perm_indices = StateSpace.flat_permutation_order(r_dim, l_dim)
-        except Exception:
-            raise ValueError(f"StateSpaces at dim {i} are incompatible (different spans)!")
-
-        idx_tensor = torch.tensor(perm_indices, dtype=torch.long, device=right_data.device)
-        right_data = torch.index_select(right_data, i, idx_tensor)
-
-    return Tensor(data=left.data + right_data, dims=left.dims)
+    return Tensor(data=new_data, dims=tuple(union_dims))
 
 
 @dispatch(Tensor)
