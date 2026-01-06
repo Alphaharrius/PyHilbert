@@ -13,6 +13,21 @@ class Tensor(Operable):
     data: torch.Tensor
     dims: Tuple[StateSpace, ...]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "data", self.data.detach())
+
+    def attach(self) -> 'Tensor':
+        if self.data.requires_grad:
+            return self
+        new_tensor = Tensor(data=self.data, dims=self.dims)
+        object.__setattr__(new_tensor, "data", new_tensor.data.requires_grad_(True))
+        return new_tensor
+
+    def detach(self) -> 'Tensor':
+        if not self.data.requires_grad:
+            return self
+        return Tensor(data=self.data, dims=self.dims)
+
     def conj(self) -> 'Tensor':
         """
         Compute the complex conjugate of the given tensor.
