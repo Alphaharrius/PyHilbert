@@ -108,7 +108,19 @@ class StateSpace(Spatial):
 
 
 def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, slice]:
-    """ Return a new OrderedDict with contiguous, ordered slices preserving lengths. """
+    """
+    Return a new `OrderedDict` with contiguous, ordered slices preserving lengths.
+
+    Parameters
+    ----------
+    structure : `OrderedDict[Spatial, slice]`
+        The original structure with possibly non-contiguous slices.
+
+    Returns
+    -------
+    `OrderedDict[Spatial, slice]`
+        The restructured `OrderedDict` with contiguous, ordered slices.
+    """
     new_structure = OrderedDict()
     base = 0
     for k, s in structure.items():
@@ -120,12 +132,53 @@ def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
 def permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
+    """
+    Return the permutation of `src` sectors needed to match `dest` sector order.
+
+    This returns a per-sector permutation: each entry corresponds to a key in
+    `dest.structure` and gives the index of the same key in `src.structure`.
+    It does not expand slices; use `flat_permutation_order` to get element-wise
+    indices for reordering a flattened tensor.
+
+    Parameters
+    ----------
+    src : `StateSpace`
+        The source state space defining the original ordering.
+    dest : `StateSpace`
+        The destination state space defining the target ordering.
+
+    Returns
+    -------
+    `Tuple[int, ...]`
+        Sector indices mapping each key in `dest` to its position in `src`
+        (`-1` if missing).
+    """
     order_table = {k: n for n, k in enumerate(src.structure.keys())}
     return tuple(order_table.get(k, -1) for k in dest.structure.keys())
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
 def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
+    """
+    Return the flattened index permutation that reorders `src` to match `dest`.
+
+    This expands each sector slice in `src` into its element indices, then
+    concatenates those groups according to `permutation_order(src, dest)`.
+    The result can be used to permute a flat vector or tensor axis from `src`
+    ordering into `dest` ordering.
+
+    Parameters
+    ----------
+    src : `StateSpace`
+        The source state space defining the original ordering.
+    dest : `StateSpace`
+        The destination state space defining the target ordering.
+
+    Returns
+    -------
+    `Tuple[int, ...]`
+        Flattened indices that map element positions in `src` to `dest`.
+    """
     index_groups = [tuple(range(s.start, s.stop)) for s in src.structure.values()]
     ordered_groups = (index_groups[i] for i in StateSpace.permutation_order(src, dest))
     return tuple(chain.from_iterable(ordered_groups))
@@ -133,7 +186,21 @@ def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
 def embedding_indices(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
-    """ Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`). """
+    """
+    Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
+
+    Parameters
+    ----------
+    sub : `StateSpace`
+        The subspace whose indices are to be embedded.
+    sup : `StateSpace`
+        The superspace providing the full index set.
+
+    Returns
+    -------
+    `Tuple[int, ...]`
+        Flattened indices mapping `sub` into `sup`.
+    """
     indices = []
     sup_slices = sup.structure
     for key, _ in sub.structure.items():
