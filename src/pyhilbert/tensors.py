@@ -4,6 +4,7 @@ from multipledispatch import dispatch
 
 import torch
 
+from . import hilbert
 from .abstracts import Operable
 from .hilbert import StateSpace
 
@@ -14,6 +15,8 @@ class Tensor(Operable):
     dims: Tuple[StateSpace, ...]
 
     def __post_init__(self) -> None:
+        # Ensure that data is detached from any computation graph.
+        # In the future if we need to do autograd we will use nn.Module instead.
         object.__setattr__(self, "data", self.data.detach())
 
     def conj(self) -> 'Tensor':
@@ -181,7 +184,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     left_slices = tuple(slice(0, d.size) for d in left.dims)
     new_data[left_slices] = left.data
     # fill the right tensor into the new data
-    grid_indices = (torch.tensor(StateSpace.embedding_indices(r, u), dtype=torch.long, device=left.data.device) 
+    grid_indices = (torch.tensor(hilbert.embedding_indices(r, u), dtype=torch.long, device=left.data.device) 
                     for r, u in zip(right.dims, union_dims))
     new_data.index_put_(torch.meshgrid(*grid_indices, indexing='ij'), right.data, accumulate=True)
 

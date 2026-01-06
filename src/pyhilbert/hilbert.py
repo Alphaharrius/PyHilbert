@@ -101,50 +101,50 @@ class StateSpace(Spatial):
         if not self.structure:
             return 0
         return self.structure[next(reversed(self.structure))].stop
-    
-    @staticmethod
-    def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, slice]:
-        """ Return a new OrderedDict with contiguous, ordered slices preserving lengths. """
-        new_structure = OrderedDict()
-        base = 0
-        for k, s in structure.items():
-            L = s.stop - s.start
-            new_structure[k] = slice(base, base + L, 1)
-            base += L
-        return new_structure
-    
-    @staticmethod
-    @lru_cache
-    def permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
-        order_table = {k: n for n, k in enumerate(src.structure.keys())}
-        return tuple(order_table.get(k, -1) for k in dest.structure.keys())
-    
-    @staticmethod
-    @lru_cache
-    def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
-        index_groups = [tuple(range(s.start, s.stop)) for s in src.structure.values()]
-        ordered_groups = (index_groups[i] for i in StateSpace.permutation_order(src, dest))
-        return tuple(chain.from_iterable(ordered_groups))
-
-    @staticmethod
-    @lru_cache
-    def embedding_indices(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
-        """ Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`). """
-        indices = []
-        sup_slices = sup.structure
-        for key, sub_slice in sub.structure.items():
-            if key not in sup_slices:
-                 raise ValueError(f"Key {key} not found in superspace")
-            sup_slice = sup_slices[key]
-            indices.append(range(sup_slice.start, sup_slice.stop))
-        return tuple(chain.from_iterable(indices))
 
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?
         return hash(tuple((k, s.start, s.stop) for k, s in self.structure.items()))
 
 
-@dispatch(StateSpace, StateSpace)
+def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, slice]:
+    """ Return a new OrderedDict with contiguous, ordered slices preserving lengths. """
+    new_structure = OrderedDict()
+    base = 0
+    for k, s in structure.items():
+        L = s.stop - s.start
+        new_structure[k] = slice(base, base + L, 1)
+        base += L
+    return new_structure
+
+
+# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+def permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
+    order_table = {k: n for n, k in enumerate(src.structure.keys())}
+    return tuple(order_table.get(k, -1) for k in dest.structure.keys())
+
+
+# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
+    index_groups = [tuple(range(s.start, s.stop)) for s in src.structure.values()]
+    ordered_groups = (index_groups[i] for i in StateSpace.permutation_order(src, dest))
+    return tuple(chain.from_iterable(ordered_groups))
+
+
+# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+def embedding_indices(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
+    """ Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`). """
+    indices = []
+    sup_slices = sup.structure
+    for key, _ in sub.structure.items():
+        if key not in sup_slices:
+                raise ValueError(f"Key {key} not found in superspace")
+        sup_slice = sup_slices[key]
+        indices.append(range(sup_slice.start, sup_slice.stop))
+    return tuple(chain.from_iterable(indices))
+
+
+# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
 def same_span(a: StateSpace, b: StateSpace) -> bool:
     return set(a.structure.keys()) == set(b.structure.keys())
     
