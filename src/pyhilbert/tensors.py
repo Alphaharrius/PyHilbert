@@ -92,8 +92,18 @@ class Tensor(Operable):
             return Tensor(data=self.data.to('mps'), dims=self.dims)
         else:
             raise RuntimeError("Only CUDA and MPS devices are supported for GPU operations!")
-    
-    # TODO: Add informative print-outs
+
+    def __repr__(self) -> str:
+        device_type = self.data.device.type
+        device = "GPU" if device_type in {"cuda", "mps"} else "CPU"
+        if self.dims:
+            shape = ", ".join(f"{type(dim).__name__}:{dim.size}" for dim in self.dims)
+            shape_repr = f"({shape})"
+        else:
+            shape_repr = "()"
+        return f"<Tensor {device} grad={self.data.requires_grad} shape={shape_repr}>"
+
+    __str__ = __repr__ # Override str to use the same representation
 
 
 @dispatch(Tensor, Tensor)
