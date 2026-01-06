@@ -14,11 +14,15 @@ class Tensor(Operable):
     dims: Tuple[StateSpace, ...]
 
     def conj(self) -> 'Tensor':
-        return Tensor(data=self.data.conj(), dims=self.dims)
-    
-    # TODO: Use *args and **kwargs to allow for more flexible operations?
-    def permute(self, order) -> 'Tensor':
-        return permute(self, order)
+        """
+        Compute the complex conjugate of the given tensor.
+        
+        Returns
+        -------
+        `Tensor`
+            The complex conjugate of the tensor.
+        """
+        return conj(self)
     
     def cpu(self) -> 'Tensor':
         """
@@ -232,3 +236,19 @@ def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
     
     return Tensor(data=new_data, dims=tuple(new_dims_list))
 
+
+def conj(tensor: Tensor) -> Tensor:
+    """
+    Compute the complex conjugate of the given tensor.
+    
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to conjugate.
+
+    Returns
+    -------
+    `Tensor`
+        The complex conjugate of the tensor.
+    """
+    return Tensor(data=tensor.data.conj(), dims=tensor.dims)
