@@ -170,7 +170,7 @@ def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, 
         Flattened indices that map element positions in `src` to `dest`.
     """
     index_groups = [tuple(range(s.start, s.stop)) for s in src.structure.values()]
-    ordered_groups = (index_groups[i] for i in StateSpace.permutation_order(src, dest))
+    ordered_groups = (index_groups[i] for i in permutation_order(src, dest))
     return tuple(chain.from_iterable(ordered_groups))
 
 
