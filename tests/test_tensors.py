@@ -332,5 +332,22 @@ class TestMatmul(unittest.TestCase):
         with self.assertRaises(ValueError):
             matmul(t1, t2)
 
+    def test_singleton_vector_matmul(self):
+        mode_one = TestMode(count=1, attr=FrozenDict({'name': 'one'}))
+        structure = OrderedDict([(mode_one, slice(0, 1))])
+        space_one = HilbertSpace(structure=structure)
+
+        data_left = torch.randn(space_one.size)
+        data_right = torch.randn(space_one.size)
+        tensor_left = Tensor(data=data_left, dims=(space_one,))
+        tensor_right = Tensor(data=data_right, dims=(space_one,))
+
+        result = matmul(tensor_left, tensor_right)
+        expected_data = torch.matmul(data_left, data_right)
+
+        self.assertEqual(result.dims, tuple())
+        self.assertTrue(torch.allclose(result.data, expected_data))
+
+
 if __name__ == '__main__':
     unittest.main()
