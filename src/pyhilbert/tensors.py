@@ -456,6 +456,8 @@ def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
     `Tensor`
         The unsqueezed tensor.
     """
+    if dim < 0:
+        dim = dim + len(tensor.dims) + 1
     new_data = tensor.data.unsqueeze(dim)
     new_dims = tensor.dims[:dim] + (hilbert.BroadcastSpace(),) + tensor.dims[dim:]
     
@@ -478,6 +480,8 @@ def squeeze(tensor: Tensor, dim: int) -> Tensor:
     `Tensor`
         The squeezed tensor.
     """
+    if dim < 0:
+        dim = dim + len(tensor.dims)
     if not isinstance(tensor.dims[dim], hilbert.BroadcastSpace):
         return tensor  # No squeezing needed if not BroadcastSpace
     
