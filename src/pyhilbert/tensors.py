@@ -64,6 +64,24 @@ class Tensor(Operable):
         """
         return transpose(self, dim0, dim1)
     
+    def align(self, dim: int, target_dim: StateSpace) -> 'Tensor':
+        """
+        Align the specified dimension to the target StateSpace.
+        
+        Parameters
+        ----------
+        dim : `int`
+            The dimension index to align.
+        target_dim : `StateSpace`
+            The target StateSpace to align to.
+
+        Returns
+        -------
+        `Tensor`
+            The aligned tensor.
+        """
+        return align(self, dim, target_dim)
+    
     def cpu(self) -> 'Tensor':
         """
         Copy the tensor data to CPU memory and create a new `Tensor` instance.
@@ -109,6 +127,85 @@ class Tensor(Operable):
     __str__ = __repr__ # Override str to use the same representation
 
 
+def _match_dims_for_matopt(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
+    if len(left.dims) > len(right.dims):
+        # Unsqueeze right tensor
+        for _ in range(len(left.dims) - len(right.dims)):
+            right = unsqueeze(right, 0)
+    elif len(right.dims) > len(left.dims):
+        # Unsqueeze left tensor
+        for _ in range(len(right.dims) - len(left.dims)):
+            left = unsqueeze(left, 0)
+    return left, right
+
+
+def _align_dims_for_matopt(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
+    ignores = []
+    for n, ld in enumerate(left.dims[:-2]):
+        if not isinstance(ld, hilbert.BroadcastSpace):
+            continue
+        rd = right.dims[n]
+        if isinstance(rd, hilbert.BroadcastSpace):
+            continue
+        left = left.align(n, rd)
+        ignores.append(n)
+    
+    ignores = set(ignores)
+    for n, ld in enumerate(left.dims[:-2]):
+        if n in ignores:
+            continue
+        right = right.align(n, ld)
+
+    return left, right
+
+
+def matmul(left: Tensor, right: Tensor) -> Tensor:
+    """
+    Perform matrix multiplication between two Tensors with dimension matching,
+    broadcast alignment, and StateSpace alignment semantics.
+
+    This function first makes the tensors have the same number of dimensions by
+    unsqueezing leading dimensions with `BroadcastSpace`. It then aligns any
+    leading (batch) dimensions so that `BroadcastSpace` can expand to concrete
+    StateSpaces and any non-broadcast StateSpaces are reordered to match. Finally,
+    the right tensor's second-to-last dimension is aligned to the left tensor's
+    last dimension, and `torch.matmul` is applied.
+
+    The contraction always happens between `left.dims[-1]` and `right.dims[-2]`.
+    Leading dimensions behave like batch dimensions and follow the broadcast and
+    alignment rules described above. The output keeps all aligned leading
+    dimensions, drops the contracted dimension, and appends the right-most
+    dimension from `right`.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        The left tensor operand.
+    right : `Tensor`
+        The right tensor operand.
+
+    Returns
+    -------
+    `Tensor`
+        A tensor with data `torch.matmul(left.data, right.data)` and dimensions
+        `left.dims[:-1] + right.dims[-1:]`, after the alignment steps.
+
+    Raises
+    ------
+    ValueError
+        If any StateSpace alignment fails during the broadcast or contraction
+        alignment steps.
+    """
+    left, right = _match_dims_for_matopt(left, right)
+    left, right = _align_dims_for_matopt(left, right)
+
+    right = right.align(-2, left.dims[-1])
+    prod = torch.matmul(left.data, right.data)
+    new_dims = left.dims[:-1] + right.dims[-1:]
+
+    return Tensor(data=prod, dims=new_dims)
+
+
 @dispatch(Tensor, Tensor)
 def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
     """
@@ -128,25 +225,7 @@ def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
     `Tensor`
         The resulting tensor after multiplication.
     """
-    left_dim = left.dims[-1]
-    right_dim = right.dims[-2]
-
-    if type(left_dim) is not type(right_dim):
-        raise ValueError(
-            f"Cannot contract Tensors with different types of StateSpaces: "
-            f"{type(left_dim)} and {type(right_dim)}!"
-        )
-    
-    if not left_dim.has_same_span(right_dim):
-        raise ValueError(f"Cannot contract Tensors with different StateSpaces!")
-    
-    right_order = right_dim.permute_order(left_dim)
-    right_data = torch.index_select(right.data, -2, torch.tensor(right_order, dtype=torch.long))
-
-    new_data = torch.matmul(left.data, right_data)
-    new_dims = left.dims[:-1] + right.dims[:-2] + (right.dims[-1],)
-
-    return Tensor(data=new_data, dims=new_dims)
+    return matmul(left, right)
 
 
 @dispatch(Tensor, Tensor)
