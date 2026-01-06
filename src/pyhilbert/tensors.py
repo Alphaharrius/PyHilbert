@@ -23,6 +23,22 @@ class Tensor(Operable):
             The complex conjugate of the tensor.
         """
         return conj(self)
+
+    def permute(self, *order: Tuple[int, ...]) -> 'Tensor':
+        """
+        Permute the dimensions according to the specified order.
+        
+        Parameters
+        ----------
+        order : `Tuple[int, ...]`
+            The desired order of dimensions.
+
+        Returns
+        -------
+        `Tensor`
+            The permuted tensor.
+        """
+        return permute(self, *order)
     
     def cpu(self) -> 'Tensor':
         """
@@ -181,8 +197,7 @@ def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     return left + (-right)
 
 
-# TODO: Use *args and **kwargs to allow for more flexible operations?
-def permute(tensor: Tensor, order: Tuple[int, ...]) -> Tensor:
+def permute(tensor: Tensor, *order: Tuple[int, ...]) -> Tensor:
     """
     Permute the dimensions of the tensor according to the specified order.
     
@@ -198,6 +213,10 @@ def permute(tensor: Tensor, order: Tuple[int, ...]) -> Tensor:
     `Tensor`
         The permuted tensor.
     """
+    if len(order) == 1 and isinstance(order[0], (tuple, list)):
+        order = tuple(order[0])
+    else:
+        order = tuple(order)
     if len(order) != len(tensor.dims):
         raise ValueError(
             f"Permutation order length {len(order)} does not match tensor dimensions {len(tensor.dims)}!"
