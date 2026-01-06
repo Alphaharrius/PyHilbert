@@ -54,16 +54,6 @@ class Mode(Spatial, Updatable):
                 updated_attr[k] = v
         
         return replace(self, attr=FrozenDict(updated_attr))
-    
-
-@dataclass(frozen=True)
-class GroupedMode(Mode):
-    grouped: Tuple[Mode, ...]
-
-    def _updated(self, **kwargs) -> 'GroupedMode':
-        updated_grouped = tuple(m.update(**kwargs) for m in self.grouped)
-        updated_self = super()._updated(**kwargs)
-        return replace(updated_self, grouped=updated_grouped)
 
 
 @dataclass(frozen=True)
