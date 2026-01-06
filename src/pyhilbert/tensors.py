@@ -305,3 +305,27 @@ def conj(tensor: Tensor) -> Tensor:
         The complex conjugate of the tensor.
     """
     return Tensor(data=tensor.data.conj(), dims=tensor.dims)
+
+
+def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
+    """
+    Unsqueeze the specified dimension of the tensor.
+    
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to unsqueeze.
+    dim : `int`
+        The dimension to unsqueeze.
+
+    Returns
+    -------
+    `Tensor`
+        The unsqueezed tensor.
+    """
+    new_data = tensor.data.unsqueeze(dim)
+    new_dims = tensor.dims[:dim] + (hilbert.BroadcastSpace(),) + tensor.dims[dim:]
+    
+    return Tensor(data=new_data, dims=new_dims)
+
+
