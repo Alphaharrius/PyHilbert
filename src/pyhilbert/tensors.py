@@ -1,4 +1,5 @@
 from typing import Tuple
+from numbers import Number
 from dataclasses import dataclass
 from multipledispatch import dispatch
 
@@ -124,6 +125,22 @@ class Tensor(Operable):
             The rank of the tensor.
         """
         return rank(self)
+    
+    def item(self) -> Number:
+        """
+        Return the value of a 0-dimensional tensor as a standard Python number.
+
+        Returns
+        -------
+        `number`
+            The value of the tensor.
+        
+        Raises
+        ------
+        ValueError
+            If the tensor is not 0-dimensional.
+        """
+        return self.data.item()
     
     def cpu(self) -> 'Tensor':
         """
