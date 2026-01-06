@@ -1,5 +1,5 @@
 import types
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from typing import Tuple
 from collections import OrderedDict
 from collections.abc import Iterable
@@ -289,7 +289,7 @@ def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
 
 @dataclass(frozen=True)
 class BroadcastSpace(StateSpace):
-    structure = OrderedDict()
+    structure: OrderedDict = field(default_factory=OrderedDict)
 
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.

@@ -120,7 +120,7 @@ class TestMatmul(unittest.TestCase):
         data_right = torch.randn(self.space2.size, self.space1.size, self.space2.size)
         tensor_right = Tensor(data=data_right, dims=(self.space2, self.space1, self.space2))
         
-        result = matmul(tensor_left, tensor_right)
+        result =tensor_left@tensor_right
         
         # Expected:
         # left broadcasted to (1, 1, space1.size)
@@ -305,7 +305,7 @@ class TestMatmul(unittest.TestCase):
         tensor_left = Tensor(data=data_left, dims=(self.space2, self.space2))
         
         data_right = torch.randn(1, self.space1.size)
-        tensor_right = Tensor(data=data_right, dims=(BroadcastSpace(structure=OrderedDict()), self.space1))
+        tensor_right = Tensor(data=data_right, dims=(BroadcastSpace(), self.space1))
         
         result = matmul(tensor_left, tensor_right)
         
