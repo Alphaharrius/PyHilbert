@@ -82,6 +82,49 @@ class Tensor(Operable):
         """
         return align(self, dim, target_dim)
     
+    def unsqueeze(self, dim: int) -> 'Tensor':
+        """
+        Unsqueeze the specified dimension.
+        
+        Parameters
+        ----------
+        dim : `int`
+            The dimension to unsqueeze.
+
+        Returns
+        -------
+        `Tensor`
+            The unsqueezed tensor.
+        """
+        return unsqueeze(self, dim)
+    
+    def squeeze(self, dim: int) -> 'Tensor':
+        """
+        Squeeze the specified dimension.
+        
+        Parameters
+        ----------
+        dim : `int`
+            The dimension to squeeze.
+
+        Returns
+        -------
+        `Tensor`
+            The squeezed tensor.
+        """
+        return squeeze(self, dim)
+    
+    def rank(self) -> int:
+        """
+        Get the rank (number of dimensions) of the tensor.
+
+        Returns
+        -------
+        `int`
+            The rank of the tensor.
+        """
+        return rank(self)
+    
     def cpu(self) -> 'Tensor':
         """
         Copy the tensor data to CPU memory and create a new `Tensor` instance.
@@ -127,19 +170,24 @@ class Tensor(Operable):
     __str__ = __repr__ # Override str to use the same representation
 
 
-def _match_dims_for_matopt(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
-    if len(left.dims) > len(right.dims):
+def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
+    if left.rank() == 1:
+        left = left.unsqueeze(0)
+    if right.rank() == 1:
+        right = right.unsqueeze(-1)
+
+    if left.rank() > right.rank():
         # Unsqueeze right tensor
-        for _ in range(len(left.dims) - len(right.dims)):
-            right = unsqueeze(right, 0)
-    elif len(right.dims) > len(left.dims):
+        for _ in range(left.rank() - right.rank()):
+            right = right.unsqueeze(0)
+    elif right.rank() > left.rank():
         # Unsqueeze left tensor
-        for _ in range(len(right.dims) - len(left.dims)):
-            left = unsqueeze(left, 0)
+        for _ in range(right.rank() - left.rank()):
+            left = left.unsqueeze(0)
     return left, right
 
 
-def _align_dims_for_matopt(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
+def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
     ignores = []
     for n, ld in enumerate(left.dims[:-2]):
         if not isinstance(ld, hilbert.BroadcastSpace):
@@ -161,10 +209,14 @@ def _align_dims_for_matopt(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
 
 def matmul(left: Tensor, right: Tensor) -> Tensor:
     """
-    Perform matrix multiplication between two Tensors with dimension matching,
-    broadcast alignment, and StateSpace alignment semantics.
+    Perform matrix multiplication between two Tensors with StateSpace-aware
+    alignment and torch-style rank handling.
 
-    This function first makes the tensors have the same number of dimensions by
+    Both operands must be at least 1D. If either operand is 1D, this follows
+    `torch.matmul` behavior by temporarily unsqueezing it to 2D, performing the
+    matmul, then squeezing out the added dimension(s).
+
+    The function first makes the tensors have the same number of dimensions by
     unsqueezing leading dimensions with `BroadcastSpace`. It then aligns any
     leading (batch) dimensions so that `BroadcastSpace` can expand to concrete
     StateSpaces and any non-broadcast StateSpaces are reordered to match. Finally,
@@ -174,8 +226,8 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     The contraction always happens between `left.dims[-1]` and `right.dims[-2]`.
     Leading dimensions behave like batch dimensions and follow the broadcast and
     alignment rules described above. The output keeps all aligned leading
-    dimensions, drops the contracted dimension, and appends the right-most
-    dimension from `right`.
+    dimensions (including any `BroadcastSpace` that remain), drops the contracted
+    dimension, and appends the right-most dimension from `right`.
 
     Parameters
     ----------
@@ -188,22 +240,40 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     -------
     `Tensor`
         A tensor with data `torch.matmul(left.data, right.data)` and dimensions
-        `left.dims[:-1] + right.dims[-1:]`, after the alignment steps.
+        `left.dims[:-1] + right.dims[-1:]`, after the alignment and any
+        1D squeeze handling.
 
     Raises
     ------
     ValueError
-        If any StateSpace alignment fails during the broadcast or contraction
-        alignment steps.
+        If either operand is 0D or any StateSpace alignment fails during the
+        broadcast or contraction alignment steps.
     """
-    left, right = _match_dims_for_matopt(left, right)
-    left, right = _align_dims_for_matopt(left, right)
+    left_rank = left.rank()
+    right_rank = right.rank()
+
+    if left_rank < 1:
+        raise ValueError("Left tensor must have rank at least 1 for matmul!")
+    if right_rank < 1:
+        raise ValueError("Right tensor must have rank at least 1 for matmul!")
+
+    left, right = _match_dims_for_matmul(left, right)
+    left, right = _align_dims_for_matmul(left, right)
 
     right = right.align(-2, left.dims[-1])
-    prod = torch.matmul(left.data, right.data)
+    data = torch.matmul(left.data, right.data)
     new_dims = left.dims[:-1] + right.dims[-1:]
 
-    return Tensor(data=prod, dims=new_dims)
+    prod = Tensor(data=data, dims=new_dims)
+
+    if left_rank == 1 and right_rank == 1:
+        prod = prod.squeeze(0).squeeze(-1)
+    elif right_rank == 1:
+        prod = prod.squeeze(-1)
+    elif left_rank == 1:
+        prod = prod.squeeze(-2)
+
+    return prod
 
 
 @dispatch(Tensor, Tensor)
@@ -232,7 +302,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     `Tensor`
         The resulting tensor on the union of StateSpaces.
     """
-    if len(left.dims) != len(right.dims):
+    if left.rank() != right.rank():
         raise ValueError("Tensors must have the same number of dimensions to be added.")
     if left.dims == right.dims:
         return Tensor(data=left.data + right.data, dims=left.dims)
@@ -314,9 +384,9 @@ def permute(tensor: Tensor, *order: Tuple[int, ...]) -> Tensor:
         order = tuple(order[0])
     else:
         order = tuple(order)
-    if len(order) != len(tensor.dims):
+    if len(order) != tensor.rank():
         raise ValueError(
-            f"Permutation order length {len(order)} does not match tensor dimensions {len(tensor.dims)}!"
+            f"Permutation order length {len(order)} does not match tensor dimensions {tensor.rank()}!"
         )
     
     new_data = tensor.data.permute(order)
@@ -392,6 +462,31 @@ def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
     return Tensor(data=new_data, dims=new_dims)
 
 
+def squeeze(tensor: Tensor, dim: int) -> Tensor:
+    """
+    Squeeze the specified dimension of the tensor.
+    
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to squeeze.
+    dim : `int`
+        The dimension to squeeze.
+
+    Returns
+    -------
+    `Tensor`
+        The squeezed tensor.
+    """
+    if not isinstance(tensor.dims[dim], hilbert.BroadcastSpace):
+        return tensor  # No squeezing needed if not BroadcastSpace
+    
+    new_data = tensor.data.squeeze(dim)
+    new_dims = tensor.dims[:dim] + tensor.dims[dim+1:]
+    
+    return Tensor(data=new_data, dims=new_dims)
+
+
 def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     """
     Align the specified dimension of the tensor to the target StateSpace.
@@ -440,3 +535,20 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         data=aligned_data, dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim+1:])
 
     return aligned_tensor
+
+
+def rank(tensor: Tensor) -> int:
+    """
+    Get the rank (number of dimensions) of the tensor.
+
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor whose rank is to be determined.
+
+    Returns
+    -------
+    `int`
+        The rank of the tensor.
+    """
+    return len(tensor.dims)

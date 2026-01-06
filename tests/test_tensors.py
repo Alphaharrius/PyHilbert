@@ -205,9 +205,8 @@ class TestMatmul(unittest.TestCase):
         # So left remains (B, Broadcast, K).
         # right is (B, K, N).
         # torch.matmul((B, 1, K), (B, K, N)) -> (B, N).
-        # Result dims: left[:-1] (B, Broadcast) + right[-1:] (N) -> (B, Broadcast, N).
-        # Wait, BroadcastSpace is a valid dimension in output?
-        # If so, size is 1.
+        # Result dims before squeeze: left[:-1] (B, Broadcast) + right[-1:] (N) -> (B, Broadcast, N).
+        # Since left is 1D, matmul squeezes the added dimension, yielding (B, N).
         
         expected_data_torch = torch.matmul(data_left, data_right)
         # torch result for (K) @ (M, K, N) is (M, N).
@@ -221,23 +220,21 @@ class TestMatmul(unittest.TestCase):
         # left -> (space2, Broadcast, space1). Data shape (S2, 1, S1).
         # torch.matmul((S2, 1, S1), (S2, S1, S2))
         # -> (S2, 1, S2).
-        # Result dims: left[:-1] + right[-1:] = (space2, Broadcast) + (space2) = (space2, Broadcast, space2).
-        # Shape (S2, 1, S2).
-        # This is essentially (S2, S2) with an unsqueezed middle dim.
+        # Result dims before squeeze: (space2, Broadcast, space2).
+        # After squeeze (left is 1D): (space2, space2).
         
         # Check if result matches this expectation
-        self.assertEqual(len(result.dims), 3)
+        self.assertEqual(len(result.dims), 2)
         self.assertEqual(result.dims[0], self.space2)
-        self.assertIsInstance(result.dims[1], BroadcastSpace)
-        self.assertEqual(result.dims[2], self.space2)
+        self.assertEqual(result.dims[1], self.space2)
         
         # data check
         # torch.matmul(v, M) -> (M, N) usually?
         # A = torch.randn(5)
         # B = torch.randn(4, 5, 4)
         # torch.matmul(A, B).shape -> (4, 4).
-        # My result is (4, 1, 4). Squeeze -> (4, 4).
-        self.assertTrue(torch.allclose(result.data.squeeze(1), expected_data_torch))
+        # My result is (4, 4).
+        self.assertTrue(torch.allclose(result.data, expected_data_torch))
 
     def test_broadcast_space_alignment(self):
         # Explicit broadcasting test using BroadcastSpace
@@ -328,6 +325,12 @@ class TestMatmul(unittest.TestCase):
         with self.assertRaises(ValueError):
             matmul(t1, t2)
 
+    def test_matmul_rejects_scalar(self):
+        t1 = Tensor(torch.tensor(1.0), ())
+        t2 = Tensor(torch.randn(self.space2.size), (self.space2,))
+
+        with self.assertRaises(ValueError):
+            matmul(t1, t2)
+
 if __name__ == '__main__':
     unittest.main()
-
