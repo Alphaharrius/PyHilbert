@@ -142,6 +142,11 @@ class StateSpace(Spatial):
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?
         return hash(tuple((k, s.start, s.stop) for k, s in self.structure.items()))
+
+
+@dispatch(StateSpace, StateSpace)
+def same_span(a: StateSpace, b: StateSpace) -> bool:
+    return set(a.structure.keys()) == set(b.structure.keys())
     
 
 @dispatch(StateSpace, StateSpace)
