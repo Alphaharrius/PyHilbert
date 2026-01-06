@@ -301,6 +301,11 @@ class BroadcastSpace(StateSpace):
     __str__ = __repr__
 
 
+@dispatch(BroadcastSpace, BroadcastSpace)
+def same_span(a: BroadcastSpace, b: BroadcastSpace) -> bool:
+    return True
+
+
 @dispatch(StateSpace, BroadcastSpace)
 def same_span(a: StateSpace, b: BroadcastSpace) -> bool:
     return True
