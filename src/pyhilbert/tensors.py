@@ -208,8 +208,7 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
 
 @dispatch(Tensor, Tensor)
 def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
-    """
-    Perform matrix multiplication (contraction) between two `Tensor`."""
+    """ Perform matrix multiplication (contraction) between two `Tensor`. """
     return matmul(left, right)
 
 
