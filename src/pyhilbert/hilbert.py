@@ -202,6 +202,7 @@ def embedding_indices(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@dispatch(StateSpace, StateSpace)
 def same_span(a: StateSpace, b: StateSpace) -> bool:
     return set(a.structure.keys()) == set(b.structure.keys())
     
@@ -284,3 +285,27 @@ def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
     elements = cartes(lattice)
     structure = OrderedDict((el, slice(n, n + 1)) for n, el in enumerate(elements))
     return MomentumSpace(structure=structure)
+
+
+@dataclass(frozen=True)
+class BroadcastSpace(StateSpace):
+    structure = OrderedDict()
+
+    # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
+    # designed to account for the structure attribute which is an un-hashable type OrderedDict.
+    __hash__ = StateSpace.__hash__
+    
+    def __repr__(self):
+        return f'BroadcastSpace'
+    
+    __str__ = __repr__
+
+
+@dispatch(StateSpace, BroadcastSpace)
+def same_span(a: StateSpace, b: BroadcastSpace) -> bool:
+    return True
+
+
+@dispatch(BroadcastSpace, StateSpace)
+def same_span(a: BroadcastSpace, b: StateSpace) -> bool:
+    return True
