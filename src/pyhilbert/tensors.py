@@ -40,6 +40,24 @@ class Tensor(Operable):
         """
         return permute(self, *order)
     
+    def transpose(self, dim0: int, dim1: int) -> 'Tensor':
+        """
+        Transpose the specified dimensions.
+        
+        Parameters
+        ----------
+        dim0 : `int`
+            The first dimension to transpose.
+        dim1 : `int`
+            The second dimension to transpose.
+
+        Returns
+        -------
+        `Tensor`
+            The transposed tensor.
+        """
+        return transpose(self, dim0, dim1)
+    
     def cpu(self) -> 'Tensor':
         """
         Copy the tensor data to CPU memory and create a new `Tensor` instance.
