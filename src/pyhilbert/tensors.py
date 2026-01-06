@@ -329,3 +329,51 @@ def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
     return Tensor(data=new_data, dims=new_dims)
 
 
+def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
+    """
+    Align the specified dimension of the tensor to the target StateSpace.
+    
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to align.
+    dim : `int`
+        The dimension index to align.
+    target : `StateSpace`
+        The target StateSpace to align to.
+
+    Returns
+    -------
+    `Tensor`
+        The aligned tensor.
+    """
+    current_dim = tensor.dims[dim]
+    if isinstance(target_dim, hilbert.BroadcastSpace):
+        return tensor  # No alignment needed for BroadcastSpace
+    
+    if isinstance(current_dim, hilbert.BroadcastSpace):
+        # Expand broadcast dimension to match the target StateSpace size.
+        expanded_shape = list(tensor.data.shape)
+        expanded_shape[dim] = target_dim.size
+        aligned_data = tensor.data.expand(*expanded_shape)
+        return Tensor(
+            data=aligned_data, dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim+1:])
+
+    if type(current_dim) is not type(target_dim):
+        raise ValueError(
+            f"Cannot align dimensions with different StateSpace types: "
+            f"current dim={type(current_dim)} vs target dim={type(target_dim)}!"
+        )
+    if not hilbert.same_span(current_dim, target_dim):
+        raise ValueError(f"StateSpace at {dim} cannot be aligned to target StateSpace!")
+
+    target_order = hilbert.flat_permutation_order(current_dim, target_dim)
+    aligned_data = torch.index_select(
+        tensor.data, 
+        dim, 
+        torch.tensor(target_order, dtype=torch.long, device=tensor.data.device))
+
+    aligned_tensor = Tensor(
+        data=aligned_data, dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim+1:])
+
+    return aligned_tensor
