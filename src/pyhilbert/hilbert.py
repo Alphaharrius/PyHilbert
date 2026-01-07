@@ -195,7 +195,7 @@ def embedding_order(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
     sup_slices = sup.structure
     for key, _ in sub.structure.items():
         if key not in sup_slices:
-                raise ValueError(f"Key {key} not found in superspace")
+            raise ValueError(f"Key {key} not found in superspace")
         sup_slice = sup_slices[key]
         indices.append(range(sup_slice.start, sup_slice.stop))
     return tuple(chain.from_iterable(indices))
