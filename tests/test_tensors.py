@@ -1,6 +1,7 @@
 import unittest
 import torch
 from collections import OrderedDict
+from pyhilbert import hilbert
 from pyhilbert.tensors import Tensor, matmul
 from pyhilbert.hilbert import HilbertSpace, StateSpace, Mode, BroadcastSpace
 from pyhilbert.utils import FrozenDict
@@ -347,6 +348,93 @@ class TestMatmul(unittest.TestCase):
 
         self.assertEqual(result.dims, tuple())
         self.assertTrue(torch.allclose(result.data, expected_data))
+
+
+class TestTensorAdd(unittest.TestCase):
+    def setUp(self):
+        self.mode_a = TestMode(count=2, attr=FrozenDict({'name': 'a'}))
+        self.mode_b = TestMode(count=3, attr=FrozenDict({'name': 'b'}))
+        self.mode_c = TestMode(count=2, attr=FrozenDict({'name': 'c'}))
+        self.mode_d = TestMode(count=4, attr=FrozenDict({'name': 'd'}))
+        self.mode_m = TestMode(count=1, attr=FrozenDict({'name': 'm'}))
+
+        self.space_a = HilbertSpace(structure=OrderedDict([(self.mode_a, slice(0, 2))]))
+        self.space_b = HilbertSpace(structure=OrderedDict([(self.mode_b, slice(0, 3))]))
+        self.space_c = HilbertSpace(structure=OrderedDict([(self.mode_c, slice(0, 2))]))
+        self.space_d = HilbertSpace(structure=OrderedDict([(self.mode_d, slice(0, 4))]))
+        self.space_m = HilbertSpace(structure=OrderedDict([(self.mode_m, slice(0, 1))]))
+
+        self.space_ab = HilbertSpace(
+            structure=OrderedDict([
+                (self.mode_a, slice(0, 2)),
+                (self.mode_b, slice(2, 5)),
+            ])
+        )
+        self.space_ba = HilbertSpace(
+            structure=OrderedDict([
+                (self.mode_b, slice(0, 3)),
+                (self.mode_a, slice(3, 5)),
+            ])
+        )
+
+    def test_add_union_disjoint_axis(self):
+        left_data = torch.randn(self.space_a.size, self.space_b.size)
+        right_data = torch.randn(self.space_d.size, self.space_b.size)
+        left = Tensor(data=left_data, dims=(self.space_a, self.space_b))
+        right = Tensor(data=right_data, dims=(self.space_d, self.space_b))
+
+        result = left + right
+        expected_dims = (self.space_a + self.space_d, self.space_b)
+
+        self.assertEqual(result.dims, expected_dims)
+        self.assertTrue(torch.allclose(result.data[:self.space_a.size, :], left_data))
+        self.assertTrue(
+            torch.allclose(
+                result.data[self.space_a.size:self.space_a.size + self.space_d.size, :],
+                right_data,
+            )
+        )
+
+    def test_add_reorders_right_by_state_space(self):
+        left_data = torch.zeros(self.space_ab.size)
+        right_data = torch.arange(self.space_ba.size, dtype=left_data.dtype)
+        left = Tensor(data=left_data, dims=(self.space_ab,))
+        right = Tensor(data=right_data, dims=(self.space_ba,))
+
+        result = left + right
+        perm = torch.tensor(
+            hilbert.flat_permutation_order(self.space_ba, self.space_ab),
+            dtype=torch.long,
+        )
+        expected = left_data + right_data.index_select(0, perm)
+
+        self.assertEqual(result.dims, (self.space_ab,))
+        self.assertTrue(torch.allclose(result.data, expected))
+
+    def test_add_union_multiple_axes(self):
+        left_data = torch.zeros(self.space_a.size, self.space_b.size, self.space_c.size)
+        right_data = torch.randn(self.space_d.size, self.space_b.size, self.space_m.size)
+        left = Tensor(data=left_data, dims=(self.space_a, self.space_b, self.space_c))
+        right = Tensor(data=right_data, dims=(self.space_d, self.space_b, self.space_m))
+
+        result = left + right
+        expected_dims = (self.space_a + self.space_d, self.space_b, self.space_c + self.space_m)
+
+        self.assertEqual(result.dims, expected_dims)
+        a_slice = slice(self.space_a.size, self.space_a.size + self.space_d.size)
+        c_slice = slice(self.space_c.size, self.space_c.size + self.space_m.size)
+        self.assertTrue(torch.allclose(result.data[a_slice, :, c_slice], right_data))
+
+    def test_add_accumulates_overlap(self):
+        left_data = torch.ones(self.space_ab.size)
+        right_data = torch.ones(self.space_ab.size)
+        left = Tensor(data=left_data, dims=(self.space_ab,))
+        right = Tensor(data=right_data, dims=(self.space_ab,))
+
+        result = left + right
+
+        self.assertEqual(result.dims, (self.space_ab,))
+        self.assertTrue(torch.allclose(result.data, torch.full_like(left_data, 2.0)))
 
 
 if __name__ == '__main__':
