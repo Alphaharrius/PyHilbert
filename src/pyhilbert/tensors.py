@@ -14,11 +14,6 @@ class Tensor(Operable):
     data: torch.Tensor
     dims: Tuple[StateSpace, ...]
 
-    def __post_init__(self) -> None:
-        # Ensure that data is detached from any computation graph.
-        # In the future if we need to do autograd we will use nn.Module instead.
-        object.__setattr__(self, "data", self.data.detach())
-
     def conj(self) -> 'Tensor':
         """
         Compute the complex conjugate of the given tensor.
@@ -95,6 +90,66 @@ class Tensor(Operable):
             return Tensor(data=self.data.to('mps'), dims=self.dims)
         else:
             raise RuntimeError("Only CUDA and MPS devices are supported for GPU operations!")
+        
+    @property
+    def requires_grad(self) -> bool:
+        """
+        Check if the tensor data requires gradient tracking.
+
+        Returns
+        -------
+        `bool`
+            True if the tensor data requires gradient tracking, False otherwise.
+        """
+        return self.data.requires_grad
+        
+    def attach(self) -> 'Tensor':
+        """
+        Enable gradient tracking for the tensor data and return the attached `Tensor` instance.
+        
+        Behavior
+        --------
+        - If `requires_grad` is already `True`, this returns `self` unchanged.
+        - Otherwise, this detaches the underlying data from any existing autograd graph,
+          clones it to ensure a fresh leaf tensor, and sets `requires_grad` to `True`.
+        - The returned tensor preserves the original `dims`, device, and dtype.
+
+        Returns
+        -------
+        `Tensor`
+            The new `Tensor` instance with gradient tracking enabled.
+        """
+        if self.data.requires_grad:
+            return self
+        return Tensor(data=self.data.detach().clone().requires_grad_(True), dims=self.dims)
+    
+    def detach(self) -> 'Tensor':
+        """
+        Disable gradient tracking for the tensor data and create a new `Tensor` instance.
+        
+        Behavior
+        --------
+        - Always returns a new `Tensor` whose data is a detached view of the
+          original tensor (no clone), so it shares storage with the original.
+        - The returned tensor preserves the original `dims`, device, and dtype.
+
+        Returns
+        -------
+        `Tensor`
+            The new `Tensor` instance with gradient tracking disabled.
+        """
+        return Tensor(data=self.data.detach(), dims=self.dims)
+    
+    def clone(self) -> 'Tensor':
+        """
+        Create a deep copy of the tensor.
+
+        Returns
+        -------
+        `Tensor`
+            The cloned tensor.
+        """
+        return Tensor(data=self.data.clone(), dims=self.dims)
 
     def __repr__(self) -> str:
         device_type = self.data.device.type
@@ -104,7 +159,7 @@ class Tensor(Operable):
             shape_repr = f"({shape})"
         else:
             shape_repr = "()"
-        return f"<Tensor {device} grad={self.data.requires_grad} shape={shape_repr}>"
+        return f"<{device} Tensor grad={self.data.requires_grad} shape={shape_repr}>"
 
     __str__ = __repr__ # Override str to use the same representation
 
