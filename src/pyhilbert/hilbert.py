@@ -214,7 +214,7 @@ def operator_add(a: StateSpace, b: StateSpace):
     new_structure = OrderedDict(
         (*a.structure.items(), *((k, v) for k, v in b.structure.items() if k not in a.structure))
     )
-    return type(a)(structure=StateSpace.restructure(new_structure))
+    return type(a)(structure=restructure(new_structure))
 
 
 @dispatch(StateSpace, StateSpace)
@@ -222,7 +222,7 @@ def operator_sub(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
         return ValueError(f'Cannot subtract StateSpaces of different types: {type(a)} and {type(b)}!')
     new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k not in b.structure))
-    return type(a)(structure=StateSpace.restructure(new_structure))
+    return type(a)(structure=restructure(new_structure))
 
 
 @dispatch(StateSpace, StateSpace)
@@ -235,7 +235,7 @@ def operator_and(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
         return ValueError(f'Cannot intersect StateSpaces of different types: {type(a)} and {type(b)}!')
     new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k in b.structure))
-    return type(a)(structure=StateSpace.restructure(new_structure))
+    return type(a)(structure=restructure(new_structure))
 
 
 @dataclass(frozen=True)
