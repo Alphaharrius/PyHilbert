@@ -238,6 +238,11 @@ def operator_and(a: StateSpace, b: StateSpace):
     return type(a)(structure=restructure(new_structure))
 
 
+@dispatch(StateSpace, StateSpace)
+def operator_eq(a: StateSpace, b: StateSpace):
+    return a.structure == b.structure
+
+
 @dataclass(frozen=True)
 class MomentumSpace(StateSpace):
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
