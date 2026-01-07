@@ -47,15 +47,16 @@ torch = [
   { index = "pytorch-cu128", extra = "cu128"},
   { index = "pytorch-cu129", extra = "cu129"},
   { index = "pytorch-cu130", extra = "cu130"},
-  { index = "pypi", extra = "cpu" },
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+  { index = "pypi", extra = "cpu", marker = "sys_platform != 'linux'" },
 ]
 
 torchvision = [
   { index = "pytorch-cu126", extra = "cu126"},
   { index = "pytorch-cu128", extra = "cu128"},
   { index = "pytorch-cu129", extra = "cu129"},
-  { index = "pytorch-cu130", extra = "cu130"},
-  { index = "pypi", extra = "cpu" },
+  { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+  { index = "pypi", extra = "cpu", marker = "sys_platform != 'linux'" },
 ]
 
 [[tool.uv.index]]
@@ -76,6 +77,11 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url  = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [[tool.uv.index]]
