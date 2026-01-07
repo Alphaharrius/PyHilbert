@@ -319,3 +319,19 @@ def same_span(a: StateSpace, b: BroadcastSpace) -> bool:
 @dispatch(BroadcastSpace, StateSpace)
 def same_span(a: BroadcastSpace, b: StateSpace) -> bool:
     return True
+
+
+# The set union of any StateSpace with a BroadcastSpace is a BroadcastSpace
+@dispatch(BroadcastSpace, BroadcastSpace)
+def operator_add(a: BroadcastSpace, b: BroadcastSpace):
+    return BroadcastSpace()
+
+
+@dispatch(StateSpace, BroadcastSpace)
+def operator_add(a: StateSpace, b: BroadcastSpace):
+    return a
+
+
+@dispatch(BroadcastSpace, StateSpace)
+def operator_add(a: BroadcastSpace, b: StateSpace):
+    return b
