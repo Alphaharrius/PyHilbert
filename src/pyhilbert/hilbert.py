@@ -115,7 +115,7 @@ def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, 
     base = 0
     for k, s in structure.items():
         L = s.stop - s.start
-        new_structure[k] = slice(base, base + L, 1)
+        new_structure[k] = slice(base, base + L)
         base += L
     return new_structure
 
