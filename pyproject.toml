@@ -8,7 +8,8 @@ dependencies = [
     "matplotlib>=3.10.7",
     "multipledispatch>=1.0.0",
     "pandas>=2.3.3",
-    "sympy>=1.14.0",
+    "sympy>=1.13.1",
+    "plotly>=6.5.0",
 ]
 
 [project.optional-dependencies]
@@ -16,7 +17,15 @@ cpu = [
   "torch>=2.7.0",
   "torchvision>=0.22.0",
 ]
+cu126 = [
+  "torch>=2.7.0",
+  "torchvision>=0.22.0",
+]
 cu129 = [
+  "torch>=2.7.0",
+  "torchvision>=0.22.0",
+]
+cu130 = [
   "torch>=2.7.0",
   "torchvision>=0.22.0",
 ]
@@ -25,28 +34,45 @@ cu129 = [
 package = true
 
 conflicts = [
-  [
-    { extra = "cpu" },
-    { extra = "cu129" },
-  ],
+  [ { extra = "cpu" }, { extra = "cu126" }, { extra = "cu129" }, { extra = "cu130" } ],
 ]
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cpu",  extra = "cpu" },
-  { index = "pytorch-cu129", extra = "cu129" },
+  { index = "pytorch-cu126", extra = "cu126", marker = "platform_machine == 'AMD64' or platform_machine == 'x86_64'" },
+  { index = "pytorch-cu129", extra = "cu129", marker = "platform_machine == 'AMD64' or platform_machine == 'x86_64'" },
+  { index = "pytorch-cu130", extra = "cu130", marker = "platform_machine == 'AMD64' or platform_machine == 'x86_64'" },
+  
+  { index = "pypi", marker = "platform_machine != 'AMD64' and platform_machine != 'x86_64'" },
+
+  { index = "pypi", extra = "cpu" },
 ]
+
 torchvision = [
-  { index = "pytorch-cpu",  extra = "cpu" },
-  { index = "pytorch-cu129", extra = "cu129" },
+  { index = "pytorch-cu126", extra = "cu126", marker = "platform_machine == 'AMD64' or platform_machine == 'x86_64'" },
+  { index = "pytorch-cu129", extra = "cu129", marker = "platform_machine == 'AMD64' or platform_machine == 'x86_64'" },
+  { index = "pytorch-cu130", extra = "cu130", marker = "platform_machine == 'AMD64' or platform_machine == 'x86_64'" },
+
+  { index = "pypi", marker = "platform_machine != 'AMD64' and platform_machine != 'x86_64'" },
+
+  { index = "pypi", extra = "cpu" },
 ]
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url  = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu126"
+url  = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu129"
 url  = "https://download.pytorch.org/whl/cu129"
 explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url  = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
