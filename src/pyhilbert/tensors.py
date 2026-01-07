@@ -299,6 +299,18 @@ def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
     return matmul(left, right)
 
 
+def _match_dims_for_tensoradd(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
+    if left.rank() > right.rank():
+        # Unsqueeze right tensor
+        for _ in range(left.rank() - right.rank()):
+            right = right.unsqueeze(0)
+    elif right.rank() > left.rank():
+        # Unsqueeze left tensor
+        for _ in range(right.rank() - left.rank()):
+            left = left.unsqueeze(0)
+    return left, right
+
+
 @dispatch(Tensor, Tensor)
 def operator_add(left: Tensor, right: Tensor) -> Tensor:
     """
@@ -319,10 +331,8 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     `Tensor`
         The resulting tensor on the union of StateSpaces.
     """
-    if left.rank() != right.rank():
-        raise ValueError("Tensors must have the same number of dimensions to be added.")
-    if left.dims == right.dims:
-        return Tensor(data=left.data + right.data, dims=left.dims)
+    left, right = _match_dims_for_tensoradd(left, right)
+    
     # calculate the union of the StateSpaces
     union_dims = []
     for l_dim, r_dim in zip(left.dims, right.dims):
