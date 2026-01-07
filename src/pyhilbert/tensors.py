@@ -334,9 +334,11 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     left_slices = tuple(slice(0, d.size) for d in left.dims)
     new_data[left_slices] = left.data
     # fill the right tensor into the new data
-    grid_indices = (torch.tensor(hilbert.embedding_indices(r, u), dtype=torch.long, device=left.data.device) 
-                    for r, u in zip(right.dims, union_dims))
-    new_data.index_put_(torch.meshgrid(*grid_indices, indexing='ij'), right.data, accumulate=True)
+    right_embedding_order = (
+        torch.tensor(hilbert.embedding_order(r, u), dtype=torch.long, device=left.data.device) 
+        for r, u in zip(right.dims, union_dims)
+    )
+    new_data.index_put_(torch.meshgrid(*right_embedding_order, indexing='ij'), right.data, accumulate=True)
 
     return Tensor(data=new_data, dims=tuple(union_dims))
 
