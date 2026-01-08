@@ -3,7 +3,7 @@ import torch
 from collections import OrderedDict
 from pyhilbert import hilbert
 from pyhilbert.tensors import Tensor, matmul
-from pyhilbert.hilbert import HilbertSpace, StateSpace, Mode, BroadcastSpace
+from pyhilbert.hilbert import HilbertSpace, StateSpace, Mode, BroadcastSpace, MomentumSpace
 from pyhilbert.utils import FrozenDict
 
 class TestMode(Mode):
@@ -436,6 +436,156 @@ class TestTensorAdd(unittest.TestCase):
         self.assertEqual(result.dims, (self.space_ab,))
         self.assertTrue(torch.allclose(result.data, torch.full_like(left_data, 2.0)))
 
+    def test_add_rank_mismatch_broadcast(self):
+        # Test adding tensors of different ranks (3-tensor + 4-tensor)
+        # T3: (A, B, C)
+        # T4: (D, A, B, C)
+        # T3 should be broadcasted to (Broadcast, A, B, C) and then expanded to (D, A, B, C)
+        
+        t3_data = torch.ones(self.space_a.size, self.space_b.size, self.space_c.size)
+        t3 = Tensor(data=t3_data, dims=(self.space_a, self.space_b, self.space_c))
+        
+        t4_data = torch.ones(self.space_d.size, self.space_a.size, self.space_b.size, self.space_c.size)
+        t4 = Tensor(data=t4_data, dims=(self.space_d, self.space_a, self.space_b, self.space_c))
+        
+        result = t3 + t4
+        
+        # Expected: T3 expanded to match T4 shape (dim 0 broadcasted) -> all 1s
+        # T4 is all 1s
+        # Result should be all 2s
+        expected_dims = (self.space_d, self.space_a, self.space_b, self.space_c)
+        self.assertEqual(result.dims, expected_dims)
+        self.assertTrue(torch.allclose(result.data, torch.full_like(result.data, 2.0)))
+
+    def test_add_disjoint_matrices(self):
+        # Test adding two matrices with disjoint spaces on both axes
+        # M1: (A, B)
+        # M2: (C, D)
+        # Result: (A+C, B+D)
+        
+        m1_data = torch.ones(self.space_a.size, self.space_b.size)
+        m1 = Tensor(data=m1_data, dims=(self.space_a, self.space_b))
+        
+        m2_data = torch.full((self.space_c.size, self.space_d.size), 2.0)
+        m2 = Tensor(data=m2_data, dims=(self.space_c, self.space_d))
+        
+        result = m1 + m2
+        
+        # Check dimensions
+        expected_dims = (self.space_a + self.space_c, self.space_b + self.space_d)
+        self.assertEqual(result.dims, expected_dims)
+        
+        # Check data structure (Block Diagonal)
+        # Top-left (A x B) should be M1
+        self.assertTrue(
+            torch.allclose(
+                result.data[:self.space_a.size, :self.space_b.size], 
+                m1_data
+            )
+        )
+        
+        # Bottom-right (C x D) should be M2
+        # C is after A (indices [A.size : A.size+C.size])
+        # D is after B (indices [B.size : B.size+D.size])
+        self.assertTrue(
+            torch.allclose(
+                result.data[self.space_a.size:, self.space_b.size:], 
+                m2_data
+            )
+        )
+        
+        # Off-diagonal blocks should be zero
+        # Top-right (A x D)
+        self.assertTrue(
+            torch.allclose(
+                result.data[:self.space_a.size, self.space_b.size:], 
+                torch.zeros(self.space_a.size, self.space_d.size)
+            )
+        )
+        # Bottom-left (C x B)
+        self.assertTrue(
+            torch.allclose(
+                result.data[self.space_a.size:, :self.space_b.size], 
+                torch.zeros(self.space_c.size, self.space_b.size)
+            )
+        )
+
+
+class TestTensorErrorConditions(unittest.TestCase):
+    def setUp(self):
+        self.mode_a = TestMode(count=2, attr=FrozenDict({'name': 'a'}))
+        self.space_a = HilbertSpace(structure=OrderedDict([(self.mode_a, slice(0, 2))]))
+        
+        # Create a MomentumSpace for type mismatch tests
+        self.space_mom = MomentumSpace(structure=OrderedDict([('k1', slice(0, 2))]))
+        
+    def test_add_incompatible_statespace_types(self):
+        # HilbertSpace + MomentumSpace should fail
+        t1 = Tensor(torch.randn(2), dims=(self.space_a,))
+        t2 = Tensor(torch.randn(2), dims=(self.space_mom,))
+        
+        with self.assertRaises(ValueError):
+            t1 + t2
+
+    def test_align_incompatible_types(self):
+        t1 = Tensor(torch.randn(2), dims=(self.space_a,))
+        with self.assertRaises(ValueError):
+            t1.align(0, self.space_mom)
+            
+    def test_align_different_span(self):
+        mode_b = TestMode(count=2, attr=FrozenDict({'name': 'b'}))
+        space_b = HilbertSpace(structure=OrderedDict([(mode_b, slice(0, 2))]))
+        
+        t1 = Tensor(torch.randn(2), dims=(self.space_a,))
+        # space_a and space_b have different keys -> different span
+        with self.assertRaises(ValueError):
+            t1.align(0, space_b)
+
+    def test_permute_invalid_length(self):
+        t1 = Tensor(torch.randn(2, 2), dims=(self.space_a, self.space_a))
+        with self.assertRaises(ValueError):
+            t1.permute(0) # Need 2 indices
+            
+    def test_squeeze_invalid_dim(self):
+        # Squeezing a non-broadcast dimension should return the tensor unchanged if we're not broadcasting
+        # Implementation details: if not isinstance(tensor.dims[dim], hilbert.BroadcastSpace): return tensor
+        t1 = Tensor(torch.randn(2), dims=(self.space_a,))
+        t2 = t1.squeeze(0)
+        self.assertIs(t1, t2) 
+        
+    def test_matmul_rank_zero(self):
+        t1 = Tensor(torch.tensor(1.0), dims=())
+        t2 = Tensor(torch.randn(2), dims=(self.space_a,))
+        with self.assertRaises(ValueError):
+            matmul(t1, t2)
+
+class TestTensorOperations(unittest.TestCase):
+    def setUp(self):
+        self.mode_a = TestMode(count=2, attr=FrozenDict({'name': 'a'}))
+        self.space_a = HilbertSpace(structure=OrderedDict([(self.mode_a, slice(0, 2))]))
+        self.data = torch.randn(2)
+        self.tensor = Tensor(self.data, (self.space_a,))
+
+    def test_neg(self):
+        res = -self.tensor
+        self.assertTrue(torch.allclose(res.data, -self.data))
+        self.assertEqual(res.dims, self.tensor.dims)
+
+    def test_sub(self):
+        t2 = Tensor(torch.randn(2), (self.space_a,))
+        res = self.tensor - t2
+        self.assertTrue(torch.allclose(res.data, self.data - t2.data))
+        
+    def test_conj(self):
+        c_data = torch.randn(2, dtype=torch.complex64)
+        c_tensor = Tensor(c_data, (self.space_a,))
+        res = c_tensor.conj()
+        self.assertTrue(torch.allclose(res.data, c_data.conj()))
+        
+    def test_transpose(self):
+        t = Tensor(torch.randn(2, 2), (self.space_a, self.space_a))
+        res = t.transpose(0, 1)
+        self.assertTrue(torch.allclose(res.data, t.data.transpose(0, 1)))
 
 if __name__ == '__main__':
     unittest.main()
