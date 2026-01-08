@@ -126,6 +126,22 @@ class Tensor(Operable):
         """
         return rank(self)
     
+    def expand_to_union(self, union_dims: list[StateSpace]) -> 'Tensor':
+        """
+        Expand the tensor to the union of the specified dimensions.
+        
+        Parameters
+        ----------
+        union_dims : `list[StateSpace]`
+            The dimensions to expand to the union of.
+
+        Returns
+        -------
+        `Tensor`
+            The expanded tensor.
+        """
+        return expand_to_union(self, union_dims)
+    
     def item(self) -> Number:
         """
         Return the value of a 0-dimensional tensor as a standard Python number.
@@ -337,6 +353,11 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     union_dims = []
     for l_dim, r_dim in zip(left.dims, right.dims):
         union_dims.append(l_dim + r_dim)
+
+    # Expand BroadcastSpace to the union StateSpace to ensure data expansion
+    left = left.expand_to_union(union_dims)
+    right = right.expand_to_union(union_dims)
+
     # calculate the new shape
     new_shape = tuple(u.size for u in union_dims)
     new_data = torch.zeros(new_shape, dtype=left.data.dtype, device=left.data.device)
@@ -585,3 +606,29 @@ def rank(tensor: Tensor) -> int:
         The rank of the tensor.
     """
     return len(tensor.dims)
+
+def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
+    """
+    Expand BroadcastSpace dimensions in the tensor to match union_dims sizes.
+    Performs expansion in a single pass to avoid intermediate Tensor creation.
+    """
+
+    if not any(isinstance(d, hilbert.BroadcastSpace) for d in tensor.dims):
+        return tensor
+    target_shape = []
+    new_dims = []
+    needs_expansion = False
+
+    for dim, u_dim, size in zip(tensor.dims, union_dims, tensor.data.shape):
+        if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(u_dim, hilbert.BroadcastSpace):
+            target_shape.append(u_dim.size)
+            new_dims.append(u_dim)
+            needs_expansion = True
+        else:
+            target_shape.append(size)
+            new_dims.append(dim)
+
+    if not needs_expansion:
+        return tensor
+
+    return Tensor(data=tensor.data.expand(target_shape), dims=tuple(new_dims))
