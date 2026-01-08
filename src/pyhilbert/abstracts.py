@@ -29,6 +29,9 @@ class Operable(ABC):
     def __pow__(self, other: 'Operable'):
         return operator_pow(self, other)
     
+    def __eq__(self, value):
+        return operator_eq(self, value)
+    
     def __lt__(self, other: 'Operable'):
         return operator_lt(self, other)
     
@@ -86,6 +89,11 @@ def operator_floordiv(a, b):
 @dispatch(Operable, Operable)
 def operator_pow(a, b):
     return NotImplementedError(f'Exponentiation of {type(a)} and {type(b)} is not supported!')
+
+
+@dispatch(Operable, Operable)
+def operator_eq(a, b):
+    return NotImplementedError(f'Equality comparison of {type(a)} and {type(b)} is not supported!')
 
 
 @dispatch(Operable, Operable)
