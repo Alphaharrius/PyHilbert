@@ -19,29 +19,32 @@ def plot_structure(obj: Lattice,
                    show: bool = True,
                    **kwargs) -> go.Figure:
     """
-    Plots the structure of the lattice (sites, bonds, spins).
-    
+    Visualize the lattice structure using Plotly.
+
+    This function creates an interactive 3D or 2D plot of the lattice structure,
+    including sites, bonds, and optional spin vectors.
+
     Parameters
     ----------
-    obj : `Lattice`
-        The lattice to plot.
-    subs : `Optional[Dict]`
-        Dictionary of symbol substitutions.
-    basis_offsets : `Optional[List[Offset]]`
-        List of basis atom offsets.
-    spin_data : `Optional[Union[np.ndarray, torch.Tensor]]`
-        Array of spin vectors for each site.
-    plot_type : `str`
-        The type of plot to generate.
-    show : `bool`
-        Whether to display the plot immediately.
-    **kwargs : `Any`
-        Additional keyword arguments.
-        
+    obj : Lattice
+        The lattice instance to visualize.
+    subs : dict, optional
+        Dictionary of symbol substitutions for lattice parameters.
+    basis_offsets : list of Offset, optional
+        Offsets for basis atoms within the unit cell.
+    spin_data : array-like, optional
+        (N_sites, 3) array of spin vectors.
+    plot_type : {'edge-and-node', 'scatter'}, default 'edge-and-node'
+        Visualization style.
+    show : bool, default True
+        If True, calls `fig.show()` to display the plot immediately.
+    **kwargs
+        Additional keyword arguments passed to `go.Figure`.
+
     Returns
     -------
-    `go.Figure`
-        The plot figure.
+    plotly.graph_objects.Figure
+        The Plotly figure object.
     """
     valid_types = ['edge-and-node', 'scatter']
     if plot_type not in valid_types:
@@ -144,7 +147,26 @@ def plot_heatmap(obj: Union[np.ndarray, torch.Tensor, object],
                  show: bool = True,
                  **kwargs) -> go.Figure:
     """
-    Plots a heatmap of the tensor (matrix). 
+    Plot a heatmap of a matrix using Plotly.
+
+    Handles complex matrices by showing Real and Imaginary parts side-by-side
+    with a shared symmetric color scale.
+
+    Parameters
+    ----------
+    obj : array-like or Tensor
+        2D matrix to visualize.
+    title : str, default "Matrix Visualization"
+        Title of the plot.
+    show : bool, default True
+        Whether to show the plot immediately.
+    **kwargs
+        Additional keyword arguments.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        The Plotly figure.
     """
     # 1. Standardize to PyTorch Tensor on CPU
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
@@ -201,7 +223,23 @@ def plot_spectrum(obj: Union[np.ndarray, torch.Tensor, object],
                  show: bool = True,
                  **kwargs) -> go.Figure:
     """
-    Plots the eigenvalue spectrum of the tensor (matrix).
+    Plot the eigenvalue spectrum using Plotly.
+
+    Parameters
+    ----------
+    obj : array-like or Tensor
+        2D matrix to analyze.
+    title : str, default "Spectrum Visualization"
+        Title of the plot.
+    show : bool, default True
+        Whether to show the plot immediately.
+    **kwargs
+        Additional keyword arguments.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        The Plotly figure.
     """
     # 1. Standardize to PyTorch Tensor
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
@@ -273,7 +311,29 @@ def plot_bandstructure(obj: Union[np.ndarray, torch.Tensor, object],
                        show: bool = True,
                        **kwargs) -> go.Figure:
     """
-    Plots the band structure using provided energies and k-path data.
+    Plot electronic band structure using Plotly.
+
+    Parameters
+    ----------
+    obj : array-like or Tensor
+        (N_k, N_bands) array of energy eigenvalues.
+    k_distances : array-like, optional
+        (N_k,) array of cumulative distances.
+    k_node_indices : list of int, optional
+        Indices of high-symmetry points.
+    k_node_labels : list of str, optional
+        Labels for high-symmetry points.
+    title : str, default "Band Structure"
+        Title of the plot.
+    show : bool, default True
+        Whether to show the plot immediately.
+    **kwargs
+        Additional keyword arguments.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        The Plotly figure.
     """
     # Standardize inputs
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
