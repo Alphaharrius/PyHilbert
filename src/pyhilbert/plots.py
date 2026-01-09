@@ -2,10 +2,10 @@ import torch
 import numpy as np
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
-from typing import Optional, List, Union, Dict, Callable
+from typing import Optional, List, Union, Dict
 from .abstracts import Plottable
 from .spatials import Lattice, Offset
-from .utils import compute_bonds, generate_k_path
+from .utils import compute_bonds
 from plotly.subplots import make_subplots
 
 # --- Registered Plot Methods ---
