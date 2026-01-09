@@ -6,7 +6,7 @@ import plotly.figure_factory as ff
 from typing import Optional, List, Union, Dict, Callable
 from .abstracts import Plottable
 from .spatials import Lattice, cartes, Offset
-
+from plotly.subplots import make_subplots
 # --- Helper Functions ---
 
 def _compute_all_coords(lattice: Lattice, basis_offsets: Optional[List[Offset]] = None, subs: Optional[Dict] = None) -> torch.Tensor:
@@ -124,13 +124,27 @@ def plot_structure(obj: Lattice,
     """
     Plots the structure of the lattice (sites, bonds, spins).
     
-    Args:
-        obj: The Lattice object.
-        subs: Dictionary of symbol substitutions.
-        basis_offsets: List of basis atom offsets.
-        spin_data: Array of spin vectors for each site.
-        plot_type: 'edge-and-node' (default) or 'scatter'.
-        show: Whether to display the plot immediately.
+    Parameters
+    ----------
+    obj : `Lattice`
+        The lattice to plot.
+    subs : `Optional[Dict]`
+        Dictionary of symbol substitutions.
+    basis_offsets : `Optional[List[Offset]]`
+        List of basis atom offsets.
+    spin_data : `Optional[Union[np.ndarray, torch.Tensor]]`
+        Array of spin vectors for each site.
+    plot_type : `str`
+        The type of plot to generate.
+    show : `bool`
+        Whether to display the plot immediately.
+    **kwargs : `Any`
+        Additional keyword arguments.
+        
+    Returns
+    -------
+    `go.Figure`
+        The plot figure.
     """
     valid_types = ['edge-and-node', 'scatter']
     if plot_type not in valid_types:
@@ -211,22 +225,30 @@ def plot_structure(obj: Lattice,
     return fig
 
 
-from plotly.subplots import make_subplots
-
 @Plottable.register_plot_method('heatmap', backend='plotly')
-def plot_heatmap(obj: Union[np.ndarray, torch.Tensor], 
+def plot_heatmap(obj: Union[np.ndarray, torch.Tensor, object], 
                  title: str = "Matrix Visualization", 
                  show: bool = True,
                  **kwargs) -> go.Figure:
     """
     Plots a heatmap of the tensor (matrix). 
-    If complex, plots Real and Imaginary parts side-by-side.
+
+    Parameters
+    ----------
+    obj : `Union[np.ndarray, torch.Tensor, object]`
+        The matrix to plot.
+    title : `str`
+        The title of the plot.
+    show : `bool`
+        Whether to display the plot immediately.
+
+    Returns
+    -------
+    `go.Figure`
+        The plot figure.
+
+    If complex, plots Real and Imaginary parts side-by-side sharing the same color scale.
     """
-    # Handle tensor input (obj might be the tensor itself if called via Plottable, 
-    # but Plottable is usually a mixin for classes. 
-    # If this method is registered on a Tensor class, obj is self).
-    
-    # If obj has a .data attribute (like our custom Tensor class), use that
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
         matrix = obj.data.detach().cpu().numpy()
     elif isinstance(obj, torch.Tensor):
@@ -243,11 +265,31 @@ def plot_heatmap(obj: Union[np.ndarray, torch.Tensor],
         real_part = np.real(matrix)
         imag_part = np.imag(matrix)
         
+        # Calculate global range for shared color scale centered at 0
+        limit = max(np.abs(real_part).max(), np.abs(imag_part).max())
+        
         fig = make_subplots(rows=1, cols=2, subplot_titles=("Real Part", "Imaginary Part"))
-        fig.add_trace(go.Heatmap(z=real_part, colorscale='RdBu', zmid=0, showscale=True), row=1, col=1)
-        fig.add_trace(go.Heatmap(z=imag_part, colorscale='RdBu', zmid=0, showscale=True), row=1, col=2)
+        
+        # First trace: no colorbar
+        fig.add_trace(go.Heatmap(z=real_part, 
+                                 colorscale='RdBu', 
+                                 zmin=-limit, zmax=limit,
+                                 showscale=False), 
+                      row=1, col=1)
+                      
+        # Second trace: with colorbar
+        fig.add_trace(go.Heatmap(z=imag_part, 
+                                 colorscale='RdBu', 
+                                 zmin=-limit, zmax=limit,
+                                 showscale=True), 
+                      row=1, col=2)
     else:
-        fig = go.Figure(data=go.Heatmap(z=matrix, colorscale='RdBu', zmid=0, showscale=True))
+        # Real matrix
+        limit = np.abs(matrix).max()
+        fig = go.Figure(data=go.Heatmap(z=matrix, 
+                                        colorscale='RdBu', 
+                                        zmin=-limit, zmax=limit,
+                                        showscale=True))
         
     # Matrix convention: y-axis 0 at top
     fig.update_yaxes(autorange="reversed") 
@@ -256,3 +298,28 @@ def plot_heatmap(obj: Union[np.ndarray, torch.Tensor],
     if show:
         fig.show()
     return fig
+
+@Plottable.register_plot_method('spectrum', backend='plotly')
+def plot_spectrum(obj: Union[np.ndarray, torch.Tensor, object], 
+                 title: str = "Spectrum Visualization", 
+                 show: bool = True,
+                 **kwargs) -> go.Figure:
+    """
+    Plots the spectrum of the tensor (matrix).
+    
+    Parameters
+    ----------
+    obj : `Union[np.ndarray, torch.Tensor, object]`
+        The matrix to plot.
+    title : `str`
+        The title of the plot.
+    show : `bool`
+        Whether to display the plot immediately.
+    **kwargs : `Any`
+        Additional keyword arguments.
+
+    Returns
+    -------
+    `go.Figure`
+    """
+    return go.Figure()
