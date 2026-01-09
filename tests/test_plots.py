@@ -7,9 +7,7 @@ from pyhilbert.spatials import Lattice
 from pyhilbert.tensors import Tensor
 from pyhilbert.hilbert import hilbert, Mode
 from pyhilbert.utils import FrozenDict, generate_k_path
-import pyhilbert.plots
-import pyhilbert.plots_mpl
-
+# Plotting backends are now registered automatically via pyhilbert import in __init__.py
 
 def create_dummy_tensor(data_np):
     """Creates a valid pyhilbert.tensors.Tensor from numpy data."""
