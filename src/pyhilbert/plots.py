@@ -111,6 +111,68 @@ def _generate_bonds_trace(coords: torch.Tensor, dim: int) -> Optional[Union[go.S
             showlegend=False
         )
 
+def generate_k_path(points: Dict[str, Union[List, np.ndarray, torch.Tensor]], 
+                    path_labels: List[str], 
+                    resolution: int = 30) -> tuple:
+    """
+    Generates a k-path through high-symmetry points.
+    
+    Args:
+        points: Dictionary mapping labels to coordinates (e.g. {'G': [0,0], 'M': [0.5, 0.5]})
+        path_labels: List of labels defining the path (e.g. ['G', 'M', 'K', 'G'])
+        resolution: Number of points per segment.
+        
+    Returns:
+        (k_vecs, k_dist, node_indices)
+        k_vecs: Tensor of k-vectors (N, D)
+        k_dist: Tensor of cumulative distances (N,)
+        node_indices: List of indices for the high-symmetry points.
+    """
+    k_vecs_list = []
+    node_indices = [0]
+    
+    # Convert points to numpy for easier math
+    pts_np = {}
+    for k, v in points.items():
+        if isinstance(v, torch.Tensor):
+            pts_np[k] = v.detach().cpu().numpy().astype(float)
+        else:
+            pts_np[k] = np.array(v, dtype=float)
+    
+    for i in range(len(path_labels) - 1):
+        start_label = path_labels[i]
+        end_label = path_labels[i+1]
+        
+        start_vec = pts_np[start_label]
+        end_vec = pts_np[end_label]
+        
+        # Determine number of points
+        # If it's the last segment, include the end point
+        is_last = (i == len(path_labels) - 2)
+        num = resolution + 1 if is_last else resolution
+        
+        t = np.linspace(0, 1, num, endpoint=is_last)
+        
+        for ti in t:
+            vec = (1 - ti) * start_vec + ti * end_vec
+            k_vecs_list.append(vec)
+            
+        # The next node is at the current total length of list
+        # Note: k_vecs_list length grows by 'resolution' each time (except last)
+        next_idx = len(k_vecs_list) - 1
+        node_indices.append(next_idx)
+
+    k_vecs = torch.tensor(np.array(k_vecs_list), dtype=torch.float64)
+    
+    # Recalculate distances precisely from the vectors
+    if len(k_vecs) > 0:
+        diffs = torch.norm(k_vecs[1:] - k_vecs[:-1], dim=1)
+        k_dist = torch.cat([torch.tensor([0.0], dtype=torch.float64), torch.cumsum(diffs, dim=0)])
+    else:
+        k_dist = torch.tensor([], dtype=torch.float64)
+    
+    return k_vecs, k_dist, node_indices
+
 # --- Registered Plot Methods ---
 
 @Plottable.register_plot_method('structure', backend='plotly')
@@ -249,49 +311,48 @@ def plot_heatmap(obj: Union[np.ndarray, torch.Tensor, object],
 
     If complex, plots Real and Imaginary parts side-by-side sharing the same color scale.
     """
+    # 1. Standardize to PyTorch Tensor on CPU
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
-        matrix = obj.data.detach().cpu().numpy()
+        tensor = obj.data.detach().cpu()
     elif isinstance(obj, torch.Tensor):
-        matrix = obj.detach().cpu().numpy()
+        tensor = obj.detach().cpu()
     else:
-        matrix = np.array(obj)
+        tensor = torch.from_numpy(np.array(obj))
         
-    if matrix.ndim != 2:
-        raise ValueError(f"Heatmap requires a 2D matrix, got shape {matrix.shape}")
+    if tensor.ndim != 2:
+        raise ValueError(f"Heatmap requires a 2D matrix, got shape {tensor.shape}")
 
-    is_complex = np.iscomplexobj(matrix)
+    is_complex = tensor.is_complex()
     
     if is_complex:
-        real_part = np.real(matrix)
-        imag_part = np.imag(matrix)
+        real_part = tensor.real
+        imag_part = tensor.imag
         
-        # Calculate global range for shared color scale centered at 0
-        limit = max(np.abs(real_part).max(), np.abs(imag_part).max())
+        # Calculate global range using torch
+        limit = max(torch.abs(real_part).max(), torch.abs(imag_part).max()).item()
         
         fig = make_subplots(rows=1, cols=2, subplot_titles=("Real Part", "Imaginary Part"))
         
-        # First trace: no colorbar
-        fig.add_trace(go.Heatmap(z=real_part, 
+        # Convert to numpy only for Plotly
+        fig.add_trace(go.Heatmap(z=real_part.numpy(), 
                                  colorscale='RdBu', 
                                  zmin=-limit, zmax=limit,
                                  showscale=False), 
                       row=1, col=1)
                       
-        # Second trace: with colorbar
-        fig.add_trace(go.Heatmap(z=imag_part, 
+        fig.add_trace(go.Heatmap(z=imag_part.numpy(), 
                                  colorscale='RdBu', 
                                  zmin=-limit, zmax=limit,
                                  showscale=True), 
                       row=1, col=2)
     else:
         # Real matrix
-        limit = np.abs(matrix).max()
-        fig = go.Figure(data=go.Heatmap(z=matrix, 
+        limit = torch.abs(tensor).max().item()
+        fig = go.Figure(data=go.Heatmap(z=tensor.numpy(), 
                                         colorscale='RdBu', 
                                         zmin=-limit, zmax=limit,
                                         showscale=True))
         
-    # Matrix convention: y-axis 0 at top
     fig.update_yaxes(autorange="reversed") 
     fig.update_layout(title=title)
     
@@ -305,7 +366,9 @@ def plot_spectrum(obj: Union[np.ndarray, torch.Tensor, object],
                  show: bool = True,
                  **kwargs) -> go.Figure:
     """
-    Plots the spectrum of the tensor (matrix).
+    Plots the eigenvalue spectrum of the tensor (matrix).
+    If Hermitian/Symmetric, plots sorted real eigenvalues.
+    If non-Hermitian, plots eigenvalues in the complex plane.
     
     Parameters
     ----------
@@ -322,4 +385,155 @@ def plot_spectrum(obj: Union[np.ndarray, torch.Tensor, object],
     -------
     `go.Figure`
     """
-    return go.Figure()
+    # 1. Standardize to PyTorch Tensor
+    if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
+        tensor = obj.data.detach().cpu()
+    elif isinstance(obj, torch.Tensor):
+        tensor = obj.detach().cpu()
+    else:
+        tensor = torch.from_numpy(np.array(obj))
+        
+    if tensor.ndim != 2:
+        raise ValueError(f"Spectrum requires a 2D matrix, got shape {tensor.shape}")
+
+    # 2. Check for Hermiticity (M == M.H)
+    is_complex = tensor.is_complex()
+    is_hermitian = False
+    
+    # Calculate Frobenius norm once
+    norm = torch.norm(tensor)
+    if norm > 0:
+        if is_complex:
+            diff = torch.norm(tensor - tensor.conj().T)
+        else:
+            diff = torch.norm(tensor - tensor.T)
+        
+        if diff / norm < 1e-5:
+            is_hermitian = True
+    else:
+        is_hermitian = True # Zero matrix is Hermitian
+
+    fig = go.Figure()
+
+    # 3. Calculate and Plot
+    if is_hermitian:
+        # Returns real values sorted in ascending order
+        # If matrix was real but just symmetric, eigvalsh still works fine
+        evals = torch.linalg.eigvalsh(tensor)
+        y_vals = evals.numpy()
+        x_vals = np.arange(len(y_vals))
+        
+        fig.add_trace(go.Scatter(x=x_vals, y=y_vals, 
+                                 mode='markers+lines', 
+                                 marker=dict(size=6, color='blue'),
+                                 name='Eigenvalues'))
+        fig.update_layout(xaxis_title="Index", yaxis_title="Eigenvalue")
+    else:
+        # General case (Complex plane)
+        evals = torch.linalg.eigvals(tensor)
+        real_parts = evals.real.numpy()
+        imag_parts = evals.imag.numpy()
+        
+        fig.add_trace(go.Scatter(x=real_parts, y=imag_parts, 
+                                 mode='markers', 
+                                 marker=dict(size=8, color='red'),
+                                 name='Eigenvalues'))
+        fig.update_layout(xaxis_title="Real Part", yaxis_title="Imaginary Part")
+        fig.update_yaxes(scaleanchor="x", scaleratio=1)
+
+    fig.update_layout(title=title)
+    
+    if show:
+        fig.show()
+    return fig
+
+@Plottable.register_plot_method('bandstructure', backend='plotly')
+def plot_bandstructure(obj: Union[np.ndarray, torch.Tensor, object],
+                       k_distances: Optional[Union[np.ndarray, torch.Tensor]] = None,
+                       k_node_indices: Optional[List[int]] = None,
+                       k_node_labels: Optional[List[str]] = None,
+                       title: str = "Band Structure",
+                       show: bool = True,
+                       **kwargs) -> go.Figure:
+    """
+    Plots the band structure using provided energies and k-path data.
+    
+    Parameters
+    ----------
+    obj : `Union[np.ndarray, torch.Tensor, object]`
+        (N_k, N_bands) array of eigenvalues or Tensor object.
+    k_distances : `Optional[Union[np.ndarray, torch.Tensor]]`
+        (N_k,) array of cumulative distances along the k-path.
+    k_node_indices : `Optional[List[int]]`
+        Indices of high-symmetry points in the path.
+    k_node_labels : `Optional[List[str]]`
+        Labels for the high-symmetry points.
+    title : `str`
+        Plot title.
+    show : `bool`
+        Whether to show the plot.
+        
+    Returns
+    -------
+    `go.Figure`
+    """
+    # Standardize inputs
+    if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
+        energies = obj.data.detach().cpu().numpy()
+    elif isinstance(obj, torch.Tensor):
+        energies = obj.detach().cpu().numpy()
+    else:
+        energies = np.array(obj)
+
+    if isinstance(k_distances, torch.Tensor):
+        k_distances = k_distances.detach().cpu().numpy()
+        
+    if energies.ndim != 2:
+        raise ValueError(f"Energies must be 2D (N_k, N_bands), got {energies.shape}")
+        
+    num_k, num_bands = energies.shape
+    
+    if k_distances is None:
+        k_distances = np.arange(num_k)
+        
+    fig = go.Figure()
+    
+    # Plot bands
+    for b in range(num_bands):
+        fig.add_trace(go.Scatter(
+            x=k_distances,
+            y=energies[:, b],
+            mode='lines',
+            line=dict(color='black', width=1.5),
+            name=f'Band {b}',
+            showlegend=False
+        ))
+        
+    # Vertical lines and ticks
+    if k_node_indices:
+        tick_vals = []
+        tick_text = []
+        labels = k_node_labels if k_node_labels else [str(i) for i in k_node_indices]
+        
+        for idx, label in zip(k_node_indices, labels):
+            if 0 <= idx < len(k_distances):
+                x_val = k_distances[idx]
+                tick_vals.append(x_val)
+                tick_text.append(label)
+                
+                # Vertical line
+                fig.add_vline(x=x_val, line_width=1, line_dash="dash", line_color="grey")
+                
+        if tick_vals:
+            fig.update_xaxes(tickvals=tick_vals, ticktext=tick_text)
+            
+    fig.update_layout(
+        title=title,
+        xaxis_title="Wave Vector",
+        yaxis_title="Energy",
+        template="simple_white"
+    )
+    
+    if show:
+        fig.show()
+    return fig
