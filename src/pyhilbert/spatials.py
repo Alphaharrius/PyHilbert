@@ -11,11 +11,11 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix, sympify
 
 from .utils import FrozenDict
-from .abstracts import Operable, HasDual
+from .abstracts import Operable, HasDual, Plottable
 
 
 @dataclass(frozen=True)
-class Spatial(Operable, ABC):
+class Spatial(Operable, Plottable, ABC):
     @property
     @abstractmethod
     def dim(self) -> int:
