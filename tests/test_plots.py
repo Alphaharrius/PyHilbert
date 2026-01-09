@@ -1,17 +1,15 @@
 import torch
 import numpy as np
 import sympy as sy
-import sys
 import os
-
-# Ensure src is in path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from pyhilbert.spatials import Lattice
 from pyhilbert.tensors import Tensor
 from pyhilbert.hilbert import hilbert, Mode
-from pyhilbert.utils import FrozenDict
-from pyhilbert.plots import generate_k_path
+from pyhilbert.utils import FrozenDict, generate_k_path
+import pyhilbert.plots
+import pyhilbert.plots_mpl
+
 
 def create_dummy_tensor(data_np):
     """Creates a valid pyhilbert.tensors.Tensor from numpy data."""
@@ -35,6 +33,11 @@ def create_dummy_tensor(data_np):
 
 def run_demo():
     print("=== Running Plotting Demo (Object-Oriented API) ===")
+    
+    # Ensure img directory exists
+    img_dir = './tests/img'
+    os.makedirs(img_dir, exist_ok=True)
+    print(f"   Created directory '{img_dir}' for output images.")
     
     # --- Heatmap Demo ---
     print("\n1. Heatmap (Complex Random Matrix)")
@@ -124,6 +127,43 @@ def run_demo():
                                      show=True)
     print("   Generated Square Lattice Band Structure Plot")
 
+    print("\n--- Testing Matplotlib Backend (Saving to ./img/) ---")
+    
+    # MPL Heatmap
+    print("\n6. MPL Heatmap")
+    tensor_h.plot('heatmap', backend='matplotlib', title="Hermitian Matrix (MPL)", 
+                  save_path=os.path.join(img_dir, 'heatmap_hermitian.png'))
+    print("   Saved heatmap_hermitian.png")
+    
+    # MPL Structure 2D
+    print("\n7. MPL Structure 2D")
+    lattice.plot('structure', backend='matplotlib', subs={a: 1.5},
+                 save_path=os.path.join(img_dir, 'structure_2d.png'))
+    print("   Saved structure_2d.png")
+    
+    # MPL Structure 3D (with custom angles)
+    print("\n8. MPL Structure 3D")
+    lattice_3d.plot('structure', backend='matplotlib', subs={a: 1.0}, elev=20, azim=45,
+                    save_path=os.path.join(img_dir, 'structure_3d.png'))
+    print("   Saved structure_3d.png")
+    
+    # MPL Spectrum
+    print("\n9. MPL Spectrum")
+    tensor_m.plot('spectrum', backend='matplotlib', title="Non-Hermitian Spectrum (MPL)",
+                  save_path=os.path.join(img_dir, 'spectrum_complex.png'))
+    print("   Saved spectrum_complex.png")
+    
+    # MPL Band Structure
+    print("\n10. MPL Band Structure")
+    energies_tensor.plot('bandstructure', backend='matplotlib',
+                         k_distances=k_dists, 
+                         k_node_indices=nodes, 
+                         k_node_labels=path,
+                         title="Square Lattice Bands (MPL)",
+                         save_path=os.path.join(img_dir, 'bandstructure.svg'))
+    print("   Saved bandstructure.svg")
+
+    print(f"\nAll Matplotlib plots saved to {os.path.abspath(img_dir)}")
     print("\n=== Demo Completed ===")
 
 if __name__ == "__main__":
