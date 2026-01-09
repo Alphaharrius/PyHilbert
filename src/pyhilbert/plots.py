@@ -1,177 +1,12 @@
 import torch
 import numpy as np
-import sympy as sy
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
 from typing import Optional, List, Union, Dict, Callable
 from .abstracts import Plottable
-from .spatials import Lattice, cartes, Offset
+from .spatials import Lattice, Offset
+from .utils import compute_bonds, generate_k_path
 from plotly.subplots import make_subplots
-# --- Helper Functions ---
-
-def _compute_all_coords(lattice: Lattice, basis_offsets: Optional[List[Offset]] = None, subs: Optional[Dict] = None) -> torch.Tensor:
-    """
-    Vectorized calculation of all site coordinates.
-    Avoids running SymPy substitution inside the loop.
-    """
-    basis_sym = lattice.basis
-    if subs:
-        basis_eval = basis_sym.subs(subs)
-    else:
-        basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
-    
-    try:
-        basis_mat = torch.tensor(np.array(basis_eval).astype(np.float64), dtype=torch.float64)
-    except Exception as e:
-         raise ValueError(f"Basis matrix contains unresolved symbols: {basis_eval.free_symbols}") from e
-
-    lat_offsets = cartes(lattice) 
-    
-    lat_reps = []
-    for off in lat_offsets:
-        lat_reps.append(np.array(off.rep).flatten().astype(np.float64))
-    
-    if not lat_reps:
-        return torch.empty((0, lattice.dim))
-
-    lat_tensor = torch.tensor(np.array(lat_reps), dtype=torch.float64) # (N_cells, Dim)
-
-    if basis_offsets is None:
-         basis_offsets = [Offset(rep=sy.ImmutableDenseMatrix([0]*lattice.dim), space=lattice.affine)]
-    
-    basis_reps = []
-    for off in basis_offsets:
-        rep = off.rep
-        if subs:
-             rep = rep.subs(subs)
-        basis_reps.append(np.array(rep).flatten().astype(np.float64))
-        
-    basis_tensor = torch.tensor(np.array(basis_reps), dtype=torch.float64) # (N_basis, Dim)
-
-    total_crystal = lat_tensor.unsqueeze(1) + basis_tensor.unsqueeze(0)
-    
-    total_crystal_flat = total_crystal.view(-1, lattice.dim)
-    
-    coords = total_crystal_flat @ basis_mat.T
-    
-    return coords
-
-def _generate_bonds_trace(coords: torch.Tensor, dim: int) -> Optional[Union[go.Scatter, go.Scatter3d]]:
-    """Generate bond lines connecting nearest neighbors using PyTorch."""
-    if coords.size(0) < 2:
-        return None
-        
-    diff = coords.unsqueeze(1) - coords.unsqueeze(0)
-    dists = torch.norm(diff, dim=-1)
-    
-    dists.fill_diagonal_(float('inf'))
-    
-    min_dist = torch.min(dists)
-    if torch.isinf(min_dist):
-        return None
-        
-    tol = 1e-4
-    pairs = torch.nonzero(dists <= min_dist + tol)
-    pairs = pairs[pairs[:, 0] < pairs[:, 1]]
-    
-    if pairs.size(0) == 0:
-        return None
-
-    p1 = coords[pairs[:, 0]]
-    p2 = coords[pairs[:, 1]]
-    
-    p1_np = p1.numpy()
-    p2_np = p2.numpy()
-    
-    x_lines = []
-    y_lines = []
-    z_lines = []
-    nan = None
-    
-    for i in range(len(p1_np)):
-        x_lines.extend([p1_np[i, 0], p2_np[i, 0], nan])
-        y_lines.extend([p1_np[i, 1], p2_np[i, 1], nan])
-        if dim == 3:
-            z_lines.extend([p1_np[i, 2], p2_np[i, 2], nan])
-    
-    if dim == 3:
-        return go.Scatter3d(
-            x=x_lines, y=y_lines, z=z_lines,
-            mode='lines',
-            line=dict(color='black', width=1),
-            name='Bonds',
-            showlegend=False
-        )
-    else:
-        return go.Scatter(
-            x=x_lines, y=y_lines,
-            mode='lines',
-            line=dict(color='black', width=2),
-            name='Bonds',
-            showlegend=False
-        )
-
-def generate_k_path(points: Dict[str, Union[List, np.ndarray, torch.Tensor]], 
-                    path_labels: List[str], 
-                    resolution: int = 30) -> tuple:
-    """
-    Generates a k-path through high-symmetry points.
-    
-    Args:
-        points: Dictionary mapping labels to coordinates (e.g. {'G': [0,0], 'M': [0.5, 0.5]})
-        path_labels: List of labels defining the path (e.g. ['G', 'M', 'K', 'G'])
-        resolution: Number of points per segment.
-        
-    Returns:
-        (k_vecs, k_dist, node_indices)
-        k_vecs: Tensor of k-vectors (N, D)
-        k_dist: Tensor of cumulative distances (N,)
-        node_indices: List of indices for the high-symmetry points.
-    """
-    k_vecs_list = []
-    node_indices = [0]
-    
-    # Convert points to numpy for easier math
-    pts_np = {}
-    for k, v in points.items():
-        if isinstance(v, torch.Tensor):
-            pts_np[k] = v.detach().cpu().numpy().astype(float)
-        else:
-            pts_np[k] = np.array(v, dtype=float)
-    
-    for i in range(len(path_labels) - 1):
-        start_label = path_labels[i]
-        end_label = path_labels[i+1]
-        
-        start_vec = pts_np[start_label]
-        end_vec = pts_np[end_label]
-        
-        # Determine number of points
-        # If it's the last segment, include the end point
-        is_last = (i == len(path_labels) - 2)
-        num = resolution + 1 if is_last else resolution
-        
-        t = np.linspace(0, 1, num, endpoint=is_last)
-        
-        for ti in t:
-            vec = (1 - ti) * start_vec + ti * end_vec
-            k_vecs_list.append(vec)
-            
-        # The next node is at the current total length of list
-        # Note: k_vecs_list length grows by 'resolution' each time (except last)
-        next_idx = len(k_vecs_list) - 1
-        node_indices.append(next_idx)
-
-    k_vecs = torch.tensor(np.array(k_vecs_list), dtype=torch.float64)
-    
-    # Recalculate distances precisely from the vectors
-    if len(k_vecs) > 0:
-        diffs = torch.norm(k_vecs[1:] - k_vecs[:-1], dim=1)
-        k_dist = torch.cat([torch.tensor([0.0], dtype=torch.float64), torch.cumsum(diffs, dim=0)])
-    else:
-        k_dist = torch.tensor([], dtype=torch.float64)
-    
-    return k_vecs, k_dist, node_indices
 
 # --- Registered Plot Methods ---
 
@@ -212,7 +47,8 @@ def plot_structure(obj: Lattice,
     if plot_type not in valid_types:
         raise ValueError(f"Invalid plot_type '{plot_type}'. Options: {valid_types}")
 
-    coords = _compute_all_coords(obj, basis_offsets, subs)
+    # Use method on Lattice object
+    coords = obj.compute_coords(basis_offsets, subs)
     coords_np = coords.numpy()
     
     x = coords_np[:, 0]
@@ -223,9 +59,24 @@ def plot_structure(obj: Lattice,
 
     # Bonds (Only for 'edge-and-node')
     if plot_type == 'edge-and-node':
-        bonds_trace = _generate_bonds_trace(coords, obj.dim)
-        if bonds_trace:
-            fig.add_trace(bonds_trace)
+        x_lines, y_lines, z_lines = compute_bonds(coords, obj.dim)
+        if x_lines:
+            if obj.dim == 3:
+                fig.add_trace(go.Scatter3d(
+                    x=x_lines, y=y_lines, z=z_lines,
+                    mode='lines',
+                    line=dict(color='black', width=1),
+                    name='Bonds',
+                    showlegend=False
+                ))
+            else:
+                fig.add_trace(go.Scatter(
+                    x=x_lines, y=y_lines,
+                    mode='lines',
+                    line=dict(color='black', width=2),
+                    name='Bonds',
+                    showlegend=False
+                ))
 
     # Sites
     num_basis = len(basis_offsets) if basis_offsets else 1
@@ -294,22 +145,6 @@ def plot_heatmap(obj: Union[np.ndarray, torch.Tensor, object],
                  **kwargs) -> go.Figure:
     """
     Plots a heatmap of the tensor (matrix). 
-
-    Parameters
-    ----------
-    obj : `Union[np.ndarray, torch.Tensor, object]`
-        The matrix to plot.
-    title : `str`
-        The title of the plot.
-    show : `bool`
-        Whether to display the plot immediately.
-
-    Returns
-    -------
-    `go.Figure`
-        The plot figure.
-
-    If complex, plots Real and Imaginary parts side-by-side sharing the same color scale.
     """
     # 1. Standardize to PyTorch Tensor on CPU
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
@@ -367,23 +202,6 @@ def plot_spectrum(obj: Union[np.ndarray, torch.Tensor, object],
                  **kwargs) -> go.Figure:
     """
     Plots the eigenvalue spectrum of the tensor (matrix).
-    If Hermitian/Symmetric, plots sorted real eigenvalues.
-    If non-Hermitian, plots eigenvalues in the complex plane.
-    
-    Parameters
-    ----------
-    obj : `Union[np.ndarray, torch.Tensor, object]`
-        The matrix to plot.
-    title : `str`
-        The title of the plot.
-    show : `bool`
-        Whether to display the plot immediately.
-    **kwargs : `Any`
-        Additional keyword arguments.
-
-    Returns
-    -------
-    `go.Figure`
     """
     # 1. Standardize to PyTorch Tensor
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
@@ -418,7 +236,6 @@ def plot_spectrum(obj: Union[np.ndarray, torch.Tensor, object],
     # 3. Calculate and Plot
     if is_hermitian:
         # Returns real values sorted in ascending order
-        # If matrix was real but just symmetric, eigvalsh still works fine
         evals = torch.linalg.eigvalsh(tensor)
         y_vals = evals.numpy()
         x_vals = np.arange(len(y_vals))
@@ -457,25 +274,6 @@ def plot_bandstructure(obj: Union[np.ndarray, torch.Tensor, object],
                        **kwargs) -> go.Figure:
     """
     Plots the band structure using provided energies and k-path data.
-    
-    Parameters
-    ----------
-    obj : `Union[np.ndarray, torch.Tensor, object]`
-        (N_k, N_bands) array of eigenvalues or Tensor object.
-    k_distances : `Optional[Union[np.ndarray, torch.Tensor]]`
-        (N_k,) array of cumulative distances along the k-path.
-    k_node_indices : `Optional[List[int]]`
-        Indices of high-symmetry points in the path.
-    k_node_labels : `Optional[List[str]]`
-        Labels for the high-symmetry points.
-    title : `str`
-        Plot title.
-    show : `bool`
-        Whether to show the plot.
-        
-    Returns
-    -------
-    `go.Figure`
     """
     # Standardize inputs
     if hasattr(obj, 'data') and isinstance(obj.data, torch.Tensor):
