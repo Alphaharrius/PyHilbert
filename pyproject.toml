@@ -34,6 +34,13 @@ cu130 = [
   "torchvision>=0.22.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "tox>=4.0.0",
+    "tox-uv>=1.0.0",
+]
+
 [tool.uv]
 package = true
 
