@@ -30,11 +30,11 @@ class Mode(Spatial, Updatable):
         raise NotImplementedError(f"Get item of {type(v)} is not supported!")
 
     @dispatch(str)
-    def __getitem__(self, name: str):
+    def __getitem__(self, name: str):  # type: ignore[no-redef]
         return self.attr[name]
 
     @dispatch(tuple)
-    def __getitem__(self, names: Tuple[str, ...]):
+    def __getitem__(self, names: Tuple[str, ...]):  # type: ignore[no-redef]
         items = {name: self.attr[name] for name in names}
         return replace(self, attr=FrozenDict(items))
 
@@ -324,31 +324,31 @@ class BroadcastSpace(StateSpace):
 
 
 @dispatch(BroadcastSpace, BroadcastSpace)
-def same_span(a: BroadcastSpace, b: BroadcastSpace) -> bool:
+def same_span(a: BroadcastSpace, b: BroadcastSpace) -> bool:  # type: ignore[no-redef]
     return True
 
 
 @dispatch(StateSpace, BroadcastSpace)
-def same_span(a: StateSpace, b: BroadcastSpace) -> bool:
+def same_span(a: StateSpace, b: BroadcastSpace) -> bool:  # type: ignore[no-redef]
     return True
 
 
 @dispatch(BroadcastSpace, StateSpace)
-def same_span(a: BroadcastSpace, b: StateSpace) -> bool:
+def same_span(a: BroadcastSpace, b: StateSpace) -> bool:  # type: ignore[no-redef]
     return True
 
 
 # The set union of any StateSpace with a BroadcastSpace is a BroadcastSpace
 @dispatch(BroadcastSpace, BroadcastSpace)
-def operator_add(a: BroadcastSpace, b: BroadcastSpace):
+def operator_add(a: BroadcastSpace, b: BroadcastSpace):  # type: ignore[no-redef]
     return BroadcastSpace()
 
 
 @dispatch(StateSpace, BroadcastSpace)
-def operator_add(a: StateSpace, b: BroadcastSpace):
+def operator_add(a: StateSpace, b: BroadcastSpace):  # type: ignore[no-redef]
     return a
 
 
 @dispatch(BroadcastSpace, StateSpace)
-def operator_add(a: BroadcastSpace, b: StateSpace):
+def operator_add(a: BroadcastSpace, b: StateSpace):  # type: ignore[no-redef]
     return b
