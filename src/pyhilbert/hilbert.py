@@ -1,5 +1,5 @@
 import types
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from typing import Tuple
 from collections import OrderedDict
 from collections.abc import Iterable
@@ -115,7 +115,7 @@ def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, 
     base = 0
     for k, s in structure.items():
         L = s.stop - s.start
-        new_structure[k] = slice(base, base + L, 1)
+        new_structure[k] = slice(base, base + L)
         base += L
     return new_structure
 
@@ -175,7 +175,7 @@ def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, 
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-def embedding_indices(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
+def embedding_order(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
     """
     Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
 
@@ -195,13 +195,14 @@ def embedding_indices(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
     sup_slices = sup.structure
     for key, _ in sub.structure.items():
         if key not in sup_slices:
-                raise ValueError(f"Key {key} not found in superspace")
+            raise ValueError(f"Key {key} not found in superspace")
         sup_slice = sup_slices[key]
         indices.append(range(sup_slice.start, sup_slice.stop))
     return tuple(chain.from_iterable(indices))
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@dispatch(StateSpace, StateSpace)
 def same_span(a: StateSpace, b: StateSpace) -> bool:
     return set(a.structure.keys()) == set(b.structure.keys())
     
@@ -209,7 +210,7 @@ def same_span(a: StateSpace, b: StateSpace) -> bool:
 @dispatch(StateSpace, StateSpace)
 def operator_add(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
-        return ValueError(f'Cannot add StateSpaces of different types: {type(a)} and {type(b)}!')
+        raise ValueError(f'Cannot add StateSpaces of different types: {type(a)} and {type(b)}!')
     new_structure = OrderedDict(
         (*a.structure.items(), *((k, v) for k, v in b.structure.items() if k not in a.structure))
     )
@@ -219,7 +220,7 @@ def operator_add(a: StateSpace, b: StateSpace):
 @dispatch(StateSpace, StateSpace)
 def operator_sub(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
-        return ValueError(f'Cannot subtract StateSpaces of different types: {type(a)} and {type(b)}!')
+        raise ValueError(f'Cannot subtract StateSpaces of different types: {type(a)} and {type(b)}!')
     new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k not in b.structure))
     return type(a)(structure=restructure(new_structure))
 
@@ -232,9 +233,14 @@ def operator_or(a: StateSpace, b: StateSpace):
 @dispatch(StateSpace, StateSpace)
 def operator_and(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
-        return ValueError(f'Cannot intersect StateSpaces of different types: {type(a)} and {type(b)}!')
+        raise ValueError(f'Cannot intersect StateSpaces of different types: {type(a)} and {type(b)}!')
     new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k in b.structure))
     return type(a)(structure=restructure(new_structure))
+
+
+@dispatch(StateSpace, StateSpace)
+def operator_eq(a: StateSpace, b: StateSpace):
+    return a.structure == b.structure
 
 
 @dataclass(frozen=True)
@@ -284,3 +290,48 @@ def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
     elements = cartes(lattice)
     structure = OrderedDict((el, slice(n, n + 1)) for n, el in enumerate(elements))
     return MomentumSpace(structure=structure)
+
+
+@dataclass(frozen=True)
+class BroadcastSpace(StateSpace):
+    structure: OrderedDict = field(default_factory=OrderedDict)
+
+    # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
+    # designed to account for the structure attribute which is an un-hashable type OrderedDict.
+    __hash__ = StateSpace.__hash__
+    
+    def __repr__(self):
+        return f'BroadcastSpace'
+    
+    __str__ = __repr__
+
+
+@dispatch(BroadcastSpace, BroadcastSpace)
+def same_span(a: BroadcastSpace, b: BroadcastSpace) -> bool:
+    return True
+
+
+@dispatch(StateSpace, BroadcastSpace)
+def same_span(a: StateSpace, b: BroadcastSpace) -> bool:
+    return True
+
+
+@dispatch(BroadcastSpace, StateSpace)
+def same_span(a: BroadcastSpace, b: StateSpace) -> bool:
+    return True
+
+
+# The set union of any StateSpace with a BroadcastSpace is a BroadcastSpace
+@dispatch(BroadcastSpace, BroadcastSpace)
+def operator_add(a: BroadcastSpace, b: BroadcastSpace):
+    return BroadcastSpace()
+
+
+@dispatch(StateSpace, BroadcastSpace)
+def operator_add(a: StateSpace, b: BroadcastSpace):
+    return a
+
+
+@dispatch(BroadcastSpace, StateSpace)
+def operator_add(a: BroadcastSpace, b: StateSpace):
+    return b
