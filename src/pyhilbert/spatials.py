@@ -99,7 +99,7 @@ def cartes(lattice: Lattice) -> Tuple[Offset, ...]:
 
 
 @dispatch(ReciprocalLattice)
-def cartes(lattice: ReciprocalLattice) -> Tuple[Momentum, ...]:
+def cartes(lattice: ReciprocalLattice) -> Tuple[Momentum, ...]: # type: ignore[no-redef]
     elements = product(*tuple(range(n) for n in lattice.shape))
     sizes = ImmutableDenseMatrix(tuple(sy.Rational(1, n) for n in lattice.shape))
     elements = (ImmutableDenseMatrix(el).multiply_elementwise(sizes) for el in elements)
@@ -152,7 +152,7 @@ class AbelianGroupOrder:
     @staticmethod
     @lru_cache
     def __get_contract_select_rules(indices: Tuple[Tuple[sy.Symbol, ...], ...]):
-        commute_index_table = OrderedDict()
+        commute_index_table: OrderedDict[Tuple[sy.Symbol, ...], int] = OrderedDict()
         contract_indices = []
         select_indices = []
         order_indices = set()
