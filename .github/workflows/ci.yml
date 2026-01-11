@@ -26,9 +26,8 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install the project
-        run: uv sync --all-extras --dev
+        run: uv sync --extra cpu
 
       - name: Run tests with tox
         run: |
-          uv tool install tox
           uv run tox
