@@ -15,7 +15,9 @@ class FrozenDict(Mapping):
                 "All keys and values must be hashable. "
                 "Use deep_freeze() for nested mutables."
             ) from e
-        object.__setattr__(self, "_FrozenDict__items", tuple(fitems))  # hidden, immutable
+        object.__setattr__(
+            self, "_FrozenDict__items", tuple(fitems)
+        )  # hidden, immutable
         object.__setattr__(self, "_FrozenDict__hash", hash(fitems))
 
     # internal accessor that bypasses the guard
@@ -63,9 +65,9 @@ class FrozenDict(Mapping):
     def __str__(self) -> str:
         items = pd.DataFrame(self._items(), columns=["Key", "Value"])
         return items.to_string(index=False)
-    
+
     def __repr__(self) -> str:
-        return str(self)  
+        return str(self)
 
     def __getattribute__(self, name: str):
         if name in {"_FrozenDict__items"}:

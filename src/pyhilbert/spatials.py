@@ -33,10 +33,10 @@ class AffineSpace(Spatial):
     def __str__(self):
         data = [[str(sympify(x)) for x in row] for row in self.basis.tolist()]
         return f"AffineSpace(basis={data})"
-    
+
     def __repr__(self):
         return str(self)
-    
+
 
 @dataclass(frozen=True)
 class Lattice(AffineSpace, HasDual):
@@ -48,7 +48,7 @@ class Lattice(AffineSpace, HasDual):
 
     @property
     @lru_cache
-    def dual(self) -> 'ReciprocalLattice':
+    def dual(self) -> "ReciprocalLattice":
         reciprocal_basis = 2 * sy.pi * self.basis.inv().T
         return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
 
@@ -57,7 +57,7 @@ class Lattice(AffineSpace, HasDual):
 class ReciprocalLattice(Lattice):
     @property
     @lru_cache
-    def dual(self) -> 'Lattice':
+    def dual(self) -> "Lattice":
         basis = (1 / (2 * sy.pi)) * self.basis.inv().T
         return Lattice(basis=basis, shape=self.shape)
 
@@ -79,10 +79,10 @@ class Offset(Spatial):
             vec = [[str(sympify(x)) for x in row] for row in self.rep.tolist()]
         basis = [[str(sympify(x)) for x in row] for row in self.space.basis.tolist()]
         return f"Offset({vec} ∈ {basis})"
-    
+
     def __repr__(self):
         return str(self)
-    
+
 
 @dataclass(frozen=True)
 class Momentum(Offset):
@@ -93,7 +93,9 @@ class Momentum(Offset):
 @lru_cache
 def cartes(lattice: Lattice) -> Tuple[Offset, ...]:
     elements = product(*tuple(range(n) for n in lattice.shape))
-    return tuple(Offset(rep=ImmutableDenseMatrix(el), space=lattice.affine) for el in elements)
+    return tuple(
+        Offset(rep=ImmutableDenseMatrix(el), space=lattice.affine) for el in elements
+    )
 
 
 @dispatch(ReciprocalLattice)
@@ -101,7 +103,9 @@ def cartes(lattice: ReciprocalLattice) -> Tuple[Momentum, ...]:
     elements = product(*tuple(range(n) for n in lattice.shape))
     sizes = ImmutableDenseMatrix(tuple(sy.Rational(1, n) for n in lattice.shape))
     elements = (ImmutableDenseMatrix(el).multiply_elementwise(sizes) for el in elements)
-    return tuple(Momentum(rep=ImmutableDenseMatrix(el), space=lattice) for el in elements)
+    return tuple(
+        Momentum(rep=ImmutableDenseMatrix(el), space=lattice) for el in elements
+    )
 
 
 @dataclass(frozen=True)
@@ -110,16 +114,16 @@ class PointGroupBasis(Spatial):
     axes: Tuple[sy.Symbol, ...]
     order: int
     rep: sy.ImmutableDenseMatrix
-    
+
     @property
     def dim(self):
         return len(self.axes)
-    
+
     def __str__(self):
-        return f'PointGroupBasis({str(self.expr)})'
-    
+        return f"PointGroupBasis({str(self.expr)})"
+
     def __repr__(self):
-        return f'PointGroupBasis({repr(self.expr)})'
+        return f"PointGroupBasis({repr(self.expr)})"
 
 
 @dataclass(frozen=True)
@@ -138,7 +142,7 @@ class AbelianGroupOrder:
         _, select_rules = AbelianGroupOrder.__get_contract_select_rules(indices)
         sorted_rules = sorted(select_rules, key=lambda x: x[1])
         return tuple(indices[n] for n, _ in sorted_rules)
-    
+
     @property
     @lru_cache
     def euclidean_basis(self) -> sy.ImmutableDenseMatrix:
@@ -169,7 +173,7 @@ class AbelianGroupOrder:
     @lru_cache
     def full_rep(self):
         return reduce(sy.kronecker_product, (self.irrep,) * self.basis_function_order)
-    
+
     @property
     @lru_cache
     def rep(self):
@@ -177,21 +181,21 @@ class AbelianGroupOrder:
         contract_indices, select_indices = self.__get_contract_select_rules(indices)
 
         contract_matrix = sy.zeros(len(indices), len(select_indices))
-        for (i, j) in contract_indices:
+        for i, j in contract_indices:
             contract_matrix[i, j] = 1
 
         select_matrix = sy.zeros(len(indices), len(select_indices))
-        for (i, j) in select_indices:
+        for i, j in select_indices:
             select_matrix[i, j] = 1
 
         return select_matrix.T @ self.full_rep @ contract_matrix
-    
+
     @property
     @lru_cache
     def basis(self) -> FrozenDict:
         transform = self.rep
         eig = transform.eigenvects()
-        
+
         tbl = {}
         for v, _, vec_group in eig:
             vec = vec_group[0]
@@ -200,10 +204,12 @@ class AbelianGroupOrder:
 
             rep = vec / principle_term
             expr = sy.simplify(rep.dot(self.euclidean_basis))
-            tbl[v] = PointGroupBasis(expr=expr, axes=self.axes, order=self.basis_function_order, rep=rep)
+            tbl[v] = PointGroupBasis(
+                expr=expr, axes=self.axes, order=self.basis_function_order, rep=rep
+            )
 
         return FrozenDict(tbl)
-    
+
 
 @dataclass(frozen=True)
 class AbelianGroup(Operable):
@@ -226,14 +232,18 @@ class AbelianGroup(Operable):
 
             if len(tbl) == self.order:
                 break
-            
+
         return FrozenDict(tbl)
-    
+
 
 @dispatch(AbelianGroup, PointGroupBasis)
-def operator_mul(g: AbelianGroup, basis: PointGroupBasis) -> Tuple[sy.Expr, PointGroupBasis]:
+def operator_mul(
+    g: AbelianGroup, basis: PointGroupBasis
+) -> Tuple[sy.Expr, PointGroupBasis]:
     if set(g.axes) != set(basis.axes):
-        raise ValueError(f"Axes of AbelianGroup and PointGroupBasis must match: {g.axes} != {basis.axes}")
+        raise ValueError(
+            f"Axes of AbelianGroup and PointGroupBasis must match: {g.axes} != {basis.axes}"
+        )
 
     g_irrep = g.group_order(basis.order).rep
     basis_rep = basis.rep
@@ -245,12 +255,12 @@ def operator_mul(g: AbelianGroup, basis: PointGroupBasis) -> Tuple[sy.Expr, Poin
             phases.add(sy.simplify(transformed_rep[n] / basis_rep[n]))
         else:
             if sy.simplify(transformed_rep[n]) != 0:
-                raise ValueError(f'{basis} is not a basis function!')
-        
+                raise ValueError(f"{basis} is not a basis function!")
+
     if not phases:
-        raise ValueError(f'{basis} is a trivial basis function: zero')
-    
+        raise ValueError(f"{basis} is a trivial basis function: zero")
+
     if len(phases) > 1:
-        raise ValueError(f'{basis} is not a basis function!')
-    
+        raise ValueError(f"{basis} is not a basis function!")
+
     return phases.pop(), basis
