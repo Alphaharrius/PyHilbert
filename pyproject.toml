@@ -39,6 +39,7 @@ dev = [
     "pytest>=8.0.0",
     "tox>=4.0.0",
     "tox-uv>=1.0.0",
+    "pytest-cov>=4.0.0",
 ]
 
 [tool.uv]
