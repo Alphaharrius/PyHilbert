@@ -170,7 +170,7 @@ def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, 
         Flattened indices that map element positions in `src` to `dest`.
     """
     index_groups = [tuple(range(s.start, s.stop)) for s in src.structure.values()]
-    ordered_groups = (index_groups[i] for i in StateSpace.permutation_order(src, dest))
+    ordered_groups = (index_groups[i] for i in permutation_order(src, dest))
     return tuple(chain.from_iterable(ordered_groups))
 
 
@@ -213,7 +213,7 @@ def operator_add(a: StateSpace, b: StateSpace):
     new_structure = OrderedDict(
         (*a.structure.items(), *((k, v) for k, v in b.structure.items() if k not in a.structure))
     )
-    return type(a)(structure=StateSpace.restructure(new_structure))
+    return type(a)(structure=restructure(new_structure))
 
 
 @dispatch(StateSpace, StateSpace)
@@ -221,7 +221,7 @@ def operator_sub(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
         return ValueError(f'Cannot subtract StateSpaces of different types: {type(a)} and {type(b)}!')
     new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k not in b.structure))
-    return type(a)(structure=StateSpace.restructure(new_structure))
+    return type(a)(structure=restructure(new_structure))
 
 
 @dispatch(StateSpace, StateSpace)
@@ -234,7 +234,7 @@ def operator_and(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
         return ValueError(f'Cannot intersect StateSpaces of different types: {type(a)} and {type(b)}!')
     new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k in b.structure))
-    return type(a)(structure=StateSpace.restructure(new_structure))
+    return type(a)(structure=restructure(new_structure))
 
 
 @dataclass(frozen=True)
