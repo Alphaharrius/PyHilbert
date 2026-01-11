@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from functools import lru_cache
 from itertools import chain
 
-from multipledispatch import dispatch
+from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from .abstracts import Updatable
 from .utils import FrozenDict
@@ -29,12 +29,12 @@ class Mode(Spatial, Updatable):
     def __getitem__(self, v):
         raise NotImplementedError(f"Get item of {type(v)} is not supported!")
 
-    @dispatch(str)
-    def __getitem__(self, name: str):  # type: ignore[no-redef]
+    @dispatch(str)  # type: ignore[no-redef]
+    def __getitem__(self, name: str):
         return self.attr[name]
 
-    @dispatch(tuple)
-    def __getitem__(self, names: Tuple[str, ...]):  # type: ignore[no-redef]
+    @dispatch(tuple)  # type: ignore[no-redef]
+    def __getitem__(self, names: Tuple[str, ...]):
         items = {name: self.attr[name] for name in names}
         return replace(self, attr=FrozenDict(items))
 
@@ -294,7 +294,7 @@ class HilbertSpace(StateSpace, Updatable):
 
 @dispatch(Iterable)
 def hilbert(itr: Iterable[Mode]) -> HilbertSpace:
-    structure = OrderedDict()
+    structure: OrderedDict[Spatial, slice] = OrderedDict()
     base = 0
     for mode in itr:
         structure[mode] = slice(base, base + mode.count)
@@ -323,32 +323,32 @@ class BroadcastSpace(StateSpace):
     __str__ = __repr__
 
 
-@dispatch(BroadcastSpace, BroadcastSpace)
-def same_span(a: BroadcastSpace, b: BroadcastSpace) -> bool:  # type: ignore[no-redef]
+@dispatch(BroadcastSpace, BroadcastSpace)  # type: ignore[no-redef]
+def same_span(a: BroadcastSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(StateSpace, BroadcastSpace)
-def same_span(a: StateSpace, b: BroadcastSpace) -> bool:  # type: ignore[no-redef]
+@dispatch(StateSpace, BroadcastSpace)  # type: ignore[no-redef]
+def same_span(a: StateSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(BroadcastSpace, StateSpace)
-def same_span(a: BroadcastSpace, b: StateSpace) -> bool:  # type: ignore[no-redef]
+@dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
+def same_span(a: BroadcastSpace, b: StateSpace) -> bool:
     return True
 
 
 # The set union of any StateSpace with a BroadcastSpace is a BroadcastSpace
-@dispatch(BroadcastSpace, BroadcastSpace)
-def operator_add(a: BroadcastSpace, b: BroadcastSpace):  # type: ignore[no-redef]
+@dispatch(BroadcastSpace, BroadcastSpace)  # type: ignore[no-redef]
+def operator_add(a: BroadcastSpace, b: BroadcastSpace):
     return BroadcastSpace()
 
 
-@dispatch(StateSpace, BroadcastSpace)
-def operator_add(a: StateSpace, b: BroadcastSpace):  # type: ignore[no-redef]
+@dispatch(StateSpace, BroadcastSpace)  # type: ignore[no-redef]
+def operator_add(a: StateSpace, b: BroadcastSpace):
     return a
 
 
-@dispatch(BroadcastSpace, StateSpace)
-def operator_add(a: BroadcastSpace, b: StateSpace):  # type: ignore[no-redef]
+@dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
+def operator_add(a: BroadcastSpace, b: StateSpace):
     return b

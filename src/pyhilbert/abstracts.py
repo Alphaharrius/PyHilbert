@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from multipledispatch import dispatch
+from multipledispatch import dispatch  # type: ignore[import-untyped]
 from typing import Callable, Dict, ClassVar
 
 

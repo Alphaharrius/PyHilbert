@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 from typing import Tuple
 from abc import ABC, abstractmethod
-from multipledispatch import dispatch
+from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
 from functools import lru_cache
 from collections import OrderedDict
 from functools import reduce
 
-import sympy as sy
-from sympy import ImmutableDenseMatrix, sympify
+import sympy as sy  # type: ignore[import-untyped]
+from sympy import ImmutableDenseMatrix, sympify  # type: ignore[import-untyped]
 
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual
@@ -57,7 +57,7 @@ class Lattice(AffineSpace, HasDual):
 class ReciprocalLattice(Lattice):
     @property
     @lru_cache
-    def dual(self) -> "Lattice":
+    def dual(self) -> "Lattice":  # type: ignore[override]
         basis = (1 / (2 * sy.pi)) * self.basis.inv().T
         return Lattice(basis=basis, shape=self.shape)
 
@@ -89,7 +89,7 @@ class Momentum(Offset):
     pass
 
 
-@dispatch(Lattice)
+@dispatch(Lattice)  # type: ignore[no-redef]
 @lru_cache
 def cartes(lattice: Lattice) -> Tuple[Offset, ...]:
     elements = product(*tuple(range(n) for n in lattice.shape))
@@ -98,8 +98,8 @@ def cartes(lattice: Lattice) -> Tuple[Offset, ...]:
     )
 
 
-@dispatch(ReciprocalLattice)
-def cartes(lattice: ReciprocalLattice) -> Tuple[Momentum, ...]: # type: ignore[no-redef]
+@dispatch(ReciprocalLattice)  # type: ignore[no-redef]
+def cartes(lattice: ReciprocalLattice) -> Tuple[Momentum, ...]:
     elements = product(*tuple(range(n) for n in lattice.shape))
     sizes = ImmutableDenseMatrix(tuple(sy.Rational(1, n) for n in lattice.shape))
     elements = (ImmutableDenseMatrix(el).multiply_elementwise(sizes) for el in elements)

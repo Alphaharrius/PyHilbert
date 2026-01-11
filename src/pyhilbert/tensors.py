@@ -1,7 +1,7 @@
-from typing import Tuple
+from typing import Tuple, Union
 from numbers import Number
 from dataclasses import dataclass
-from multipledispatch import dispatch
+from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 import torch
 
@@ -137,7 +137,7 @@ class Tensor(Operable):
         """
         return expand_to_union(self, union_dims)
 
-    def item(self) -> Number:
+    def item(self) -> Union[Number, int, float]:
         """
         Return the value of a 0-dimensional tensor as a standard Python number.
 
@@ -280,7 +280,7 @@ def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
 
 
 def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
-    ignores = []
+    ignores = set()
     for n, ld in enumerate(left.dims[:-2]):
         if not isinstance(ld, hilbert.BroadcastSpace):
             continue
@@ -288,9 +288,8 @@ def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
         if isinstance(rd, hilbert.BroadcastSpace):
             continue
         left = left.align(n, rd)
-        ignores.append(n)
+        ignores.add(n)
 
-    ignores = set(ignores)
     for n, ld in enumerate(left.dims[:-2]):
         if n in ignores:
             continue
