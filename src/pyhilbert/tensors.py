@@ -6,12 +6,12 @@ from multipledispatch import dispatch
 import torch
 
 from . import hilbert
-from .abstracts import Operable
+from .abstracts import Operable, Plottable
 from .hilbert import StateSpace
 
 
 @dataclass(frozen=True)
-class Tensor(Operable):
+class Tensor(Operable, Plottable):
     data: torch.Tensor
     dims: Tuple[StateSpace, ...]
 
