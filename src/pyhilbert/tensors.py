@@ -1,4 +1,4 @@
-from typing import Tuple, Union
+from typing import Tuple, Union, Sequence, cast
 from numbers import Number
 from dataclasses import dataclass
 from multipledispatch import dispatch  # type: ignore[import-untyped]
@@ -26,13 +26,13 @@ class Tensor(Operable):
         """
         return conj(self)
 
-    def permute(self, *order: Tuple[int, ...]) -> "Tensor":
+    def permute(self, *order: Union[int, Sequence[int]]) -> "Tensor":
         """
         Permute the dimensions according to the specified order.
 
         Parameters
         ----------
-        order : `Tuple[int, ...]`
+        order : `Union[int, Sequence[int]]`
             The desired order of dimensions.
 
         Returns
@@ -478,7 +478,7 @@ def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     return left + (-right)
 
 
-def permute(tensor: Tensor, *order: Tuple[int, ...]) -> Tensor:
+def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
     """
     Permute the dimensions of the tensor according to the specified order.
 
@@ -486,7 +486,7 @@ def permute(tensor: Tensor, *order: Tuple[int, ...]) -> Tensor:
     ----------
     tensor : `Tensor`
         The tensor to permute.
-    order : `Tuple[int, ...]`
+    order : `Union[int, Sequence[int]]`
         The desired order of dimensions.
 
     Returns
@@ -494,17 +494,20 @@ def permute(tensor: Tensor, *order: Tuple[int, ...]) -> Tensor:
     `Tensor`
         The permuted tensor.
     """
+    _order: Tuple[int, ...]
     if len(order) == 1 and isinstance(order[0], (tuple, list)):
-        order = tuple(order[0])
+        _order = tuple(order[0])
     else:
-        order = tuple(order)
-    if len(order) != tensor.rank():
+        # We assume that if it's not a single list/tuple, it's a sequence of ints
+        _order = cast(Tuple[int, ...], tuple(order))
+
+    if len(_order) != tensor.rank():
         raise ValueError(
-            f"Permutation order length {len(order)} does not match tensor dimensions {tensor.rank()}!"
+            f"Permutation order length {len(_order)} does not match tensor dimensions {tensor.rank()}!"
         )
 
-    new_data = tensor.data.permute(order)
-    new_dims = tuple(tensor.dims[i] for i in order)
+    new_data = tensor.data.permute(_order)
+    new_dims = tuple(tensor.dims[i] for i in _order)
 
     return Tensor(data=new_data, dims=new_dims)
 

@@ -108,6 +108,37 @@ class TestMatmul:
         )
         assert result.dims == (matmul_ctx.space2, matmul_ctx.space2)
 
+    def test_matmul_rank3(self, matmul_ctx):
+        # Test matmul between two 3-tensors to verify batch dimension handling
+        # Left: (Batch, M, K) -> (Space2, Space2, Space1)
+        # Right: (Batch, K, N) -> (Space2, Space1, Space2)
+        # Result should be (Space2, Space2, Space2)
+
+        dims_left = (matmul_ctx.space2, matmul_ctx.space2, matmul_ctx.space1)
+        dims_right = (matmul_ctx.space2, matmul_ctx.space1, matmul_ctx.space2)
+
+        data_left = torch.randn(
+            matmul_ctx.space2.size, matmul_ctx.space2.size, matmul_ctx.space1.size
+        )
+        data_right = torch.randn(
+            matmul_ctx.space2.size, matmul_ctx.space1.size, matmul_ctx.space2.size
+        )
+
+        t_left = Tensor(data_left, dims_left)
+        t_right = Tensor(data_right, dims_right)
+
+        result = matmul(t_left, t_right)
+
+        # Check dimensions
+        # Expected: Batch dim (Space2) + Left non-contracted (Space2) + Right non-contracted (Space2)
+        expected_dims = (matmul_ctx.space2, matmul_ctx.space2, matmul_ctx.space2)
+        assert result.dims == expected_dims
+
+        # Check data
+        # torch.matmul handles batch matmul: (B, M, K) @ (B, K, N) -> (B, M, N)
+        expected_data = torch.matmul(data_left, data_right)
+        assert torch.allclose(result.data, expected_data)
+
     def test_broadcasting_missing_dims(self, matmul_ctx):
         # left: (space1) -> interpreted as (space1)
         # right: (space2, space1, space2)
@@ -733,3 +764,97 @@ class TestTensorOperations:
         t = Tensor(torch.randn(2, 2), (tensor_ops_ctx.space_a, tensor_ops_ctx.space_a))
         res = t.transpose(0, 1)
         assert torch.allclose(res.data, t.data.transpose(0, 1))
+
+    def test_unsupported_operators(self, tensor_ops_ctx):
+        # Verify that unimplemented operators raise NotImplementedError
+        t = tensor_ops_ctx.tensor
+
+        with pytest.raises(NotImplementedError):
+            _ = t * t
+
+        with pytest.raises(NotImplementedError):
+            _ = t / t
+
+        with pytest.raises(NotImplementedError):
+            _ = t**2
+
+    def test_permute_variants(self, tensor_ops_ctx):
+        # Setup a tensor with rank 3 to test permutation
+        dims = (tensor_ops_ctx.space_a, tensor_ops_ctx.space_a, tensor_ops_ctx.space_a)
+        data = torch.randn(2, 2, 2)
+        t = Tensor(data, dims)
+
+        # Test 1: Permute with unpacked arguments
+        res1 = t.permute(2, 0, 1)
+        assert torch.allclose(res1.data, data.permute(2, 0, 1))
+        assert res1.dims == (dims[2], dims[0], dims[1])
+
+        # Test 2: Permute with tuple argument
+        res2 = t.permute((1, 2, 0))
+        assert torch.allclose(res2.data, data.permute(1, 2, 0))
+        assert res2.dims == (dims[1], dims[2], dims[0])
+
+        # Test 3: Permute with list argument
+        res3 = t.permute([0, 2, 1])
+        assert torch.allclose(res3.data, data.permute(0, 2, 1))
+        assert res3.dims == (dims[0], dims[2], dims[1])
+
+    def test_expand_to_union_explicit(self, tensor_ops_ctx):
+        # Test expand_to_union without going through add
+
+        # Create a tensor with (BroadcastSpace, SpaceA)
+        # Using unsqueeze to create a valid tensor with BroadcastSpace
+        t_orig = tensor_ops_ctx.tensor  # (SpaceA,) size 2
+        t_broad = t_orig.unsqueeze(0)  # (BroadcastSpace, SpaceA) - data shape (1, 2)
+
+        # Target union: (SpaceA, SpaceA) - sizes (2, 2)
+        union_dims = [tensor_ops_ctx.space_a, tensor_ops_ctx.space_a]
+
+        t_expanded = t_broad.expand_to_union(union_dims)
+
+        assert t_expanded.dims == tuple(union_dims)
+        assert t_expanded.data.shape == (2, 2)
+
+        # Verify data content (expanded along dim 0)
+        expected_data = t_orig.data.expand(2, 2)
+        assert torch.allclose(t_expanded.data, expected_data)
+
+    def test_squeeze_unsqueeze_negative_indices(self, tensor_ops_ctx):
+        # Tensor shape (2,)
+        t = tensor_ops_ctx.tensor
+        from pyhilbert.hilbert import BroadcastSpace
+
+        # Unsqueeze at -1 -> (2, 1)
+        t_unsq = t.unsqueeze(-1)
+        assert t_unsq.rank() == 2
+        assert isinstance(t_unsq.dims[1], BroadcastSpace)
+        assert t_unsq.data.shape == (2, 1)
+
+        # Squeeze at -1 -> (2,)
+        t_sq = t_unsq.squeeze(-1)
+        assert t_sq.rank() == 1
+        assert t_sq.dims == t.dims
+        assert t_sq.data.shape == (2,)
+
+    def test_clone_detach_semantics(self, tensor_ops_ctx):
+        # Test that clone and detach preserve custom attributes (dims)
+        t = tensor_ops_ctx.tensor
+
+        # Clone
+        t_clone = t.clone()
+        assert t_clone.dims == t.dims
+        assert t_clone is not t
+        assert torch.allclose(t_clone.data, t.data)
+
+        # Detach
+        t_detach = t.detach()
+        assert t_detach.dims == t.dims
+        assert t_detach is not t
+        assert not t_detach.requires_grad
+
+        # Ensure underlying storage sharing for detach
+        # (Modifying detached data should affect original if they share storage, usually)
+        # Note: In PyTorch, detached tensor shares storage.
+        # But here Tensor is a wrapper. t_detach.data should share storage with t.data
+        t.data[0] += 1.0
+        assert t_detach.data[0] == t.data[0]

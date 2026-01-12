@@ -1,6 +1,6 @@
 import pytest
 from dataclasses import dataclass
-from pyhilbert.abstracts import Operable, Updatable
+from pyhilbert.abstracts import Operable, Updatable, operator_eq
 
 
 @dataclass(frozen=True)
@@ -27,43 +27,59 @@ def test_operable_unimplemented():
     a = MockOperable()
     b = MockOperable()
 
-    # Test all default implementations return NotImplementedError
+    # Test all default implementations raise NotImplementedError
 
     # Arithmetics
-    # Note: The current implementation returns the Error object rather than raising it?
-    # Let's check the code: return NotImplementedError(...)
-    # It returns an instance of the exception, it doesn't raise it.
+    with pytest.raises(NotImplementedError):
+        _ = a + b
 
-    res = a + b
-    assert isinstance(res, NotImplementedError)
+    with pytest.raises(NotImplementedError):
+        _ = -a
 
-    res = -a
-    assert isinstance(res, NotImplementedError)
+    # a - b calls a + (-b). Since -b raises error, this should raise error too.
+    with pytest.raises(NotImplementedError):
+        _ = a - b
 
-    # a - b calls a + (-b).
-    # -b returns NotImplementedError.
-    # a + NotImplementedError -> ??
-    # The dispatch is for (Operable, Operable).
-    # NotImplementedError is not Operable.
-    # So this might raise a Dispatch error or standard TypeError depending on multipledispatch behavior.
+    with pytest.raises(NotImplementedError):
+        _ = a * b
 
-    # But let's check explicit calls to operators if they return the error object.
+    with pytest.raises(NotImplementedError):
+        _ = a @ b
 
-    assert isinstance(a * b, NotImplementedError)
-    assert isinstance(a @ b, NotImplementedError)
-    assert isinstance(a / b, NotImplementedError)
-    assert isinstance(a // b, NotImplementedError)
-    assert isinstance(a**b, NotImplementedError)
+    with pytest.raises(NotImplementedError):
+        _ = a / b
+
+    with pytest.raises(NotImplementedError):
+        _ = a // b
+
+    with pytest.raises(NotImplementedError):
+        _ = a**b
 
     # Comparisons
-    assert isinstance(a < b, NotImplementedError)
-    assert isinstance(a <= b, NotImplementedError)
-    assert isinstance(a > b, NotImplementedError)
-    assert isinstance(a >= b, NotImplementedError)
+    # Note: MockOperable is a dataclass, so it implements __eq__ automatically.
+    # a == b will return True, not raise NotImplementedError.
+    # So we skip testing '==' here or test operator_eq directly.
+    with pytest.raises(NotImplementedError):
+        operator_eq(a, b)
+
+    with pytest.raises(NotImplementedError):
+        _ = a < b
+
+    with pytest.raises(NotImplementedError):
+        _ = a <= b
+
+    with pytest.raises(NotImplementedError):
+        _ = a > b
+
+    with pytest.raises(NotImplementedError):
+        _ = a >= b
 
     # Logical
-    assert isinstance(a & b, NotImplementedError)
-    assert isinstance(a | b, NotImplementedError)
+    with pytest.raises(NotImplementedError):
+        _ = a & b
+
+    with pytest.raises(NotImplementedError):
+        _ = a | b
 
 
 def test_updatable_correct():
