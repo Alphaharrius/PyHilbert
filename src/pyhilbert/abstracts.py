@@ -54,12 +54,12 @@ class Operable(ABC):
 
 @dispatch(Operable, Operable)
 def operator_add(a, b):
-    return NotImplementedError(f"Addition of {type(a)} and {type(b)} is not supported!")
+    raise NotImplementedError(f"Addition of {type(a)} and {type(b)} is not supported!")
 
 
 @dispatch(Operable)
 def operator_neg(a):
-    return NotImplementedError(f"Negation of {type(a)} is not supported!")
+    raise NotImplementedError(f"Negation of {type(a)} is not supported!")
 
 
 @dispatch(Operable, Operable)
@@ -69,82 +69,82 @@ def operator_sub(a, b):
 
 @dispatch(Operable, Operable)
 def operator_mul(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Multiplication of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_matmul(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Matrix multiplication of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_truediv(a, b):
-    return NotImplementedError(f"Division of {type(a)} and {type(b)} is not supported!")
+    raise NotImplementedError(f"Division of {type(a)} and {type(b)} is not supported!")
 
 
 @dispatch(Operable, Operable)
 def operator_floordiv(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Floor division of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_pow(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Exponentiation of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_eq(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Equality comparison of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_lt(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Less-than comparison of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_le(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Less-than-or-equal comparison of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_gt(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Greater-than comparison of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_ge(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Greater-than-or-equal comparison of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_and(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Logical AND of {type(a)} and {type(b)} is not supported!"
     )
 
 
 @dispatch(Operable, Operable)
 def operator_or(a, b):
-    return NotImplementedError(
+    raise NotImplementedError(
         f"Logical OR of {type(a)} and {type(b)} is not supported!"
     )
 
