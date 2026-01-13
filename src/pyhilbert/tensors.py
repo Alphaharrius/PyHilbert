@@ -478,6 +478,154 @@ def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     return left + (-right)
 
 
+@dispatch(Number, Tensor)
+def operator_mul(left: Number, right: Tensor) -> Tensor:
+    """
+    Perform element-wise multiplication of a number and a tensor.
+
+    Parameters
+    ----------
+    left : `Number`
+        The scalar value.
+    right : `Tensor`
+        The tensor.
+    Returns
+    -------
+    `Tensor`
+        A new tensor with each element multiplied by the scalar.
+    """
+    return Tensor(data=left * right.data, dims=right.dims)
+
+
+@dispatch(Tensor, Number)  # type: ignore[no-redef]
+def operator_mul(left: Tensor, right: Number) -> Tensor:
+    """
+    Perform element-wise multiplication of a tensor and a number.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        The tensor.
+    right : `Number`
+        The scalar value.
+    Returns
+    -------
+    `Tensor`
+        A new tensor with each element multiplied by the scalar.
+    """
+    return Tensor(data=left.data * right, dims=left.dims)
+
+
+@dispatch(Number, Tensor)  # type: ignore[no-redef]
+def operator_add(left: Number, right: Tensor) -> Tensor:
+    """
+    Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
+
+    This treats the tensor as a batch of matrices (defined by the last two dimensions).
+    The scalar is added to the diagonal elements of these matrices.
+    For rank-2 tensors, this is equivalent to M + c*I.
+    Parameters
+    ----------
+    left : `Number`
+        The scalar value to add to the diagonal.
+    right : `Tensor`
+        The target tensor (must be at least rank 2).
+    Returns
+    -------
+    `Tensor`
+        The result of adding the scalar to the diagonal.
+    """
+    eye = identity(right.dims, device=right.data.device, dtype=right.data.dtype)
+    return left * eye + right
+
+
+@dispatch(Tensor, Number)  # type: ignore[no-redef]
+def operator_add(left: Tensor, right: Number) -> Tensor:
+    """
+    Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
+
+    This treats the tensor as a batch of matrices (defined by the last two dimensions).
+    The scalar is added to the diagonal elements of these matrices.
+    For rank-2 tensors, this is equivalent to M + c*I.
+    Parameters
+    ----------
+    left : `Tensor`
+        The target tensor (must be at least rank 2).
+    right : `Number`
+        The scalar value to add to the diagonal.
+    Returns
+    -------
+    `Tensor`
+        The result of adding the scalar to the diagonal.
+    """
+    eye = identity(left.dims, device=left.data.device, dtype=left.data.dtype)
+    return left + right * eye
+
+
+@dispatch(Number, Tensor)  # type: ignore[no-redef]
+def operator_sub(left: Number, right: Tensor) -> Tensor:
+    """
+    Subtract a tensor from a number (broadcasted on diagonal).
+
+    This treats the tensor as a batch of matrices (defined by the last two dimensions).
+    The operation is performed as (c*I - T), where I is the identity matrix broadcasted
+    over the batch dimensions.
+    Parameters
+    ----------
+    left : `Number`
+        The scalar value.
+    right : `Tensor`
+        The tensor to subtract.
+    Returns
+    -------
+    `Tensor`
+        The result of the subtraction.
+    """
+    eye = identity(right.dims, device=right.data.device, dtype=right.data.dtype)
+    return left * eye + (-right)
+
+
+@dispatch(Tensor, Number)  # type: ignore[no-redef]
+def operator_sub(left: Tensor, right: Number) -> Tensor:
+    """
+    Subtract a number from a tensor (broadcasted on diagonal).
+
+    This treats the tensor as a batch of matrices (defined by the last two dimensions).
+    The operation is performed as (T - c*I), where I is the identity matrix broadcasted
+    over the batch dimensions.
+    Parameters
+    ----------
+    left : `Tensor`
+        The tensor.
+    right : `Number`
+        The scalar value to subtract from the diagonal.
+    Returns
+    -------
+    `Tensor`
+        The result of the subtraction.
+    """
+    eye = identity(left.dims, device=left.data.device, dtype=left.data.dtype)
+    return left + (-right) * eye
+
+
+@dispatch(Tensor, Number)
+def operator_truediv(left: Tensor, right: Number) -> Tensor:
+    """
+    Perform element-wise division of a tensor by a number.
+    Parameters
+    ----------
+    left : `Tensor`
+        The tensor.
+    right : `Number`
+        The scalar divisor.
+    Returns
+    -------
+    `Tensor`
+        A new tensor with each element divided by the scalar.
+    """
+    return left * (1.0 / right)  # type: ignore[operator]
+
+
 def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
     """
     Permute the dimensions of the tensor according to the specified order.
@@ -707,3 +855,20 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
         return tensor
 
     return Tensor(data=tensor.data.expand(target_shape), dims=tuple(new_dims))
+
+
+def identity(dims: Tuple[StateSpace, ...], device=None, dtype=None) -> Tensor:
+    """
+    Create an identity tensor based on the last two dimensions.
+    Returns a rank-2 Tensor corresponding to the identity of the matrix part.
+    """
+    if len(dims) < 2:
+        raise ValueError(
+            f"Identity tensor creation requires at least rank 2, got rank {len(dims)}!"
+        )
+    matrix_dims = dims[-2:]
+    rows = matrix_dims[0].size
+    cols = matrix_dims[1].size
+    return Tensor(
+        data=torch.eye(rows, cols, device=device, dtype=dtype), dims=matrix_dims
+    )
