@@ -50,6 +50,19 @@ class Operable(ABC):
     def __or__(self, other: 'Operable'):
         return operator_or(self, other)
 
+    def __radd__(self, other):
+        return operator_add(other, self)
+    
+    def __rsub__(self, other):
+        return operator_sub(other, self)
+    
+    def __rmul__(self, other):
+        return operator_mul(other, self)
+    
+    def __rtruediv__(self, other):
+        return operator_truediv(other, self)
+
+
 
 @dispatch(Operable, Operable)
 def operator_add(a, b):
