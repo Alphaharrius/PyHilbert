@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, List, Optional, Dict, Union
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -7,15 +7,17 @@ from functools import lru_cache
 from collections import OrderedDict
 from functools import reduce
 
-import sympy as sy  # type: ignore[import-untyped]
-from sympy import ImmutableDenseMatrix, sympify  # type: ignore[import-untyped]
+import sympy as sy
+import numpy as np
+import torch
+from sympy import ImmutableDenseMatrix, sympify
 
 from .utils import FrozenDict
-from .abstracts import Operable, HasDual
+from .abstracts import Operable, HasDual, Plottable
 
 
 @dataclass(frozen=True)
-class Spatial(Operable, ABC):
+class Spatial(Operable, Plottable, ABC):
     @property
     @abstractmethod
     def dim(self) -> int:
@@ -51,6 +53,53 @@ class Lattice(AffineSpace, HasDual):
     def dual(self) -> "ReciprocalLattice":
         reciprocal_basis = 2 * sy.pi * self.basis.inv().T
         return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
+
+    def compute_coords(self, basis_offsets: Optional[List['Offset']] = None, subs: Optional[Dict] = None) -> torch.Tensor:
+        """
+        Vectorized calculation of all site coordinates.
+        Avoids running SymPy substitution inside the loop.
+        """
+        basis_sym = self.basis
+        if subs:
+            basis_eval = basis_sym.subs(subs)
+        else:
+            basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
+        
+        try:
+            basis_mat = torch.tensor(np.array(basis_eval).astype(np.float64), dtype=torch.float64)
+        except Exception as e:
+             raise ValueError(f"Basis matrix contains unresolved symbols: {basis_eval.free_symbols}") from e
+
+        lat_offsets = cartes(self) 
+        
+        lat_reps = []
+        for off in lat_offsets:
+            lat_reps.append(np.array(off.rep).flatten().astype(np.float64))
+        
+        if not lat_reps:
+            return torch.empty((0, self.dim))
+
+        lat_tensor = torch.tensor(np.array(lat_reps), dtype=torch.float64) # (N_cells, Dim)
+
+        if basis_offsets is None:
+             basis_offsets = [Offset(rep=sy.ImmutableDenseMatrix([0]*self.dim), space=self.affine)]
+        
+        basis_reps = []
+        for off in basis_offsets:
+            rep = off.rep
+            if subs:
+                 rep = rep.subs(subs)
+            basis_reps.append(np.array(rep).flatten().astype(np.float64))
+            
+        basis_tensor = torch.tensor(np.array(basis_reps), dtype=torch.float64) # (N_basis, Dim)
+
+        total_crystal = lat_tensor.unsqueeze(1) + basis_tensor.unsqueeze(0)
+        
+        total_crystal_flat = total_crystal.view(-1, self.dim)
+        
+        coords = total_crystal_flat @ basis_mat.T
+        
+        return coords
 
 
 @dataclass(frozen=True)
