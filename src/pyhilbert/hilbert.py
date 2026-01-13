@@ -176,7 +176,7 @@ def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, 
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-def embedding_order(sub: "StateSpace", sup: "StateSpace") -> Tuple[int, ...]:
+def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
     """
     Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
 
