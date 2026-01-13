@@ -1,12 +1,12 @@
 import torch
 import numpy as np
-import plotly.graph_objects as go
-import plotly.figure_factory as ff
+import plotly.graph_objects as go  # type: ignore[import-untyped]
+import plotly.figure_factory as ff  # type: ignore[import-untyped]
 from typing import Optional, List, Union, Dict
 from .abstracts import Plottable
 from .spatials import Lattice, Offset
 from .utils import compute_bonds
-from plotly.subplots import make_subplots
+from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
 # --- Registered Plot Methods ---
 

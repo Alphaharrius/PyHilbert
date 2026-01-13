@@ -85,7 +85,7 @@ def plot_structure_mpl(
             x_l = [val if val is not None else np.nan for val in x_lines]
             y_l = [val if val is not None else np.nan for val in y_lines]
 
-            if is_3d:
+            if is_3d and z_lines is not None:
                 z_l = [val if val is not None else np.nan for val in z_lines]
                 ax.plot(x_l, y_l, z_l, color="black", linewidth=1, label="Bonds")
             else:
