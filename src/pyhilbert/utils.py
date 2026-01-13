@@ -4,6 +4,7 @@ import pandas as pd
 import torch
 import numpy as np
 
+
 class FrozenDict(Mapping):
     __slots__ = ("__items", "__hash")
 
@@ -16,7 +17,9 @@ class FrozenDict(Mapping):
                 "All keys and values must be hashable. "
                 "Use deep_freeze() for nested mutables."
             ) from e
-        object.__setattr__(self, "_FrozenDict__items", tuple(fitems))  # hidden, immutable
+        object.__setattr__(
+            self, "_FrozenDict__items", tuple(fitems)
+        )  # hidden, immutable
         object.__setattr__(self, "_FrozenDict__hash", hash(fitems))
 
     # internal accessor that bypasses the guard
@@ -64,18 +67,24 @@ class FrozenDict(Mapping):
     def __str__(self) -> str:
         items = pd.DataFrame(self._items(), columns=["Key", "Value"])
         return items.to_string(index=False)
-    
+
     def __repr__(self) -> str:
-        return str(self)  
+        return str(self)
 
     def __getattribute__(self, name: str):
         if name in {"_FrozenDict__items"}:
             raise AttributeError("Private storage is hidden")
         return super().__getattribute__(name)
 
+
 # --- Plotting Helpers ---
 
-def compute_bonds(coords: torch.Tensor, dim: int) -> Tuple[List[float], List[float], Optional[List[float]]]:
+
+def compute_bonds(
+    coords: torch.Tensor, dim: int
+) -> Tuple[
+    List[Optional[float]], List[Optional[float]], Optional[List[Optional[float]]]
+]:
     """
     Generate bond lines connecting nearest neighbors using PyTorch.
     Returns (x_lines, y_lines, z_lines) where lists contain coordinates separated by None.
@@ -83,53 +92,56 @@ def compute_bonds(coords: torch.Tensor, dim: int) -> Tuple[List[float], List[flo
     """
     if coords.size(0) < 2:
         return [], [], None if dim != 3 else None
-        
+
     diff = coords.unsqueeze(1) - coords.unsqueeze(0)
     dists = torch.norm(diff, dim=-1)
-    
-    dists.fill_diagonal_(float('inf'))
-    
+
+    dists.fill_diagonal_(float("inf"))
+
     min_dist = torch.min(dists)
     if torch.isinf(min_dist):
         return [], [], None if dim != 3 else None
-        
+
     tol = 1e-4
     pairs = torch.nonzero(dists <= min_dist + tol)
     pairs = pairs[pairs[:, 0] < pairs[:, 1]]
-    
+
     if pairs.size(0) == 0:
         return [], [], None if dim != 3 else None
 
     p1 = coords[pairs[:, 0]]
     p2 = coords[pairs[:, 1]]
-    
+
     p1_np = p1.numpy()
     p2_np = p2.numpy()
-    
-    x_lines = []
-    y_lines = []
-    z_lines = [] if dim == 3 else None
+
+    x_lines: List[Optional[float]] = []
+    y_lines: List[Optional[float]] = []
+    z_lines: Optional[List[Optional[float]]] = [] if dim == 3 else None
     nan = None
-    
+
     for i in range(len(p1_np)):
         x_lines.extend([p1_np[i, 0], p2_np[i, 0], nan])
         y_lines.extend([p1_np[i, 1], p2_np[i, 1], nan])
-        if dim == 3:
+        if dim == 3 and z_lines is not None:
             z_lines.extend([p1_np[i, 2], p2_np[i, 2], nan])
-            
+
     return x_lines, y_lines, z_lines
 
-def generate_k_path(points: Dict[str, Union[List, np.ndarray, torch.Tensor]], 
-                    path_labels: List[str], 
-                    resolution: int = 30) -> tuple:
+
+def generate_k_path(
+    points: Dict[str, Union[List, np.ndarray, torch.Tensor]],
+    path_labels: List[str],
+    resolution: int = 30,
+) -> tuple:
     """
     Generates a k-path through high-symmetry points.
-    
+
     Args:
         points: Dictionary mapping labels to coordinates (e.g. {'G': [0,0], 'M': [0.5, 0.5]})
         path_labels: List of labels defining the path (e.g. ['G', 'M', 'K', 'G'])
         resolution: Number of points per segment.
-        
+
     Returns:
         (k_vecs, k_dist, node_indices)
         k_vecs: Tensor of k-vectors (N, D)
@@ -138,7 +150,7 @@ def generate_k_path(points: Dict[str, Union[List, np.ndarray, torch.Tensor]],
     """
     k_vecs_list = []
     node_indices = [0]
-    
+
     # Convert points to numpy for easier math
     pts_np = {}
     for k, v in points.items():
@@ -146,37 +158,39 @@ def generate_k_path(points: Dict[str, Union[List, np.ndarray, torch.Tensor]],
             pts_np[k] = v.detach().cpu().numpy().astype(float)
         else:
             pts_np[k] = np.array(v, dtype=float)
-    
+
     for i in range(len(path_labels) - 1):
         start_label = path_labels[i]
-        end_label = path_labels[i+1]
-        
+        end_label = path_labels[i + 1]
+
         start_vec = pts_np[start_label]
         end_vec = pts_np[end_label]
-        
+
         # Determine number of points
         # If it's the last segment, include the end point
-        is_last = (i == len(path_labels) - 2)
+        is_last = i == len(path_labels) - 2
         num = resolution + 1 if is_last else resolution
-        
+
         t = np.linspace(0, 1, num, endpoint=is_last)
-        
+
         for ti in t:
             vec = (1 - ti) * start_vec + ti * end_vec
             k_vecs_list.append(vec)
-            
+
         # The next node is at the current total length of list
         # Note: k_vecs_list length grows by 'resolution' each time (except last)
         next_idx = len(k_vecs_list) - 1
         node_indices.append(next_idx)
 
     k_vecs = torch.tensor(np.array(k_vecs_list), dtype=torch.float64)
-    
+
     # Recalculate distances precisely from the vectors
     if len(k_vecs) > 0:
         diffs = torch.norm(k_vecs[1:] - k_vecs[:-1], dim=1)
-        k_dist = torch.cat([torch.tensor([0.0], dtype=torch.float64), torch.cumsum(diffs, dim=0)])
+        k_dist = torch.cat(
+            [torch.tensor([0.0], dtype=torch.float64), torch.cumsum(diffs, dim=0)]
+        )
     else:
         k_dist = torch.tensor([], dtype=torch.float64)
-    
+
     return k_vecs, k_dist, node_indices

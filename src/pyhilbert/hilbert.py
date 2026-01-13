@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from functools import lru_cache
 from itertools import chain
 
-from multipledispatch import dispatch
+from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from .abstracts import Updatable
 from .utils import FrozenDict
@@ -21,38 +21,39 @@ class Mode(Spatial, Updatable):
     - orb: Symmetry information Orbital class (PointGroupBasis, eigenvalue)
     - spin: Spin information
     """
+
     count: int
     attr: FrozenDict
 
     @dispatch(object)
     def __getitem__(self, v):
         raise NotImplementedError(f"Get item of {type(v)} is not supported!")
-    
-    @dispatch(str)
+
+    @dispatch(str)  # type: ignore[no-redef]
     def __getitem__(self, name: str):
         return self.attr[name]
 
-    @dispatch(tuple)
+    @dispatch(tuple)  # type: ignore[no-redef]
     def __getitem__(self, names: Tuple[str, ...]):
         items = {name: self.attr[name] for name in names}
         return replace(self, attr=FrozenDict(items))
-    
+
     @property
     def dim(self) -> int:
         return self.count
-    
-    def _updated(self, **kwargs) -> 'Mode':
+
+    def _updated(self, **kwargs) -> "Mode":
         updated_attr = {**self.attr}
         _MISSING = object()
         for k, v in kwargs.items():
             old = updated_attr.get(k, _MISSING)
             if isinstance(v, types.FunctionType):
-                if old is _MISSING: 
+                if old is _MISSING:
                     continue
                 updated_attr[k] = v(old)
             else:
                 updated_attr[k] = v
-        
+
         return replace(self, attr=FrozenDict(updated_attr))
 
 
@@ -67,7 +68,7 @@ class StateSpace(Spatial):
     Attributes
     ----------
     structure : OrderedDict[Spatial, slice]
-        An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`, `Mode`) to a slice object that defines its 
+        An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`, `Mode`) to a slice object that defines its
         position and the range in the tensor. The slices should be contiguous and ordered.
 
     dim : int
@@ -79,15 +80,15 @@ class StateSpace(Spatial):
     An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`, `Mode`) to a slice object that defines its 
     position and the range in the tensor. The slices should be contiguous and ordered.
     """
-    
+
     @property
     def dim(self) -> int:
-        """ The total dimension of the state space, calculated as the count of elements regardless of their lengths. """
+        """The total dimension of the state space, calculated as the count of elements regardless of their lengths."""
         return len(self.structure)
-    
+
     @property
     def size(self) -> int:
-        """ The total size of the vector space (sum of all sector dimensions). """
+        """The total size of the vector space (sum of all sector dimensions)."""
         if not self.structure:
             return 0
         return self.structure[next(reversed(self.structure))].stop
@@ -121,7 +122,7 @@ def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, 
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-def permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
+def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     """
     Return the permutation of `src` sectors needed to match `dest` sector order.
 
@@ -148,7 +149,7 @@ def permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, ...]:
+def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     """
     Return the flattened index permutation that reorders `src` to match `dest`.
 
@@ -175,7 +176,7 @@ def flat_permutation_order(src: 'StateSpace', dest: 'StateSpace') -> Tuple[int, 
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-def embedding_order(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
+def embedding_order(sub: "StateSpace", sup: "StateSpace") -> Tuple[int, ...]:
     """
     Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
 
@@ -205,14 +206,19 @@ def embedding_order(sub: 'StateSpace', sup: 'StateSpace') -> Tuple[int, ...]:
 @dispatch(StateSpace, StateSpace)
 def same_span(a: StateSpace, b: StateSpace) -> bool:
     return set(a.structure.keys()) == set(b.structure.keys())
-    
+
 
 @dispatch(StateSpace, StateSpace)
 def operator_add(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
-        raise ValueError(f'Cannot add StateSpaces of different types: {type(a)} and {type(b)}!')
+        raise ValueError(
+            f"Cannot add StateSpaces of different types: {type(a)} and {type(b)}!"
+        )
     new_structure = OrderedDict(
-        (*a.structure.items(), *((k, v) for k, v in b.structure.items() if k not in a.structure))
+        (
+            *a.structure.items(),
+            *((k, v) for k, v in b.structure.items() if k not in a.structure),
+        )
     )
     return type(a)(structure=restructure(new_structure))
 
@@ -220,8 +226,12 @@ def operator_add(a: StateSpace, b: StateSpace):
 @dispatch(StateSpace, StateSpace)
 def operator_sub(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
-        raise ValueError(f'Cannot subtract StateSpaces of different types: {type(a)} and {type(b)}!')
-    new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k not in b.structure))
+        raise ValueError(
+            f"Cannot subtract StateSpaces of different types: {type(a)} and {type(b)}!"
+        )
+    new_structure = OrderedDict(
+        ((k, v) for k, v in a.structure.items() if k not in b.structure)
+    )
     return type(a)(structure=restructure(new_structure))
 
 
@@ -233,8 +243,12 @@ def operator_or(a: StateSpace, b: StateSpace):
 @dispatch(StateSpace, StateSpace)
 def operator_and(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
-        raise ValueError(f'Cannot intersect StateSpaces of different types: {type(a)} and {type(b)}!')
-    new_structure = OrderedDict(((k, v) for k, v in a.structure.items() if k in b.structure))
+        raise ValueError(
+            f"Cannot intersect StateSpaces of different types: {type(a)} and {type(b)}!"
+        )
+    new_structure = OrderedDict(
+        ((k, v) for k, v in a.structure.items() if k in b.structure)
+    )
     return type(a)(structure=restructure(new_structure))
 
 
@@ -248,13 +262,15 @@ class MomentumSpace(StateSpace):
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.
     __hash__ = StateSpace.__hash__
-    
+
     def __str__(self):
-        return f'MomentumSpace({self.dim})'
-    
+        return f"MomentumSpace({self.dim})"
+
     def __repr__(self):
-        header = f'{str(self)}:\n'
-        body = '\t' + '\n\t'.join([f'{n}: {k}' for n, k in enumerate(self.structure.keys())])
+        header = f"{str(self)}:\n"
+        body = "\t" + "\n\t".join(
+            [f"{n}: {k}" for n, k in enumerate(self.structure.keys())]
+        )
         return header + body
 
 
@@ -267,7 +283,8 @@ class HilbertSpace(StateSpace, Updatable):
         for m, s in self.structure.items():
             if not isinstance(m, Mode):
                 raise RuntimeError(
-                    f'Implementation error: found {type(m)} in HilbertSpace structure!')
+                    f"Implementation error: found {type(m)} in HilbertSpace structure!"
+                )
             updated_m = m.update(**kwargs)
             updated_structure[updated_m] = s
 
@@ -277,7 +294,7 @@ class HilbertSpace(StateSpace, Updatable):
 
 @dispatch(Iterable)
 def hilbert(itr: Iterable[Mode]) -> HilbertSpace:
-    structure = OrderedDict()
+    structure: OrderedDict[Spatial, slice] = OrderedDict()
     base = 0
     for mode in itr:
         structure[mode] = slice(base, base + mode.count)
@@ -299,39 +316,39 @@ class BroadcastSpace(StateSpace):
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.
     __hash__ = StateSpace.__hash__
-    
+
     def __repr__(self):
-        return f'BroadcastSpace'
-    
+        return "BroadcastSpace"
+
     __str__ = __repr__
 
 
-@dispatch(BroadcastSpace, BroadcastSpace)
+@dispatch(BroadcastSpace, BroadcastSpace)  # type: ignore[no-redef]
 def same_span(a: BroadcastSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(StateSpace, BroadcastSpace)
+@dispatch(StateSpace, BroadcastSpace)  # type: ignore[no-redef]
 def same_span(a: StateSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(BroadcastSpace, StateSpace)
+@dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
 def same_span(a: BroadcastSpace, b: StateSpace) -> bool:
     return True
 
 
 # The set union of any StateSpace with a BroadcastSpace is a BroadcastSpace
-@dispatch(BroadcastSpace, BroadcastSpace)
+@dispatch(BroadcastSpace, BroadcastSpace)  # type: ignore[no-redef]
 def operator_add(a: BroadcastSpace, b: BroadcastSpace):
     return BroadcastSpace()
 
 
-@dispatch(StateSpace, BroadcastSpace)
+@dispatch(StateSpace, BroadcastSpace)  # type: ignore[no-redef]
 def operator_add(a: StateSpace, b: BroadcastSpace):
     return a
 
 
-@dispatch(BroadcastSpace, StateSpace)
+@dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
 def operator_add(a: BroadcastSpace, b: StateSpace):
     return b

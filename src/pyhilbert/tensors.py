@@ -1,7 +1,7 @@
-from typing import Tuple
+from typing import Tuple, Union, Sequence, cast
 from numbers import Number
 from dataclasses import dataclass
-from multipledispatch import dispatch
+from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 import torch
 
@@ -15,10 +15,10 @@ class Tensor(Operable, Plottable):
     data: torch.Tensor
     dims: Tuple[StateSpace, ...]
 
-    def conj(self) -> 'Tensor':
+    def conj(self) -> "Tensor":
         """
         Compute the complex conjugate of the given tensor.
-        
+
         Returns
         -------
         `Tensor`
@@ -26,13 +26,13 @@ class Tensor(Operable, Plottable):
         """
         return conj(self)
 
-    def permute(self, *order: Tuple[int, ...]) -> 'Tensor':
+    def permute(self, *order: Union[int, Sequence[int]]) -> "Tensor":
         """
         Permute the dimensions according to the specified order.
-        
+
         Parameters
         ----------
-        order : `Tuple[int, ...]`
+        order : `Union[int, Sequence[int]]`
             The desired order of dimensions.
 
         Returns
@@ -41,11 +41,11 @@ class Tensor(Operable, Plottable):
             The permuted tensor.
         """
         return permute(self, *order)
-    
-    def transpose(self, dim0: int, dim1: int) -> 'Tensor':
+
+    def transpose(self, dim0: int, dim1: int) -> "Tensor":
         """
         Transpose the specified dimensions.
-        
+
         Parameters
         ----------
         dim0 : `int`
@@ -59,11 +59,11 @@ class Tensor(Operable, Plottable):
             The transposed tensor.
         """
         return transpose(self, dim0, dim1)
-    
-    def align(self, dim: int, target_dim: StateSpace) -> 'Tensor':
+
+    def align(self, dim: int, target_dim: StateSpace) -> "Tensor":
         """
         Align the specified dimension to the target StateSpace.
-        
+
         Parameters
         ----------
         dim : `int`
@@ -77,11 +77,11 @@ class Tensor(Operable, Plottable):
             The aligned tensor.
         """
         return align(self, dim, target_dim)
-    
-    def unsqueeze(self, dim: int) -> 'Tensor':
+
+    def unsqueeze(self, dim: int) -> "Tensor":
         """
         Unsqueeze the specified dimension.
-        
+
         Parameters
         ----------
         dim : `int`
@@ -93,11 +93,11 @@ class Tensor(Operable, Plottable):
             The unsqueezed tensor.
         """
         return unsqueeze(self, dim)
-    
-    def squeeze(self, dim: int) -> 'Tensor':
+
+    def squeeze(self, dim: int) -> "Tensor":
         """
         Squeeze the specified dimension.
-        
+
         Parameters
         ----------
         dim : `int`
@@ -109,7 +109,7 @@ class Tensor(Operable, Plottable):
             The squeezed tensor.
         """
         return squeeze(self, dim)
-    
+
     def rank(self) -> int:
         """
         Get the rank (number of dimensions) of the tensor.
@@ -120,11 +120,11 @@ class Tensor(Operable, Plottable):
             The rank of the tensor.
         """
         return rank(self)
-    
-    def expand_to_union(self, union_dims: list[StateSpace]) -> 'Tensor':
+
+    def expand_to_union(self, union_dims: list[StateSpace]) -> "Tensor":
         """
         Expand the tensor to the union of the specified dimensions.
-        
+
         Parameters
         ----------
         union_dims : `list[StateSpace]`
@@ -136,8 +136,8 @@ class Tensor(Operable, Plottable):
             The expanded tensor.
         """
         return expand_to_union(self, union_dims)
-    
-    def item(self) -> Number:
+
+    def item(self) -> Union[Number, int, float]:
         """
         Return the value of a 0-dimensional tensor as a standard Python number.
 
@@ -145,26 +145,26 @@ class Tensor(Operable, Plottable):
         -------
         `number`
             The value of the tensor.
-        
+
         Raises
         ------
         ValueError
             If the tensor is not 0-dimensional.
         """
         return self.data.item()
-    
-    def cpu(self) -> 'Tensor':
+
+    def cpu(self) -> "Tensor":
         """
         Copy the tensor data to CPU memory and create a new `Tensor` instance.
-        
+
         Returns
         -------
         `Tensor`
             The new `Tensor` instance with copied data on CPU.
         """
         return Tensor(data=self.data.cpu(), dims=self.dims)
-    
-    def gpu(self) -> 'Tensor':
+
+    def gpu(self) -> "Tensor":
         """
         Copy the tensor data to GPU memory and create a new `Tensor` instance.
 
@@ -181,10 +181,12 @@ class Tensor(Operable, Plottable):
         if torch.cuda.is_available():
             return Tensor(data=self.data.cuda(), dims=self.dims)
         elif torch.backends.mps.is_available():
-            return Tensor(data=self.data.to('mps'), dims=self.dims)
+            return Tensor(data=self.data.to("mps"), dims=self.dims)
         else:
-            raise RuntimeError("Only CUDA and MPS devices are supported for GPU operations!")
-        
+            raise RuntimeError(
+                "Only CUDA and MPS devices are supported for GPU operations!"
+            )
+
     @property
     def requires_grad(self) -> bool:
         """
@@ -196,11 +198,11 @@ class Tensor(Operable, Plottable):
             True if the tensor data requires gradient tracking, False otherwise.
         """
         return self.data.requires_grad
-        
-    def attach(self) -> 'Tensor':
+
+    def attach(self) -> "Tensor":
         """
         Enable gradient tracking for the tensor data and return the attached `Tensor` instance.
-        
+
         Behavior
         --------
         - If `requires_grad` is already `True`, this returns `self` unchanged.
@@ -215,12 +217,14 @@ class Tensor(Operable, Plottable):
         """
         if self.data.requires_grad:
             return self
-        return Tensor(data=self.data.detach().clone().requires_grad_(True), dims=self.dims)
-    
-    def detach(self) -> 'Tensor':
+        return Tensor(
+            data=self.data.detach().clone().requires_grad_(True), dims=self.dims
+        )
+
+    def detach(self) -> "Tensor":
         """
         Disable gradient tracking for the tensor data and create a new `Tensor` instance.
-        
+
         Behavior
         --------
         - Always returns a new `Tensor` whose data is a detached view of the
@@ -233,8 +237,8 @@ class Tensor(Operable, Plottable):
             The new `Tensor` instance with gradient tracking disabled.
         """
         return Tensor(data=self.data.detach(), dims=self.dims)
-    
-    def clone(self) -> 'Tensor':
+
+    def clone(self) -> "Tensor":
         """
         Create a deep copy of the tensor.
 
@@ -255,7 +259,7 @@ class Tensor(Operable, Plottable):
             shape_repr = "()"
         return f"<{device} Tensor grad={self.data.requires_grad} shape={shape_repr}>"
 
-    __str__ = __repr__ # Override str to use the same representation
+    __str__ = __repr__  # Override str to use the same representation
 
 
 def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
@@ -276,7 +280,7 @@ def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
 
 
 def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
-    ignores = []
+    ignores = set()
     for n, ld in enumerate(left.dims[:-2]):
         if not isinstance(ld, hilbert.BroadcastSpace):
             continue
@@ -284,9 +288,8 @@ def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
         if isinstance(rd, hilbert.BroadcastSpace):
             continue
         left = left.align(n, rd)
-        ignores.append(n)
-    
-    ignores = set(ignores)
+        ignores.add(n)
+
     for n, ld in enumerate(left.dims[:-2]):
         if n in ignores:
             continue
@@ -366,7 +369,7 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
 
 @dispatch(Tensor, Tensor)
 def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
-    """ Perform matrix multiplication (contraction) between two `Tensor`. """
+    """Perform matrix multiplication (contraction) between two `Tensor`."""
     return matmul(left, right)
 
 
@@ -386,10 +389,10 @@ def _match_dims_for_tensoradd(left: Tensor, right: Tensor) -> Tuple[Tensor, Tens
 def operator_add(left: Tensor, right: Tensor) -> Tensor:
     """
     Add two tensors with the same order of dimensions.
-    If the intra-ordering within the `StateSpace`s differ, 
-    the `right` tensor is permuted to match the ordering 
+    If the intra-ordering within the `StateSpace`s differ,
+    the `right` tensor is permuted to match the ordering
     of the `left` tensor before addition.
-    
+
     Parameters
     ----------
     left : `Tensor`
@@ -403,7 +406,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
         The resulting tensor on the union of StateSpaces.
     """
     left, right = _match_dims_for_tensoradd(left, right)
-    
+
     # calculate the union of the StateSpaces
     union_dims = []
     for l_dim, r_dim in zip(left.dims, right.dims):
@@ -421,10 +424,16 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     new_data[left_slices] = left.data
     # fill the right tensor into the new data
     right_embedding_order = (
-        torch.tensor(hilbert.embedding_order(r, u), dtype=torch.long, device=left.data.device) 
+        torch.tensor(
+            hilbert.embedding_order(r, u), dtype=torch.long, device=left.data.device
+        )
         for r, u in zip(right.dims, union_dims)
     )
-    new_data.index_put_(torch.meshgrid(*right_embedding_order, indexing='ij'), right.data, accumulate=True)
+    new_data.index_put_(
+        torch.meshgrid(*right_embedding_order, indexing="ij"),
+        right.data,
+        accumulate=True,
+    )
 
     return Tensor(data=new_data, dims=tuple(union_dims))
 
@@ -433,7 +442,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
 def operator_neg(tensor: Tensor) -> Tensor:
     """
     Perform negation on the given tensor.
-    
+
     Parameters
     ----------
     tensor : `Tensor`
@@ -451,7 +460,7 @@ def operator_neg(tensor: Tensor) -> Tensor:
 def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     """
     Subtract the right tensor from the left tensor with the same order of dimensions.
-    If the intra-ordering within the `StateSpace`s differ, the `right` tensor is 
+    If the intra-ordering within the `StateSpace`s differ, the `right` tensor is
     permuted to match the ordering of the `left` tensor before addition.
 
     Parameters
@@ -469,15 +478,15 @@ def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     return left + (-right)
 
 
-def permute(tensor: Tensor, *order: Tuple[int, ...]) -> Tensor:
+def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
     """
     Permute the dimensions of the tensor according to the specified order.
-    
+
     Parameters
     ----------
     tensor : `Tensor`
         The tensor to permute.
-    order : `Tuple[int, ...]`
+    order : `Union[int, Sequence[int]]`
         The desired order of dimensions.
 
     Returns
@@ -485,25 +494,28 @@ def permute(tensor: Tensor, *order: Tuple[int, ...]) -> Tensor:
     `Tensor`
         The permuted tensor.
     """
+    _order: Tuple[int, ...]
     if len(order) == 1 and isinstance(order[0], (tuple, list)):
-        order = tuple(order[0])
+        _order = tuple(order[0])
     else:
-        order = tuple(order)
-    if len(order) != tensor.rank():
+        # We assume that if it's not a single list/tuple, it's a sequence of ints
+        _order = cast(Tuple[int, ...], tuple(order))
+
+    if len(_order) != tensor.rank():
         raise ValueError(
-            f"Permutation order length {len(order)} does not match tensor dimensions {tensor.rank()}!"
+            f"Permutation order length {len(_order)} does not match tensor dimensions {tensor.rank()}!"
         )
-    
-    new_data = tensor.data.permute(order)
-    new_dims = tuple(tensor.dims[i] for i in order)
-    
+
+    new_data = tensor.data.permute(_order)
+    new_dims = tuple(tensor.dims[i] for i in _order)
+
     return Tensor(data=new_data, dims=new_dims)
 
 
 def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
     """
     Transpose the specified dimensions of the tensor.
-    
+
     Parameters
     ----------
     tensor : `Tensor`
@@ -519,19 +531,19 @@ def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
         The transposed tensor.
     """
     new_data = tensor.data.transpose(dim0, dim1)
-    
+
     # Convert tuple to list to modify
     new_dims_list = list(tensor.dims)
     # Swap elements
     new_dims_list[dim0], new_dims_list[dim1] = new_dims_list[dim1], new_dims_list[dim0]
-    
+
     return Tensor(data=new_data, dims=tuple(new_dims_list))
 
 
 def conj(tensor: Tensor) -> Tensor:
     """
     Compute the complex conjugate of the given tensor.
-    
+
     Parameters
     ----------
     tensor : `Tensor`
@@ -548,7 +560,7 @@ def conj(tensor: Tensor) -> Tensor:
 def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
     """
     Unsqueeze the specified dimension of the tensor.
-    
+
     Parameters
     ----------
     tensor : `Tensor`
@@ -565,14 +577,14 @@ def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
         dim = dim + len(tensor.dims) + 1
     new_data = tensor.data.unsqueeze(dim)
     new_dims = tensor.dims[:dim] + (hilbert.BroadcastSpace(),) + tensor.dims[dim:]
-    
+
     return Tensor(data=new_data, dims=new_dims)
 
 
 def squeeze(tensor: Tensor, dim: int) -> Tensor:
     """
     Squeeze the specified dimension of the tensor.
-    
+
     Parameters
     ----------
     tensor : `Tensor`
@@ -589,17 +601,17 @@ def squeeze(tensor: Tensor, dim: int) -> Tensor:
         dim = dim + len(tensor.dims)
     if not isinstance(tensor.dims[dim], hilbert.BroadcastSpace):
         return tensor  # No squeezing needed if not BroadcastSpace
-    
+
     new_data = tensor.data.squeeze(dim)
-    new_dims = tensor.dims[:dim] + tensor.dims[dim+1:]
-    
+    new_dims = tensor.dims[:dim] + tensor.dims[dim + 1 :]
+
     return Tensor(data=new_data, dims=new_dims)
 
 
 def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     """
     Align the specified dimension of the tensor to the target StateSpace.
-    
+
     Parameters
     ----------
     tensor : `Tensor`
@@ -617,14 +629,16 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     current_dim = tensor.dims[dim]
     if isinstance(target_dim, hilbert.BroadcastSpace):
         return tensor  # No alignment needed for BroadcastSpace
-    
+
     if isinstance(current_dim, hilbert.BroadcastSpace):
         # Expand broadcast dimension to match the target StateSpace size.
         expanded_shape = list(tensor.data.shape)
         expanded_shape[dim] = target_dim.size
         aligned_data = tensor.data.expand(*expanded_shape)
         return Tensor(
-            data=aligned_data, dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim+1:])
+            data=aligned_data,
+            dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim + 1 :],
+        )
 
     if type(current_dim) is not type(target_dim):
         raise ValueError(
@@ -636,12 +650,15 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
 
     target_order = hilbert.flat_permutation_order(current_dim, target_dim)
     aligned_data = torch.index_select(
-        tensor.data, 
-        dim, 
-        torch.tensor(target_order, dtype=torch.long, device=tensor.data.device))
+        tensor.data,
+        dim,
+        torch.tensor(target_order, dtype=torch.long, device=tensor.data.device),
+    )
 
     aligned_tensor = Tensor(
-        data=aligned_data, dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim+1:])
+        data=aligned_data,
+        dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim + 1 :],
+    )
 
     return aligned_tensor
 
@@ -662,6 +679,7 @@ def rank(tensor: Tensor) -> int:
     """
     return len(tensor.dims)
 
+
 def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     """
     Expand BroadcastSpace dimensions in the tensor to match union_dims sizes.
@@ -675,7 +693,9 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     needs_expansion = False
 
     for dim, u_dim, size in zip(tensor.dims, union_dims, tensor.data.shape):
-        if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(u_dim, hilbert.BroadcastSpace):
+        if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(
+            u_dim, hilbert.BroadcastSpace
+        ):
             target_shape.append(u_dim.size)
             new_dims.append(u_dim)
             needs_expansion = True
