@@ -535,7 +535,7 @@ def operator_add(left: Number, right: Tensor) -> Tensor:
     `Tensor`
         The result of adding the scalar to the diagonal.
     """
-    eye = identity(right.dims, device=right.data.device, dtype=right.data.dtype)
+    eye = identity(right.dims)
     return left * eye + right
 
 
@@ -558,7 +558,7 @@ def operator_add(left: Tensor, right: Number) -> Tensor:
     `Tensor`
         The result of adding the scalar to the diagonal.
     """
-    eye = identity(left.dims, device=left.data.device, dtype=left.data.dtype)
+    eye = identity(left.dims)
     return left + right * eye
 
 
@@ -581,7 +581,7 @@ def operator_sub(left: Number, right: Tensor) -> Tensor:
     `Tensor`
         The result of the subtraction.
     """
-    eye = identity(right.dims, device=right.data.device, dtype=right.data.dtype)
+    eye = identity(right.dims)
     return left * eye + (-right)
 
 
@@ -604,7 +604,7 @@ def operator_sub(left: Tensor, right: Number) -> Tensor:
     `Tensor`
         The result of the subtraction.
     """
-    eye = identity(left.dims, device=left.data.device, dtype=left.data.dtype)
+    eye = identity(left.dims)
     return left + (-right) * eye
 
 
@@ -857,7 +857,7 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     return Tensor(data=tensor.data.expand(target_shape), dims=tuple(new_dims))
 
 
-def identity(dims: Tuple[StateSpace, ...], device=None, dtype=None) -> Tensor:
+def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
     """
     Create an identity tensor based on the last two dimensions.
     Returns a rank-2 Tensor corresponding to the identity of the matrix part.
@@ -869,6 +869,4 @@ def identity(dims: Tuple[StateSpace, ...], device=None, dtype=None) -> Tensor:
     matrix_dims = dims[-2:]
     rows = matrix_dims[0].size
     cols = matrix_dims[1].size
-    return Tensor(
-        data=torch.eye(rows, cols, device=device, dtype=dtype), dims=matrix_dims
-    )
+    return Tensor(data=torch.eye(rows, cols), dims=matrix_dims)
