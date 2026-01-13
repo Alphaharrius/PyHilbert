@@ -95,8 +95,7 @@ class StateSpace(Spatial):
 
     def __iter__(self) -> Iterator[Spatial]:
         """ Iterate over spatial elements. """
-        ordered = sorted(self.structure.items(), key=lambda item: item[1].start)
-        return iter(k for k, _ in ordered)
+        return iter(k for k, _ in self.structure.items())
 
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?
