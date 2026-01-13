@@ -171,21 +171,25 @@ class Plottable:
     """
     An object that can be plottable.
     """
-    _plot_methods: ClassVar[Dict[Tuple[str,str], Callable]] = {}
+
+    _plot_methods: ClassVar[Dict[Tuple[str, str], Callable]] = {}
+
     @classmethod
-    def register_plot_method(cls, name: str, backend: str='plotly'):
+    def register_plot_method(cls, name: str, backend: str = "plotly"):
         def decorator(func: Callable):
             cls._plot_methods[(name, backend)] = func
             return func
 
         return decorator
-    
-    def plot(self, method: str, backend: str='plotly', *args, **kwargs):
+
+    def plot(self, method: str, backend: str = "plotly", *args, **kwargs):
         """
         Dispatch the plot method to the registered function.
         """
         if (method, backend) not in self._plot_methods:
-            raise ValueError(f"Plot method {method} not found. Available methods: {list(self._plot_methods.keys())}")
+            raise ValueError(
+                f"Plot method {method} not found. Available methods: {list(self._plot_methods.keys())}"
+            )
         return self._plot_methods[(method, backend)](self, *args, **kwargs)
 
 
