@@ -134,6 +134,15 @@ class Offset(Spatial):
     def dim(self) -> int:
         return self.rep.rows
 
+    @lru_cache
+    def fractional(self) -> "Offset":
+        basis = self.space.basis
+        uv = basis.LUsolve(self.rep)  # fractional coords u,v
+        n = sy.Matrix([sy.floor(x) for x in uv])  # integer cell indices
+        s = uv - n  # fractional coords in [0,1)
+        frac = basis * s  # point inside reference cell
+        return Offset(rep=sy.ImmutableDenseMatrix(frac), space=self.space)
+
     def __str__(self):
         # If it's a column vector, flatten to 1D python list
         if self.rep.shape[1] == 1:
