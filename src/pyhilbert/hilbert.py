@@ -1,8 +1,8 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Tuple
+from typing import Any, Tuple
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain
 
@@ -92,6 +92,11 @@ class StateSpace(Spatial):
         if not self.structure:
             return 0
         return self.structure[next(reversed(self.structure))].stop
+
+    def __iter__(self) -> Iterator[Spatial]:
+        """ Iterate over spatial elements. """
+        ordered = sorted(self.structure.items(), key=lambda item: item[1].start)
+        return iter(k for k, _ in ordered)
 
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?
@@ -290,6 +295,27 @@ class HilbertSpace(StateSpace, Updatable):
 
         # Don't need StateSpace.restructure here since the slices are unchanged
         return HilbertSpace(structure=updated_structure)
+    
+    def collect(self, *key: str) -> Tuple[Any, ...]:
+        """
+        Collect attributes from the `Mode` elements under this `HilbertSpace`
+        and return them as a `Tuple`.
+
+        Parameters
+        ----------
+        *key : str
+            Attribute names to collect from each `Mode`, if multiple keys are provided,
+            the collected attributes will be returned as a `Tuple` of reduced `Mode` with only those attributes.
+
+        Returns
+        -------
+        `Tuple`
+            A tuple of `Mode` elements with the specified attributes if multiple keys are provided,
+            otherwise a tuple of the collected attributes.
+        """
+        if len(key) == 1:
+            return tuple(m[key[0]] for m in self)
+        return tuple(m[key] for m in self)
 
 
 @dispatch(Iterable)
