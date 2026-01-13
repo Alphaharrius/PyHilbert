@@ -1,6 +1,6 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Tuple
+from typing import Any, Tuple, TypeVar, Generic
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
@@ -10,7 +10,7 @@ from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from .abstracts import Updatable
 from .utils import FrozenDict
-from .spatials import Spatial, ReciprocalLattice, cartes
+from .spatials import Spatial, ReciprocalLattice, Momentum, cartes
 
 
 @dataclass(frozen=True)
@@ -57,8 +57,11 @@ class Mode(Spatial, Updatable):
         return replace(self, attr=FrozenDict(updated_attr))
 
 
+TSpatial = TypeVar("TSpatial", bound=Spatial)
+
+
 @dataclass(frozen=True)
-class StateSpace(Spatial):
+class StateSpace(Spatial, Generic[TSpatial]):
     """
     `StateSpace` is a collection of indices with additional information attached to the elements,
     for the case of TNS there are only two types of state spaces: `MomentumSpace` and `HilbertSpace`.
@@ -75,7 +78,7 @@ class StateSpace(Spatial):
         The total dimension of the state space, calculated as the count of elements regardless of their lengths.
     """
 
-    structure: OrderedDict[Spatial, slice]
+    structure: OrderedDict[TSpatial, slice]
     """
     An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`, `Mode`) to a slice object that defines its 
     position and the range in the tensor. The slices should be contiguous and ordered.
@@ -93,8 +96,8 @@ class StateSpace(Spatial):
             return 0
         return self.structure[next(reversed(self.structure))].stop
 
-    def __iter__(self) -> Iterator[Spatial]:
-        """ Iterate over spatial elements. """
+    def __iter__(self) -> Iterator[TSpatial]:
+        """Iterate over spatial elements."""
         return iter(k for k, _ in self.structure.items())
 
     def __hash__(self):
@@ -262,7 +265,7 @@ def operator_eq(a: StateSpace, b: StateSpace):
 
 
 @dataclass(frozen=True)
-class MomentumSpace(StateSpace):
+class MomentumSpace(StateSpace[Momentum]):
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.
     __hash__ = StateSpace.__hash__
@@ -279,7 +282,7 @@ class MomentumSpace(StateSpace):
 
 
 @dataclass(frozen=True)
-class HilbertSpace(StateSpace, Updatable):
+class HilbertSpace(StateSpace[Mode], Updatable):
     __hash__ = StateSpace.__hash__
 
     def _updated(self, **kwargs):
@@ -294,7 +297,7 @@ class HilbertSpace(StateSpace, Updatable):
 
         # Don't need StateSpace.restructure here since the slices are unchanged
         return HilbertSpace(structure=updated_structure)
-    
+
     def collect(self, *key: str) -> Tuple[Any, ...]:
         """
         Collect attributes from the `Mode` elements under this `HilbertSpace`
@@ -319,7 +322,7 @@ class HilbertSpace(StateSpace, Updatable):
 
 @dispatch(Iterable)
 def hilbert(itr: Iterable[Mode]) -> HilbertSpace:
-    structure: OrderedDict[Spatial, slice] = OrderedDict()
+    structure: OrderedDict[Mode, slice] = OrderedDict()
     base = 0
     for mode in itr:
         structure[mode] = slice(base, base + mode.count)
@@ -335,7 +338,7 @@ def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
 
 
 @dataclass(frozen=True)
-class BroadcastSpace(StateSpace):
+class BroadcastSpace(StateSpace[Spatial]):
     structure: OrderedDict = field(default_factory=OrderedDict)
 
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
