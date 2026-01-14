@@ -858,3 +858,107 @@ class TestTensorOperations:
         # But here Tensor is a wrapper. t_detach.data should share storage with t.data
         t.data[0] += 1.0
         assert t_detach.data[0] == t.data[0]
+
+
+class TestTensorScaler:
+    @pytest.fixture
+    def scaler_ctx(self):
+        class Context:
+            def __init__(self):
+                self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+                self.space_a = HilbertSpace(
+                    structure=OrderedDict([(self.mode_a, slice(0, 2))])
+                )
+                # Rank-2 tensor (square matrix for identity ops)
+                self.data_sq = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+                self.tensor_sq = Tensor(
+                    data=self.data_sq, dims=(self.space_a, self.space_a)
+                )
+
+                # Rank-1 tensor
+                self.data_vec = torch.tensor([1.0, 2.0])
+                self.tensor_vec = Tensor(data=self.data_vec, dims=(self.space_a,))
+
+        return Context()
+
+    def test_mul_scalar_tensor(self, scaler_ctx):
+        scalar = 2.5
+        result = scalar * scaler_ctx.tensor_sq
+        expected_data = scalar * scaler_ctx.data_sq
+        assert torch.allclose(result.data, expected_data)
+        assert result.dims == scaler_ctx.tensor_sq.dims
+
+    def test_mul_tensor_scalar(self, scaler_ctx):
+        scalar = 2.5
+        result = scaler_ctx.tensor_sq * scalar
+        expected_data = scaler_ctx.data_sq * scalar
+        assert torch.allclose(result.data, expected_data)
+        assert result.dims == scaler_ctx.tensor_sq.dims
+
+    def test_add_scalar_tensor(self, scaler_ctx):
+        # c + T -> c*I + T
+        scalar = 2.0
+        result = scalar + scaler_ctx.tensor_sq
+        eye = torch.eye(2)
+        expected_data = scalar * eye + scaler_ctx.data_sq
+        assert torch.allclose(result.data, expected_data)
+        assert result.dims == scaler_ctx.tensor_sq.dims
+
+    def test_add_tensor_scalar(self, scaler_ctx):
+        # T + c -> T + c*I
+        scalar = 2.0
+        result = scaler_ctx.tensor_sq + scalar
+        eye = torch.eye(2)
+        expected_data = scaler_ctx.data_sq + scalar * eye
+        assert torch.allclose(result.data, expected_data)
+        assert result.dims == scaler_ctx.tensor_sq.dims
+
+    def test_sub_scalar_tensor(self, scaler_ctx):
+        # c - T -> c*I - T
+        scalar = 2.0
+        result = scalar - scaler_ctx.tensor_sq
+        eye = torch.eye(2)
+        expected_data = scalar * eye - scaler_ctx.data_sq
+        assert torch.allclose(result.data, expected_data)
+        assert result.dims == scaler_ctx.tensor_sq.dims
+
+    def test_sub_tensor_scalar(self, scaler_ctx):
+        # T - c -> T - c*I
+        scalar = 2.0
+        result = scaler_ctx.tensor_sq - scalar
+        eye = torch.eye(2)
+        expected_data = scaler_ctx.data_sq - scalar * eye
+        assert torch.allclose(result.data, expected_data)
+        assert result.dims == scaler_ctx.tensor_sq.dims
+
+    def test_truediv_tensor_scalar(self, scaler_ctx):
+        scalar = 2.0
+        result = scaler_ctx.tensor_sq / scalar
+        expected_data = scaler_ctx.data_sq / scalar
+        assert torch.allclose(result.data, expected_data)
+        assert result.dims == scaler_ctx.tensor_sq.dims
+
+    def test_add_scalar_rank1_fails(self, scaler_ctx):
+        # Scalar addition requires at least rank 2 for diagonal broadcasting
+        with pytest.raises(ValueError, match="rank 2"):
+            _ = 1.0 + scaler_ctx.tensor_vec
+
+    def test_sub_scalar_rank1_fails(self, scaler_ctx):
+        with pytest.raises(ValueError, match="rank 2"):
+            _ = scaler_ctx.tensor_vec - 1.0
+
+    def test_add_scalar_rank3(self, scaler_ctx):
+        dims = (scaler_ctx.space_a, scaler_ctx.space_a, scaler_ctx.space_a)
+        data = torch.ones(2, 2, 2)
+        tensor = Tensor(data, dims)
+
+        scalar = 5.0
+        result = tensor + scalar
+
+        # Expected: T + c*I
+        # I is identity on last 2 dims (2, 2) broadcasted to (2, 2, 2)
+        eye = torch.eye(2).expand(2, 2, 2)
+        expected_data = data + scalar * eye
+
+        assert result.dims == dims
+        assert torch.allclose(result.data, expected_data)
