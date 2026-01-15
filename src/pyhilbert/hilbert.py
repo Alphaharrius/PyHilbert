@@ -1,8 +1,8 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Tuple
+from typing import Any, Tuple
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain
 
@@ -93,6 +93,10 @@ class StateSpace(Spatial):
             return 0
         return self.structure[next(reversed(self.structure))].stop
 
+    def __iter__(self) -> Iterator[Spatial]:
+        """ Iterate over spatial elements. """
+        return iter(k for k, _ in self.structure.items())
+
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?
         return hash(tuple((k, s.start, s.stop) for k, s in self.structure.items()))
@@ -176,7 +180,7 @@ def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, 
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-def embedding_order(sub: "StateSpace", sup: "StateSpace") -> Tuple[int, ...]:
+def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
     """
     Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
 
@@ -290,6 +294,27 @@ class HilbertSpace(StateSpace, Updatable):
 
         # Don't need StateSpace.restructure here since the slices are unchanged
         return HilbertSpace(structure=updated_structure)
+    
+    def collect(self, *key: str) -> Tuple[Any, ...]:
+        """
+        Collect attributes from the `Mode` elements under this `HilbertSpace`
+        and return them as a `Tuple`.
+
+        Parameters
+        ----------
+        *key : str
+            Attribute names to collect from each `Mode`, if multiple keys are provided,
+            the collected attributes will be returned as a `Tuple` of reduced `Mode` with only those attributes.
+
+        Returns
+        -------
+        `Tuple`
+            A tuple of `Mode` elements with the specified attributes if multiple keys are provided,
+            otherwise a tuple of the collected attributes.
+        """
+        if len(key) == 1:
+            return tuple(m[key[0]] for m in self)
+        return tuple(m[key] for m in self)
 
 
 @dispatch(Iterable)
