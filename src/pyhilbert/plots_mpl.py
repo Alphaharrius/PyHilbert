@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, List, Union, Dict
 from .abstracts import Plottable
-from .spatials import Lattice, Offset
+from .spatials import Lattice
 from .utils import compute_bonds
 
 # --- Registered Plot Methods (Matplotlib Backend) ---
@@ -13,7 +13,6 @@ from .utils import compute_bonds
 def plot_structure_mpl(
     obj: Lattice,
     subs: Optional[Dict] = None,
-    basis_offsets: Optional[List[Offset]] = None,
     spin_data: Optional[Union[np.ndarray, torch.Tensor]] = None,
     plot_type: str = "edge-and-node",
     elev: float = 30,
@@ -30,8 +29,6 @@ def plot_structure_mpl(
         The lattice instance to plot.
     subs : dict, optional
         Dictionary of symbolic substitutions for lattice parameters (e.g., {'a': 1.0}).
-    basis_offsets : list of Offset, optional
-        List of offsets defining basis atoms within the unit cell.
     spin_data : array-like, optional
         (N_sites, 3) array containing spin vectors for each site.
     plot_type : {'edge-and-node', 'scatter'}, default 'edge-and-node'
@@ -55,7 +52,7 @@ def plot_structure_mpl(
     if plot_type not in valid_types:
         raise ValueError(f"Invalid plot_type '{plot_type}'. Options: {valid_types}")
 
-    coords = obj.compute_coords(basis_offsets, subs)
+    coords = obj.compute_coords(subs)
     coords_np = coords.numpy()
 
     x = coords_np[:, 0]
@@ -92,7 +89,7 @@ def plot_structure_mpl(
                 ax.plot(x_l, y_l, color="black", linewidth=1.5, label="Bonds")
 
     # Sites
-    num_basis = len(basis_offsets) if basis_offsets else 1
+    num_basis = len(obj.unit_cell) if obj.unit_cell else 1
     num_cells = coords.shape[0] // num_basis
 
     # Basis colors
