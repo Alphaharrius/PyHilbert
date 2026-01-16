@@ -1,6 +1,15 @@
+import pytest
 import sympy as sy
+import torch
 from sympy import ImmutableDenseMatrix
-from pyhilbert.spatials import Lattice, ReciprocalLattice, Offset, cartes, AffineSpace
+from pyhilbert.spatials import (
+    Lattice,
+    ReciprocalLattice,
+    Offset,
+    cartes,
+    AffineSpace,
+    AbstractLattice,
+)
 
 
 def test_lattice_creation_and_dual():
@@ -11,17 +20,35 @@ def test_lattice_creation_and_dual():
     assert lattice.dim == 2
     assert lattice.shape == (2, 2)
     assert isinstance(lattice.affine, AffineSpace)
+    assert isinstance(lattice, AbstractLattice)
+    assert lattice.unit_cell == set()
+    assert isinstance(lattice.unit_cell, frozenset)
 
     # Check dual
     reciprocal = lattice.dual
     assert isinstance(reciprocal, ReciprocalLattice)
+    assert isinstance(reciprocal, AbstractLattice)
     assert reciprocal.dim == 2
+    assert not hasattr(reciprocal, "unit_cell")
 
     # Check double dual gives back original lattice (scaled by 1/4pi^2 in this implementation)
     orig_basis = lattice.basis
     round_trip_basis = reciprocal.dual.basis
 
     assert round_trip_basis == orig_basis * (1 / (4 * sy.pi**2))
+
+
+def test_lattice_with_unit_cell():
+    basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
+    unit_cell = {(0, 0), (0.5, 0.5)}
+    lattice = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
+
+    assert lattice.unit_cell == unit_cell
+    assert isinstance(lattice.unit_cell, frozenset)
+
+    # ReciprocalLattice should not accept unit_cell
+    with pytest.raises(TypeError):
+        ReciprocalLattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
 
 
 def test_cartes_lattice():
@@ -62,3 +89,21 @@ def test_cartes_reciprocal_lattice():
     assert (sy.Rational(1, 2), 0) in coords
     assert (0, sy.Rational(1, 2)) in coords
     assert (sy.Rational(1, 2), sy.Rational(1, 2)) in coords
+
+
+def test_compute_coords():
+    basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
+    # Default unit cell (empty -> one atom at origin)
+    lattice = Lattice(basis=basis, shape=(2, 2))
+    coords = lattice.compute_coords()
+    assert coords.shape == (4, 2)
+
+    # Explicit unit cell
+    unit_cell = {(0.1, 0.1)}
+    lattice_offset = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
+    coords_offset = lattice_offset.compute_coords()
+    assert coords_offset.shape == (4, 2)
+
+    # Check that (0.1, 0.1) is in the coordinates (corresponding to cell 0,0)
+    expected = torch.tensor([0.1, 0.1], dtype=torch.float64)
+    assert torch.any(torch.all(torch.isclose(coords_offset, expected), dim=1))
