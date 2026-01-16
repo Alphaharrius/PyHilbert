@@ -11,7 +11,7 @@ import sympy as sy
 import numpy as np
 import torch
 from sympy import ImmutableDenseMatrix, sympify
-
+from sympy.matrices.normalforms import smith_normal_decomp
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, Plottable
 
@@ -53,6 +53,48 @@ class Lattice(AffineSpace, HasDual):
     def dual(self) -> "ReciprocalLattice":
         reciprocal_basis = 2 * sy.pi * self.basis.inv().T
         return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
+    
+    def scale(self, M) -> Tuple["Lattice", Tuple["Offset", ...]]:
+        """
+        Creates a supercell (new Lattice) based on the scaling matrix M.
+        Returns the new Lattice and the offsets of the original lattice points
+        that are now internal to the new unit cell.
+        
+        Args:
+            M: Scaling matrix (integer matrix).
+               New Basis = Old Basis @ M
+        
+        Returns:
+            new_lattice: The transformed lattice with expanded basis.
+            internal_offsets: List of Offsets defining the original lattice points 
+                              inside the new supercell (in new fractional coords).
+        """
+        S, _, V = smith_normal_decomp(M, domain=sy.ZZ)
+        
+        Q = V.inv()
+
+        s_diag = [int(S[i, i]) for i in range(min(S.rows, S.cols))]
+        
+        ranges = [range(x) for x in s_diag]
+        grid = product(*ranges)
+        
+        new_basis = self.basis @ M
+        
+        new_lattice = Lattice(basis=new_basis, shape=self.shape)
+        
+        M_inv = M.inv()
+        internal_offsets = []
+
+        for n_tuple in grid:
+
+            n_vec = ImmutableDenseMatrix([n_tuple])
+            k_vec = n_vec @ Q
+            new_frac = k_vec @ M_inv
+            internal_offsets.append(
+                Offset(rep=new_frac, space=new_lattice.affine)
+            )
+
+        return new_lattice, tuple(internal_offsets)
 
     def compute_coords(
         self,
