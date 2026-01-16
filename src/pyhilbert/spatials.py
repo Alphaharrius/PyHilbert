@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Tuple, List, Optional, Dict
+from dataclasses import dataclass, field
+from typing import Tuple, List, Optional, Dict, Set
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -41,12 +41,21 @@ class AffineSpace(Spatial):
 
 
 @dataclass(frozen=True)
-class Lattice(AffineSpace, HasDual):
+class AbstractLattice(AffineSpace, HasDual):
     shape: Tuple[int, ...]
 
     @property
     def affine(self) -> AffineSpace:
         return AffineSpace(basis=self.basis)
+
+
+@dataclass(frozen=True)
+class Lattice(AbstractLattice):
+    unit_cell: frozenset = field(default_factory=frozenset)
+
+    def __post_init__(self):
+        if not isinstance(self.unit_cell, frozenset):
+            object.__setattr__(self, "unit_cell", frozenset(self.unit_cell))
 
     @property
     @lru_cache
@@ -117,10 +126,10 @@ class Lattice(AffineSpace, HasDual):
 
 
 @dataclass(frozen=True)
-class ReciprocalLattice(Lattice):
+class ReciprocalLattice(AbstractLattice):
     @property
     @lru_cache
-    def dual(self) -> "Lattice":  # type: ignore[override]
+    def dual(self) -> Lattice:
         basis = (1 / (2 * sy.pi)) * self.basis.inv().T
         return Lattice(basis=basis, shape=self.shape)
 
