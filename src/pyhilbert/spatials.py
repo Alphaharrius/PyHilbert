@@ -11,7 +11,7 @@ import sympy as sy
 import numpy as np
 import torch
 from sympy import ImmutableDenseMatrix, sympify
-
+from sympy.matrices.normalforms import smith_normal_decomp
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, Plottable
 
@@ -62,6 +62,79 @@ class Lattice(AbstractLattice):
     def dual(self) -> "ReciprocalLattice":
         reciprocal_basis = 2 * sy.pi * self.basis.inv().T
         return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
+
+    def scale(self, M) -> "Lattice":
+        """
+        Generates a Supercell based on the scaling matrix M.
+        Automatically populates the new unit cell with original atoms 
+        to preserve physical density.
+        """
+        # 1. Prepare Matrices
+        M = sympify(M) if not isinstance(M, ImmutableDenseMatrix) else M
+        if M.rows != self.dim or M.cols != self.dim:
+            raise ValueError(f"Scaling matrix M must be {self.dim}x{self.dim}")
+
+        # 2. Smith Normal Form Decomposition
+        S, U, V = smith_normal_decomp(M, domain=sy.ZZ)
+        
+        # M = U * S * V. We need Q = V^-1 to map S-grid back to lattice-grid
+        # Note: We use rational inversion to ensure exact integer arithmetic where possible
+        Q = V.inv()
+
+        # 3. Generate Integer Shifts (k_vectors)
+        s_diag = [int(S[i, i]) for i in range(min(S.rows, S.cols))]
+        ranges = [range(x) for x in s_diag]
+        grid_indices = product(*ranges)
+        
+        shifts = []
+        for n_tuple in grid_indices:
+            n_vec = ImmutableDenseMatrix([n_tuple]) # Create 1xN Row Vector
+            k_vec = n_vec @ Q 
+            shifts.append(k_vec)
+
+        # 4. Transform Atoms
+        # If unit_cell is empty, assume implicit atom at origin
+        # Use a list of coordinates for processing
+        if not self.unit_cell:
+            # Default: one atom at origin (Row Vector)
+            source_atoms_vec = [ImmutableDenseMatrix.zeros(1, self.dim)]
+        else:
+            source_atoms_vec = []
+            for atom in self.unit_cell:
+                # 【Fix Here】: Ensure atom is converted to a 1xN Matrix (Row Vector)
+                if isinstance(atom, ImmutableDenseMatrix):
+                    # Reshape to (1, dim) just in case it was a column vector
+                    vec = atom.reshape(1, self.dim)
+                else:
+                    # Assume iterable (tuple/list) -> wrap in list to make it a row
+                    # e.g., (0,0) -> Matrix([[0, 0]])
+                    vec = ImmutableDenseMatrix([atom]) 
+                source_atoms_vec.append(vec)
+        
+        new_atoms = []
+        M_inv = M.inv() 
+
+        for atom_vec in source_atoms_vec:
+            for k in shifts:
+                # Now both atom_vec and k are 1xN Matrices
+                # Formula: new_frac = (old_frac + shift) * M^-1
+                new_frac_raw = (atom_vec + k) @ M_inv
+                
+                # Optional: Wrap to [0, 1) interval
+                new_frac = new_frac_raw.applyfunc(lambda x: x % 1)
+                
+                # Convert back to immutable format suitable for frozenset if needed,
+                # but storing Matrix in unit_cell is fine if hashable (ImmutableDenseMatrix is hashable)
+                new_atoms.append(new_frac)
+
+        # 5. Create New Lattice
+        new_basis = self.basis @ M
+        
+        return Lattice(
+            basis=new_basis, 
+            shape=self.shape,
+            unit_cell=frozenset(new_atoms)
+        )
 
     def compute_coords(
         self,
