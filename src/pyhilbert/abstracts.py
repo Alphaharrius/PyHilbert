@@ -6,50 +6,62 @@ from typing import Callable, Dict, ClassVar, Tuple
 
 @dataclass(frozen=True)
 class Operable(ABC):
-    def __add__(self, other: "Operable"):
+    def __add__(self, other):
         return operator_add(self, other)
 
     def __neg__(self):
         return operator_neg(self)
 
-    def __sub__(self, other: "Operable"):
+    def __sub__(self, other):
         return operator_sub(self, other)
 
-    def __mul__(self, other: "Operable"):
+    def __mul__(self, other):
         return operator_mul(self, other)
 
-    def __matmul__(self, other: "Operable"):
+    def __matmul__(self, other):
         return operator_matmul(self, other)
 
-    def __truediv__(self, other: "Operable"):
+    def __truediv__(self, other):
         return operator_truediv(self, other)
 
-    def __floordiv__(self, other: "Operable"):
+    def __floordiv__(self, other):
         return operator_floordiv(self, other)
 
-    def __pow__(self, other: "Operable"):
+    def __pow__(self, other):
         return operator_pow(self, other)
 
     def __eq__(self, value):
         return operator_eq(self, value)
 
-    def __lt__(self, other: "Operable"):
+    def __lt__(self, other):
         return operator_lt(self, other)
 
-    def __le__(self, other: "Operable"):
+    def __le__(self, other):
         return operator_le(self, other)
 
-    def __gt__(self, other: "Operable"):
+    def __gt__(self, other):
         return operator_gt(self, other)
 
-    def __ge__(self, other: "Operable"):
+    def __ge__(self, other):
         return operator_ge(self, other)
 
-    def __and__(self, other: "Operable"):
+    def __and__(self, other):
         return operator_and(self, other)
 
-    def __or__(self, other: "Operable"):
+    def __or__(self, other):
         return operator_or(self, other)
+
+    def __radd__(self, other):
+        return operator_add(other, self)
+
+    def __rsub__(self, other):
+        return operator_sub(other, self)
+
+    def __rmul__(self, other):
+        return operator_mul(other, self)
+
+    def __rtruediv__(self, other):
+        return operator_truediv(other, self)
 
 
 @dispatch(Operable, Operable)
