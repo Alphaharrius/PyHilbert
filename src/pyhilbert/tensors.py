@@ -60,6 +60,24 @@ class Tensor(Operable, Plottable):
         """
         return transpose(self, dim0, dim1)
 
+    def h(self, dim0: int, dim1: int) -> "Tensor":
+        """
+        Hermitian transpose (conjugate transpose) of the specified dimensions.
+
+        Parameters
+        ----------
+        dim0 : `int`
+            The first dimension to transpose.
+        dim1 : `int`
+            The second dimension to transpose.
+
+        Returns
+        -------
+        `Tensor`
+            The Hermitian transposed tensor.
+        """
+        return self.conj().transpose(dim0, dim1)
+
     def align(self, dim: int, target_dim: StateSpace) -> "Tensor":
         """
         Align the specified dimension to the target StateSpace.
