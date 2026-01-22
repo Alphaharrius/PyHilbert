@@ -1,4 +1,4 @@
-from typing import Tuple, Union, Sequence, cast
+from typing import Dict, Tuple, Union, Sequence, cast
 from numbers import Number
 from dataclasses import dataclass
 from multipledispatch import dispatch  # type: ignore[import-untyped]
@@ -7,7 +7,7 @@ import torch
 
 from . import hilbert
 from .abstracts import Operable, Plottable
-from .hilbert import StateSpace
+from .hilbert import StateSpace, HilbertSpace, Mode
 
 
 @dataclass(frozen=True)
@@ -707,3 +707,24 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
         return tensor
 
     return Tensor(data=tensor.data.expand(target_shape), dims=tuple(new_dims))
+
+
+def mapping_matrix(
+    from_space: HilbertSpace, to_space: HilbertSpace, mapping: Dict[Mode, Mode]
+) -> Tensor:
+    # TODO: Use globally defined complex dtype
+    mat = torch.zeros((from_space.size, to_space.size), dtype=torch.complex64)
+    for fm, tm in mapping.items():
+        fslice = from_space.get_slice(fm)
+        tslice = to_space.get_slice(tm)
+
+        flen = fslice.stop - fslice.start
+        tlen = tslice.stop - tslice.start
+        if flen != tlen:
+            raise ValueError(
+                f"Cannot create mapping matrix between modes of different sizes: {flen} != {tlen}"
+            )
+
+        mat[fslice, tslice] = torch.eye(flen, dtype=mat.dtype, device=mat.device)
+
+    return Tensor(data=mat, dims=(from_space, to_space))
