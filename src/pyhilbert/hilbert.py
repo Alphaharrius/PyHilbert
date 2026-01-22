@@ -1,6 +1,6 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Tuple, TypeVar, Generic
+from typing import Any, Callable, Dict, Tuple, TypeVar, Generic
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
@@ -87,7 +87,7 @@ class StateSpace(Spatial, Generic[TSpatial]):
     @property
     def dim(self) -> int:
         """The total dimension of the state space, calculated as the count of elements regardless of their lengths."""
-        return len(self.structure)
+        return len(self)
 
     @property
     def size(self) -> int:
@@ -95,6 +95,18 @@ class StateSpace(Spatial, Generic[TSpatial]):
         if not self.structure:
             return 0
         return self.structure[next(reversed(self.structure))].stop
+
+    def elements(self) -> Tuple[TSpatial, ...]:
+        """Return the spatial elements as a tuple."""
+        return tuple(k for k in self.structure.keys())
+
+    def get_slice(self, key: TSpatial) -> slice:
+        """Get the slice associated with a given spatial key."""
+        return self.structure[key]
+
+    def __len__(self) -> int:
+        """Return the number of spatial elements."""
+        return len(self.structure)
 
     def __iter__(self) -> Iterator[TSpatial]:
         """Iterate over spatial elements."""
@@ -380,3 +392,41 @@ def operator_add(a: StateSpace, b: BroadcastSpace):
 @dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
 def operator_add(a: BroadcastSpace, b: StateSpace):
     return b
+
+
+def mode_mapping(
+    source: Iterable[Mode], dest: Iterable[Mode], base_func: Callable[[Mode], Any]
+) -> Dict[Mode, Mode]:
+    """
+    Map modes from source to destination using a provided mapping function.
+
+    Parameters
+    ----------
+    `source` : `Iterable[Mode]`
+        The source modes to be mapped.
+    `dest` : `Iterable[Mode]`
+        The destination modes to map to.
+    `base_func` : `Callable[[Mode], Any]`
+        A function that defines the comparison baseline.
+
+    Returns
+    -------
+    `Dict[Mode, Mode]`
+        A dictionary mapping each source mode to its corresponding destination mode `source -> dest`.
+    """
+    mapping: Dict[Mode, Mode] = {}
+
+    source_base: Dict[Mode, Any] = {m: base_func(m) for m in source}
+    dest_base: Dict[Mode, Any] = {base_func(m): m for m in dest}
+
+    if len(dest_base) != len(tuple(dest)):
+        raise ValueError("Destination modes have non-unique base values!")
+
+    for sm, sb in source_base.items():
+        if sb not in dest_base:
+            raise ValueError(
+                f"Source mode {sm} with base {sb} has no match in destination!"
+            )
+        mapping[sm] = dest_base[sb]
+
+    return mapping
