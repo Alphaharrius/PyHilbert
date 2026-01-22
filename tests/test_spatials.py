@@ -12,6 +12,7 @@ from pyhilbert.spatials import (
 )
 from pyhilbert.utils import FrozenDict
 
+
 def test_lattice_creation_and_dual():
     # 2D square lattice
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
@@ -40,7 +41,7 @@ def test_lattice_creation_and_dual():
 
 def test_lattice_with_unit_cell():
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
-    unit_cell = FrozenDict({'a': (0, 0), 'b': (0.5, 0.5)})
+    unit_cell = FrozenDict({"a": (0, 0), "b": (0.5, 0.5)})
     lattice = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
 
     assert lattice.unit_cell == unit_cell
@@ -99,7 +100,7 @@ def test_compute_coords():
     assert coords.shape == (4, 2)
 
     # Explicit unit cell
-    unit_cell = {'a':(0.1, 0.1)}
+    unit_cell = {"a": (0.1, 0.1)}
     lattice_offset = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
     coords_offset = lattice_offset.compute_coords()
     assert coords_offset.shape == (4, 2)
