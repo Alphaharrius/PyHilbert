@@ -51,11 +51,11 @@ class AbstractLattice(AffineSpace, HasDual):
 
 @dataclass(frozen=True)
 class Lattice(AbstractLattice):
-    unit_cell: frozenset = field(default_factory=frozenset)
+    unit_cell: FrozenDict = field(default_factory=FrozenDict)
 
     def __post_init__(self):
-        if not isinstance(self.unit_cell, frozenset):
-            object.__setattr__(self, "unit_cell", frozenset(self.unit_cell))
+        if not isinstance(self.unit_cell, FrozenDict):
+            object.__setattr__(self, "unit_cell", FrozenDict(self.unit_cell))
 
     @property
     @lru_cache
@@ -103,8 +103,8 @@ class Lattice(AbstractLattice):
         if not self.unit_cell:
             basis_reps.append(np.zeros(self.dim, dtype=np.float64))
         else:
-            sorted_unit_cell = sorted(self.unit_cell, key=lambda x: str(x))
-            for site in sorted_unit_cell:
+            sorted_unit_cell = sorted(self.unit_cell.items(), key=lambda x: str(x[0]))
+            for _, site in sorted_unit_cell:
                 site_vec = sy.ImmutableDenseMatrix(site)
                 if subs:
                     site_vec = site_vec.subs(subs)
