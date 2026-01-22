@@ -15,6 +15,25 @@ from .tensors import mapping_matrix
 
 @dispatch(tuple, tuple)
 def fourier_transform(K: Tuple[Momentum, ...], R: Tuple[Offset, ...]) -> torch.Tensor:
+    """
+    Compute Fourier phase factors between momentum and real-space offsets.
+
+    This returns the kernel `exp(-2π i k·r)` evaluated for all pairs of
+    momentum points in `K` and offsets in `R`.
+
+    Parameters
+    ----------
+    `K` : `Tuple[Momentum, ...]`
+        Momentum points.
+    `R` : `Tuple[Offset, ...]`
+        Real-space offsets.
+
+    Returns
+    -------
+    `torch.Tensor`
+        Complex tensor of shape `(len(K), len(R))` with elements
+        `exp(-2π i k·r)`.
+    """
     ten_K = torch.from_numpy(  # (K, d)
         np.stack([np.array(k.rep, dtype=np.float64).reshape(-1) for k in K], axis=0)
     )
@@ -33,6 +52,30 @@ def fourier_transform(
     *,
     r_name: str = "r",
 ) -> torch.Tensor:
+    """
+    Build the Fourier transform tensor between `k_space` and `region_space`.
+
+    This computes phase factors for `k_space` against the offsets collected
+    from `region_space`, then maps region modes into `bloch_space` using
+    the coordinate named by `r_name`.
+
+    Parameters
+    ----------
+    `k_space` : `MomentumSpace`
+        Momentum space defining the k points.
+    `bloch_space` : `HilbertSpace`
+        Bloch space to map region modes into.
+    `region_space` : `HilbertSpace`
+        Real-space region defining offsets.
+    `r_name` : `str`, default `"r"`
+        Name of the spatial coordinate in region modes used for the mapping.
+
+    Returns
+    -------
+    `Tensor`
+        Tensor with data shape `(K, B, R)` and dims
+        `(k_space, bloch_space, region_space)`.
+    """
     K: Tuple[Momentum] = k_space.elements()
     R: Tuple[Offset] = region_space.collect(r_name)
     f = fourier_transform(K, R)  # (K, R)
