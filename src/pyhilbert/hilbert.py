@@ -434,18 +434,55 @@ def mode_mapping(
 
 @dataclass(frozen=True)
 class SpectralBand(Spatial):
+    """
+    A spectral band in an eigenvalue spectrum.
+
+    Attributes
+    ----------
+    idx : int
+        Zero-based band index.
+    count : int
+        Number of eigenvalues in the band.
+    """
+
     idx: int
     count: int
 
     @property
     def dim(self) -> int:
+        """Return the band dimension (number of eigenvalues in the band)."""
         return self.count
 
 
 @dataclass(frozen=True)
 class Spectrum(StateSpace[SpectralBand]):
+    """
+    State space describing a spectrum partitioned into spectral bands.
+
+    Each band corresponds to a contiguous block of eigenvalues, and the total
+    dimension equals the sum of all band sizes.
+    """
+
     __hash__ = StateSpace.__hash__
 
     def __str__(self):
         band_count_repr = ", ".join([str(band.dim) for band in self])
         return f"Spectrum({band_count_repr})"
+
+    @classmethod
+    def from_band_counts(cls, band_counts: Iterable[int]) -> "Spectrum":
+        """
+        Construct a Spectrum from per-band eigenvalue counts.
+
+        Parameters
+        ----------
+        band_counts : Iterable[int]
+            Sizes of each band in order.
+        """
+        structure = OrderedDict()
+        base = 0
+        for idx, count in enumerate(band_counts):
+            band = SpectralBand(idx=idx, count=count)
+            structure[band] = slice(base, base + count)
+            base += count
+        return cls(structure=structure)
