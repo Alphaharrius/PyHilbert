@@ -63,7 +63,7 @@ class Lattice(AbstractLattice):
         reciprocal_basis = 2 * sy.pi * self.basis.inv().T
         return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
 
-    def compute_coords(
+    def coords(
         self,
         subs: Optional[Dict] = None,
     ) -> torch.Tensor:
