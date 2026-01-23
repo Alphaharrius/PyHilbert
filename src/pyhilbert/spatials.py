@@ -6,7 +6,7 @@ from itertools import product
 from functools import lru_cache
 from collections import OrderedDict
 from functools import reduce
-
+from sympy.matrices.normalforms import smith_normal_decomp
 import sympy as sy
 import numpy as np
 import torch
@@ -118,9 +118,45 @@ class Lattice(AbstractLattice):
 
         total_crystal_flat = total_crystal.view(-1, self.dim)
 
-        coords = total_crystal_flat @ basis_mat.T
+        coords = total_crystal_flat @ basis_mat
 
         return coords
+
+    def scale(self, M: ImmutableDenseMatrix) -> "Lattice":
+        """
+        Generates a Supercell based on the scaling matrix M.
+        Automatically populates the new unit cell with original atoms
+        to preserve physical density.
+        """
+        # 1. Validate M
+        S, U, V = smith_normal_decomp(M, domain=sy.ZZ)
+
+        Q = V.inv()
+
+        # 3. Generate Integer Shifts (k_vectors)
+        ranges = [range(int(S[i, i])) for i in range(self.dim)]
+        shifts = [ImmutableDenseMatrix([n]) @ Q for n in product(*ranges)]
+
+        # 4. Transform Atoms
+        M_inv = M.inv()
+        new_unit_cell = {}
+
+        # Iterate over existing atoms (or implicit origin)
+        items = self.unit_cell.items() if self.unit_cell else [("0", [0] * self.dim)]
+        for label, atom in items:
+            atom_vec = ImmutableDenseMatrix(atom).reshape(1, self.dim)
+            for i, k in enumerate(shifts):
+                # Now both atom_vec and k are 1xN Matrices
+                # Formula: new_frac = (old_frac + shift) * M^-1
+                new_frac = (atom_vec + k) @ M_inv
+
+                # Generate new label
+                new_label = f"{label}_{i}" if len(shifts) > 1 else label
+                new_unit_cell[new_label] = new_frac
+        new_basis = M @ self.basis
+        return Lattice(
+            basis=new_basis, shape=self.shape, unit_cell=FrozenDict(new_unit_cell)
+        )
 
 
 @dataclass(frozen=True)

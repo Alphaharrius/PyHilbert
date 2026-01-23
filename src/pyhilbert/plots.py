@@ -18,6 +18,7 @@ def plot_structure(
     spin_data: Optional[Union[np.ndarray, torch.Tensor]] = None,
     plot_type: str = "edge-and-node",
     show: bool = True,
+    fig: Optional[go.Figure] = None,
     **kwargs,
 ) -> go.Figure:
     """
@@ -38,6 +39,8 @@ def plot_structure(
         Visualization style.
     show : bool, default True
         If True, calls `fig.show()` to display the plot immediately.
+    fig : plotly.graph_objects.Figure, optional
+        Existing figure to add traces to.
     **kwargs
         Additional keyword arguments passed to `go.Figure`.
 
@@ -58,7 +61,8 @@ def plot_structure(
     y = coords_np[:, 1]
     z = coords_np[:, 2] if obj.dim == 3 else None
 
-    fig = go.Figure()
+    if fig is None:
+        fig = go.Figure()
 
     # Bonds (Only for 'edge-and-node')
     if plot_type == "edge-and-node":
