@@ -430,3 +430,22 @@ def mode_mapping(
         mapping[sm] = dest_base[sb]
 
     return mapping
+
+
+@dataclass(frozen=True)
+class SpectralBand(Spatial):
+    idx: int
+    count: int
+
+    @property
+    def dim(self) -> int:
+        return self.count
+
+
+@dataclass(frozen=True)
+class Spectrum(StateSpace[SpectralBand]):
+    __hash__ = StateSpace.__hash__
+
+    def __str__(self):
+        band_count_repr = ", ".join([str(band.dim) for band in self])
+        return f"Spectrum({band_count_repr})"
