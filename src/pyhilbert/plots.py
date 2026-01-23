@@ -4,7 +4,7 @@ import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
 from typing import Optional, List, Union, Dict
 from .abstracts import Plottable
-from .spatials import Lattice, Offset
+from .spatials import Lattice
 from .utils import compute_bonds
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
@@ -15,7 +15,6 @@ from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 def plot_structure(
     obj: Lattice,
     subs: Optional[Dict] = None,
-    basis_offsets: Optional[List[Offset]] = None,
     spin_data: Optional[Union[np.ndarray, torch.Tensor]] = None,
     plot_type: str = "edge-and-node",
     show: bool = True,
@@ -33,8 +32,6 @@ def plot_structure(
         The lattice instance to visualize.
     subs : dict, optional
         Dictionary of symbol substitutions for lattice parameters.
-    basis_offsets : list of Offset, optional
-        Offsets for basis atoms within the unit cell.
     spin_data : array-like, optional
         (N_sites, 3) array of spin vectors.
     plot_type : {'edge-and-node', 'scatter'}, default 'edge-and-node'
@@ -54,7 +51,7 @@ def plot_structure(
         raise ValueError(f"Invalid plot_type '{plot_type}'. Options: {valid_types}")
 
     # Use method on Lattice object
-    coords = obj.compute_coords(basis_offsets, subs)
+    coords = obj.coords(subs)
     coords_np = coords.numpy()
 
     x = coords_np[:, 0]
@@ -92,7 +89,7 @@ def plot_structure(
                 )
 
     # Sites
-    num_basis = len(basis_offsets) if basis_offsets else 1
+    num_basis = len(obj.unit_cell) if obj.unit_cell else 1
     num_cells = coords.shape[0] // num_basis
 
     basis_colors = ["blue", "red", "green", "orange", "purple"]

@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Tuple, List, Optional, Dict
+from dataclasses import dataclass, field
+from typing import Tuple, Optional, Dict
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -41,12 +41,21 @@ class AffineSpace(Spatial):
 
 
 @dataclass(frozen=True)
-class Lattice(AffineSpace, HasDual):
+class AbstractLattice(AffineSpace, HasDual):
     shape: Tuple[int, ...]
 
     @property
     def affine(self) -> AffineSpace:
         return AffineSpace(basis=self.basis)
+
+
+@dataclass(frozen=True)
+class Lattice(AbstractLattice):
+    unit_cell: FrozenDict = field(default_factory=FrozenDict)
+
+    def __post_init__(self):
+        if not isinstance(self.unit_cell, FrozenDict):
+            object.__setattr__(self, "unit_cell", FrozenDict(self.unit_cell))
 
     @property
     @lru_cache
@@ -54,9 +63,8 @@ class Lattice(AffineSpace, HasDual):
         reciprocal_basis = 2 * sy.pi * self.basis.inv().T
         return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
 
-    def compute_coords(
+    def coords(
         self,
-        basis_offsets: Optional[List["Offset"]] = None,
         subs: Optional[Dict] = None,
     ) -> torch.Tensor:
         """
@@ -91,17 +99,16 @@ class Lattice(AffineSpace, HasDual):
             np.array(lat_reps), dtype=torch.float64
         )  # (N_cells, Dim)
 
-        if basis_offsets is None:
-            basis_offsets = [
-                Offset(rep=sy.ImmutableDenseMatrix([0] * self.dim), space=self.affine)
-            ]
-
         basis_reps = []
-        for off in basis_offsets:
-            rep = off.rep
-            if subs:
-                rep = rep.subs(subs)
-            basis_reps.append(np.array(rep).flatten().astype(np.float64))
+        if not self.unit_cell:
+            basis_reps.append(np.zeros(self.dim, dtype=np.float64))
+        else:
+            sorted_unit_cell = sorted(self.unit_cell.items(), key=lambda x: str(x[0]))
+            for _, site in sorted_unit_cell:
+                site_vec = sy.ImmutableDenseMatrix(site)
+                if subs:
+                    site_vec = site_vec.subs(subs)
+                basis_reps.append(np.array(site_vec).flatten().astype(np.float64))
 
         basis_tensor = torch.tensor(
             np.array(basis_reps), dtype=torch.float64
@@ -117,10 +124,10 @@ class Lattice(AffineSpace, HasDual):
 
 
 @dataclass(frozen=True)
-class ReciprocalLattice(Lattice):
+class ReciprocalLattice(AbstractLattice):
     @property
     @lru_cache
-    def dual(self) -> "Lattice":  # type: ignore[override]
+    def dual(self) -> Lattice:
         basis = (1 / (2 * sy.pi)) * self.basis.inv().T
         return Lattice(basis=basis, shape=self.shape)
 
