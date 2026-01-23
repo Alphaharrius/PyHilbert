@@ -1,8 +1,8 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Tuple
+from typing import Any, Callable, Dict, Tuple, TypeVar, Generic
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain
 
@@ -10,7 +10,7 @@ from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from .abstracts import Updatable
 from .utils import FrozenDict
-from .spatials import Spatial, ReciprocalLattice, cartes
+from .spatials import Spatial, ReciprocalLattice, Momentum, cartes
 
 
 @dataclass(frozen=True)
@@ -57,8 +57,11 @@ class Mode(Spatial, Updatable):
         return replace(self, attr=FrozenDict(updated_attr))
 
 
+TSpatial = TypeVar("TSpatial", bound=Spatial)
+
+
 @dataclass(frozen=True)
-class StateSpace(Spatial):
+class StateSpace(Spatial, Generic[TSpatial]):
     """
     `StateSpace` is a collection of indices with additional information attached to the elements,
     for the case of TNS there are only two types of state spaces: `MomentumSpace` and `HilbertSpace`.
@@ -75,7 +78,7 @@ class StateSpace(Spatial):
         The total dimension of the state space, calculated as the count of elements regardless of their lengths.
     """
 
-    structure: OrderedDict[Spatial, slice]
+    structure: OrderedDict[TSpatial, slice]
     """
     An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`, `Mode`) to a slice object that defines its 
     position and the range in the tensor. The slices should be contiguous and ordered.
@@ -84,7 +87,7 @@ class StateSpace(Spatial):
     @property
     def dim(self) -> int:
         """The total dimension of the state space, calculated as the count of elements regardless of their lengths."""
-        return len(self.structure)
+        return len(self)
 
     @property
     def size(self) -> int:
@@ -92,6 +95,22 @@ class StateSpace(Spatial):
         if not self.structure:
             return 0
         return self.structure[next(reversed(self.structure))].stop
+
+    def elements(self) -> Tuple[TSpatial, ...]:
+        """Return the spatial elements as a tuple."""
+        return tuple(k for k in self.structure.keys())
+
+    def get_slice(self, key: TSpatial) -> slice:
+        """Get the slice associated with a given spatial key."""
+        return self.structure[key]
+
+    def __len__(self) -> int:
+        """Return the number of spatial elements."""
+        return len(self.structure)
+
+    def __iter__(self) -> Iterator[TSpatial]:
+        """Iterate over spatial elements."""
+        return iter(k for k, _ in self.structure.items())
 
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?
@@ -176,7 +195,7 @@ def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, 
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-def embedding_order(sub: "StateSpace", sup: "StateSpace") -> Tuple[int, ...]:
+def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
     """
     Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
 
@@ -258,7 +277,7 @@ def operator_eq(a: StateSpace, b: StateSpace):
 
 
 @dataclass(frozen=True)
-class MomentumSpace(StateSpace):
+class MomentumSpace(StateSpace[Momentum]):
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.
     __hash__ = StateSpace.__hash__
@@ -275,7 +294,7 @@ class MomentumSpace(StateSpace):
 
 
 @dataclass(frozen=True)
-class HilbertSpace(StateSpace, Updatable):
+class HilbertSpace(StateSpace[Mode], Updatable):
     __hash__ = StateSpace.__hash__
 
     def _updated(self, **kwargs):
@@ -291,10 +310,31 @@ class HilbertSpace(StateSpace, Updatable):
         # Don't need StateSpace.restructure here since the slices are unchanged
         return HilbertSpace(structure=updated_structure)
 
+    def collect(self, *key: str) -> Tuple[Any, ...]:
+        """
+        Collect attributes from the `Mode` elements under this `HilbertSpace`
+        and return them as a `Tuple`.
+
+        Parameters
+        ----------
+        *key : str
+            Attribute names to collect from each `Mode`, if multiple keys are provided,
+            the collected attributes will be returned as a `Tuple` of reduced `Mode` with only those attributes.
+
+        Returns
+        -------
+        `Tuple`
+            A tuple of `Mode` elements with the specified attributes if multiple keys are provided,
+            otherwise a tuple of the collected attributes.
+        """
+        if len(key) == 1:
+            return tuple(m[key[0]] for m in self)
+        return tuple(m[key] for m in self)
+
 
 @dispatch(Iterable)
 def hilbert(itr: Iterable[Mode]) -> HilbertSpace:
-    structure: OrderedDict[Spatial, slice] = OrderedDict()
+    structure: OrderedDict[Mode, slice] = OrderedDict()
     base = 0
     for mode in itr:
         structure[mode] = slice(base, base + mode.count)
@@ -310,7 +350,7 @@ def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
 
 
 @dataclass(frozen=True)
-class BroadcastSpace(StateSpace):
+class BroadcastSpace(StateSpace[Spatial]):
     structure: OrderedDict = field(default_factory=OrderedDict)
 
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
@@ -352,3 +392,41 @@ def operator_add(a: StateSpace, b: BroadcastSpace):
 @dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
 def operator_add(a: BroadcastSpace, b: StateSpace):
     return b
+
+
+def mode_mapping(
+    source: Iterable[Mode], dest: Iterable[Mode], base_func: Callable[[Mode], Any]
+) -> Dict[Mode, Mode]:
+    """
+    Map modes from source to destination using a provided mapping function.
+
+    Parameters
+    ----------
+    `source` : `Iterable[Mode]`
+        The source modes to be mapped.
+    `dest` : `Iterable[Mode]`
+        The destination modes to map to.
+    `base_func` : `Callable[[Mode], Any]`
+        A function that defines the comparison baseline.
+
+    Returns
+    -------
+    `Dict[Mode, Mode]`
+        A dictionary mapping each source mode to its corresponding destination mode `source -> dest`.
+    """
+    mapping: Dict[Mode, Mode] = {}
+
+    source_base: Dict[Mode, Any] = {m: base_func(m) for m in source}
+    dest_base: Dict[Mode, Any] = {base_func(m): m for m in dest}
+
+    if len(dest_base) != len(tuple(dest)):
+        raise ValueError("Destination modes have non-unique base values!")
+
+    for sm, sb in source_base.items():
+        if sb not in dest_base:
+            raise ValueError(
+                f"Source mode {sm} with base {sb} has no match in destination!"
+            )
+        mapping[sm] = dest_base[sb]
+
+    return mapping
