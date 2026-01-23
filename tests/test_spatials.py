@@ -92,17 +92,17 @@ def test_cartes_reciprocal_lattice():
     assert (sy.Rational(1, 2), sy.Rational(1, 2)) in coords
 
 
-def test_compute_coords():
+def test_coords():
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
     # Default unit cell (empty -> one atom at origin)
     lattice = Lattice(basis=basis, shape=(2, 2))
-    coords = lattice.compute_coords()
+    coords = lattice.coords()
     assert coords.shape == (4, 2)
 
     # Explicit unit cell
     unit_cell = {"a": (0.1, 0.1)}
     lattice_offset = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
-    coords_offset = lattice_offset.compute_coords()
+    coords_offset = lattice_offset.coords()
     assert coords_offset.shape == (4, 2)
 
     # Check that (0.1, 0.1) is in the coordinates (corresponding to cell 0,0)
