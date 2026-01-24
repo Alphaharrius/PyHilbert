@@ -280,3 +280,97 @@ def qr(tensor: Tensor) -> QR:
     )
 
     return QR(q, r)
+
+
+SVD = namedtuple("SVD", ["U", "S", "Vh"])
+
+
+def svd(
+    tensor: Tensor,
+    values_as_matrix: bool = False,
+    full_matrices: bool = False,
+) -> SVD:
+    """
+    Perform SVD on a `Tensor` with matrices at the last two indices.
+
+    Parameters
+    ----------
+    `tensor` : `Tensor`
+        Input tensor with matrices at the last two indices.
+    `values_as_matrix` : `bool`, default `False`
+        If `True`, return singular values as a diagonal matrix.
+    `full_matrices` : `bool`, default `False`
+        If `True`, compute full-sized `U` and `Vh`.
+
+    Returns
+    -------
+    `SVD`
+        A namedtuple `(U, S, Vh)` where:
+        - `U` has dims `(..., row_dim, factor)` for reduced, or `(..., row_dim, left_factor)` for full.
+        - `S` has dims `(..., factor)` or a matrix with dims `(..., factor, factor)` (reduced)
+          or `(..., left_factor, right_factor)` (full) if `values_as_matrix=True`.
+        - `Vh` has dims `(..., factor, col_dim)` for reduced, or `(..., right_factor, col_dim)` for full.
+    """
+    if tensor.rank() < 2:
+        raise ValueError(
+            "Input tensor must have at least two dimensions for matrix decomposition."
+        )
+
+    row_dim = tensor.dims[-2]
+    col_dim = tensor.dims[-1]
+
+    u_data, s_data, vh_data = torch.linalg.svd(tensor.data, full_matrices=full_matrices)
+
+    factor = FactorSpace.from_band_counts([s_data.shape[-1]])
+
+    if full_matrices:
+        left_factor = FactorSpace.from_band_counts([row_dim.dim])
+        right_factor = FactorSpace.from_band_counts([col_dim.dim])
+        u = Tensor(
+            data=u_data,
+            dims=tensor.dims[:-2] + (row_dim, left_factor),
+        )
+    else:
+        u = Tensor(
+            data=u_data,
+            dims=tensor.dims[:-2] + (row_dim, factor),
+        )
+    if values_as_matrix:
+        if full_matrices:
+            k = s_data.shape[-1]
+            s_mat = torch.zeros(
+                *s_data.shape[:-1],
+                left_factor.dim,
+                right_factor.dim,
+                dtype=s_data.dtype,
+                device=s_data.device,
+            )
+            diag = torch.diag_embed(s_data)
+            s_mat[..., :k, :k] = diag
+            s = Tensor(
+                data=s_mat,
+                dims=tensor.dims[:-2] + (left_factor, right_factor),
+            )
+        else:
+            s_mat = torch.diag_embed(s_data)
+            s = Tensor(
+                data=s_mat,
+                dims=tensor.dims[:-2] + (factor, factor),
+            )
+    else:
+        s = Tensor(
+            data=s_data,
+            dims=tensor.dims[:-2] + (factor,),
+        )
+    if full_matrices:
+        vh = Tensor(
+            data=vh_data,
+            dims=tensor.dims[:-2] + (right_factor, col_dim),
+        )
+    else:
+        vh = Tensor(
+            data=vh_data,
+            dims=tensor.dims[:-2] + (factor, col_dim),
+        )
+
+    return SVD(u, s, vh)

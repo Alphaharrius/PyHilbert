@@ -90,11 +90,6 @@ class StateSpace(Spatial, Generic[TSpatial]):
 
     @property
     def dim(self) -> int:
-        """The total dimension of the state space, calculated as the count of elements regardless of their lengths."""
-        return len(self)
-
-    @property
-    def size(self) -> int:
         """The total size of the vector space (sum of all sector dimensions)."""
         if not self.structure:
             return 0

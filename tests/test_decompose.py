@@ -1,6 +1,6 @@
 import torch
 
-from pyhilbert.decompose import eig, eigh, qr
+from pyhilbert.decompose import eig, eigh, qr, svd
 from pyhilbert.hilbert import Mode, FactorSpace, hilbert
 from pyhilbert.tensors import Tensor
 from pyhilbert.utils import FrozenDict
@@ -87,5 +87,73 @@ def test_qr_reconstructs_wide_matrix():
     assert r.dims[-1] == col_space
     assert r.dims[-2] is q.dims[-1]
 
-    recon = q.data @ r.data
+    recon = (q @ r).data
+    assert torch.allclose(recon, data, atol=1e-6, rtol=1e-6)
+
+
+def test_svd_reconstructs_tall_matrix():
+    torch.manual_seed(0)
+
+    row_mode = Mode(count=4, attr=FrozenDict({"name": "row"}))
+    col_mode = Mode(count=3, attr=FrozenDict({"name": "col"}))
+    row_space = hilbert([row_mode])
+    col_space = hilbert([col_mode])
+
+    data = torch.randn(4, 3, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(row_space, col_space))
+
+    u, s, vh = svd(tensor)
+
+    assert u.dims[-2] == row_space
+    assert isinstance(u.dims[-1], FactorSpace)
+    assert s.dims[-1] is u.dims[-1]
+    assert vh.dims[-1] == col_space
+    assert vh.dims[-2] is u.dims[-1]
+
+    diag = torch.diag_embed(s.data).to(u.data.dtype)
+    recon = u.data @ diag @ vh.data
+    assert torch.allclose(recon, data, atol=1e-6, rtol=1e-6)
+
+
+def test_svd_matrix_values_no_band_grouping():
+    row_mode = Mode(count=3, attr=FrozenDict({"name": "row"}))
+    col_mode = Mode(count=3, attr=FrozenDict({"name": "col"}))
+    row_space = hilbert([row_mode])
+    col_space = hilbert([col_mode])
+
+    singular_values = torch.tensor([3.0, 3.0, 1.0], dtype=torch.float64)
+    data = torch.diag(singular_values)
+    tensor = Tensor(data=data, dims=(row_space, col_space))
+
+    u, s, vh = svd(tensor, values_as_matrix=True)
+
+    assert isinstance(s.dims[-1], FactorSpace)
+    assert s.dims[-2] is s.dims[-1]
+    assert [band.count for band in s.dims[-1]] == [3]
+
+    recon = u.data @ s.data.to(u.data.dtype) @ vh.data
+    assert torch.allclose(recon, data, atol=1e-6, rtol=1e-6)
+
+
+def test_svd_full_matrices_reconstructs():
+    torch.manual_seed(0)
+
+    row_mode = Mode(count=4, attr=FrozenDict({"name": "row"}))
+    col_mode = Mode(count=3, attr=FrozenDict({"name": "col"}))
+    row_space = hilbert([row_mode])
+    col_space = hilbert([col_mode])
+
+    data = torch.randn(4, 3, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(row_space, col_space))
+
+    u, s, vh = svd(tensor, full_matrices=True, values_as_matrix=True)
+
+    assert u.dims[-2] == row_space
+    assert isinstance(u.dims[-1], FactorSpace)
+    assert isinstance(s.dims[-2], FactorSpace)
+    assert isinstance(s.dims[-1], FactorSpace)
+    assert isinstance(vh.dims[-2], FactorSpace)
+    assert vh.dims[-1] == col_space
+
+    recon = u.data @ s.data.to(u.data.dtype) @ vh.data
     assert torch.allclose(recon, data, atol=1e-6, rtol=1e-6)
