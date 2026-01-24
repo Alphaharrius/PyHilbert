@@ -56,6 +56,10 @@ class Mode(Spatial, Updatable):
 
         return replace(self, attr=FrozenDict(updated_attr))
 
+    @classmethod
+    def from_attr(cls, count: int, **attr) -> "Mode":
+        return cls(count=count, attr=FrozenDict(attr))
+
 
 TSpatial = TypeVar("TSpatial", bound=Spatial)
 

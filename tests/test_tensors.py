@@ -708,6 +708,15 @@ class TestTensorErrorConditions:
         with pytest.raises(ValueError):
             t1.align(0, space_b)
 
+    def test_align_negative_dim(self, tensor_error_ctx):
+        t1 = Tensor(
+            torch.randn(2, 2),
+            dims=(tensor_error_ctx.space_a, tensor_error_ctx.space_a),
+        )
+        aligned = t1.align(-1, tensor_error_ctx.space_a)
+        assert aligned.dims == t1.dims
+        assert aligned.data.shape == t1.data.shape
+
     def test_permute_invalid_length(self, tensor_error_ctx):
         t1 = Tensor(
             torch.randn(2, 2), dims=(tensor_error_ctx.space_a, tensor_error_ctx.space_a)

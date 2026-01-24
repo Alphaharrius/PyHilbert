@@ -784,7 +784,7 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         The tensor to align.
     dim : `int`
         The dimension index to align.
-    target : `StateSpace`
+    target_dim : `StateSpace`
         The target StateSpace to align to.
 
     Returns
@@ -792,6 +792,13 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     `Tensor`
         The aligned tensor.
     """
+    if dim < 0:
+        dim = dim + len(tensor.dims)
+    if dim < 0 or dim >= len(tensor.dims):
+        raise IndexError(
+            f"Dimension index {dim} out of range for rank {len(tensor.dims)}"
+        )
+
     current_dim = tensor.dims[dim]
     if isinstance(target_dim, hilbert.BroadcastSpace):
         return tensor  # No alignment needed for BroadcastSpace
