@@ -3,7 +3,7 @@ from collections import namedtuple
 
 import torch
 
-from .hilbert import Spectrum
+from .hilbert import FactorSpace
 from .hilbert import same_span
 from .tensors import Tensor
 
@@ -67,9 +67,9 @@ def eigh(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
           yield real eigenvalues of the corresponding real dtype).
         - `eigenvectors` dtype matches the input dtype.
         - `eigenvalues.dims` keeps all leading dimensions and replaces the last
-          two matrix dimensions with a single `Spectrum` dimension.
+          two matrix dimensions with a single `FactorSpace` dimension.
         - `eigenvectors.dims` keeps the leading dimensions, then uses the second
-          last dimension (the row space) followed by the `Spectrum` dimension.
+          last dimension (the row space) followed by the `FactorSpace` dimension.
 
     Notes
     -----
@@ -86,7 +86,7 @@ def eigh(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     eigenvalues, eigenvectors = torch.linalg.eigh(target.data)
 
     band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = Spectrum.from_band_counts(band_counts)
+    spectrum = FactorSpace.from_band_counts(band_counts)
 
     print(target.dims)
 
@@ -121,7 +121,7 @@ def eigvalsh(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
         - dtype matching the real dtype of the input (complex inputs
           yield real eigenvalues of the corresponding real dtype).
         - dims keeping all leading dimensions and replacing the last
-          two matrix dimensions with a single `Spectrum` dimension.
+          two matrix dimensions with a single `FactorSpace` dimension.
     """
     _assert_eig_dims(tensor)
 
@@ -130,7 +130,7 @@ def eigvalsh(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     eigenvalues = torch.linalg.eigvalsh(target.data)
 
     band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = Spectrum.from_band_counts(band_counts)
+    spectrum = FactorSpace.from_band_counts(band_counts)
 
     vals = Tensor(
         data=eigenvalues,
@@ -164,9 +164,9 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
           yield complex eigenvalues).
         - `eigenvectors` dtype matches the complex dtype of the input.
         - `eigenvalues.dims` keeps all leading dimensions and replaces the last
-          two matrix dimensions with a single `Spectrum` dimension.
+          two matrix dimensions with a single `FactorSpace` dimension.
         - `eigenvectors.dims` keeps the leading dimensions, then uses the second
-          last dimension (the row space) followed by the `Spectrum` dimension.
+          last dimension (the row space) followed by the `FactorSpace` dimension.
 
     Notes
     -----
@@ -181,7 +181,7 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     eigenvalues, eigenvectors = torch.linalg.eig(target.data)
 
     band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = Spectrum.from_band_counts(band_counts)
+    spectrum = FactorSpace.from_band_counts(band_counts)
 
     eigvals = Tensor(
         data=eigenvalues,
@@ -216,7 +216,7 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
         - dtype matching the complex dtype of the input (real inputs
           yield complex eigenvalues).
         - dims keeping all leading dimensions and replacing the last
-          two matrix dimensions with a single `Spectrum` dimension.
+          two matrix dimensions with a single `FactorSpace` dimension.
 
     Notes
     -----
@@ -231,7 +231,7 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     eigenvalues = torch.linalg.eigvals(target.data)
 
     band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = Spectrum.from_band_counts(band_counts)
+    spectrum = FactorSpace.from_band_counts(band_counts)
 
     vals = Tensor(
         data=eigenvalues,
@@ -239,3 +239,44 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     )
 
     return vals
+
+
+QR = namedtuple("QR", ["Q", "R"])
+
+
+def qr(tensor: Tensor) -> QR:
+    """
+    Perform QR decomposition on a `Tensor` with matrices at the last two indices.
+
+    Returns
+    -------
+    `QR`
+        A namedtuple `(Q, R)` where:
+        - `Q` is a `Tensor` with orthonormal columns (reduced QR).
+        - `R` is an upper-triangular `Tensor`.
+        - Output dims preserve leading dimensions and map the last two dims to
+          `(row_dim, spectral_dim)` for `Q` and `(spectral_dim, col_dim)` for
+          `R`, where `spectral_dim` is a `FactorSpace` describing the
+          reduced QR bond dimension.
+    """
+    if tensor.rank() < 2:
+        raise ValueError(
+            "Input tensor must have at least two dimensions for matrix decomposition."
+        )
+
+    row_dim = tensor.dims[-2]
+    col_dim = tensor.dims[-1]
+
+    q_data, r_data = torch.linalg.qr(tensor.data, mode="reduced")
+    spectral_dim = FactorSpace.from_band_counts([q_data.shape[-1]])
+
+    q = Tensor(
+        data=q_data,
+        dims=tensor.dims[:-2] + (row_dim, spectral_dim),
+    )
+    r = Tensor(
+        data=r_data,
+        dims=tensor.dims[:-2] + (spectral_dim, col_dim),
+    )
+
+    return QR(q, r)

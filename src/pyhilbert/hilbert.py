@@ -437,7 +437,7 @@ def mode_mapping(
 
 
 @dataclass(frozen=True)
-class SpectralBand(Spatial):
+class FactorBand(Spatial):
     """
     A spectral band in an eigenvalue spectrum.
 
@@ -459,7 +459,7 @@ class SpectralBand(Spatial):
 
 
 @dataclass(frozen=True)
-class Spectrum(StateSpace[SpectralBand]):
+class FactorSpace(StateSpace[FactorBand]):
     """
     State space describing a spectrum partitioned into spectral bands.
 
@@ -471,12 +471,12 @@ class Spectrum(StateSpace[SpectralBand]):
 
     def __str__(self):
         band_count_repr = ", ".join([str(band.dim) for band in self])
-        return f"Spectrum({band_count_repr})"
+        return f"FactorSpace({band_count_repr})"
 
     @classmethod
-    def from_band_counts(cls, band_counts: Iterable[int]) -> "Spectrum":
+    def from_band_counts(cls, band_counts: Iterable[int]) -> "FactorSpace":
         """
-        Construct a Spectrum from per-band eigenvalue counts.
+        Construct a `FactorSpace` from per-band eigenvalue counts.
 
         Parameters
         ----------
@@ -486,7 +486,7 @@ class Spectrum(StateSpace[SpectralBand]):
         structure = OrderedDict()
         base = 0
         for idx, count in enumerate(band_counts):
-            band = SpectralBand(idx=idx, count=count)
+            band = FactorBand(idx=idx, count=count)
             structure[band] = slice(base, base + count)
             base += count
         return cls(structure=structure)
