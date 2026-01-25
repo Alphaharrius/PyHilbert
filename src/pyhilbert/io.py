@@ -34,9 +34,9 @@ def iodir(path: Optional[Union[str, os.PathLike[str]]] = None) -> str:
     if path is not None:
         _io_dir = os.path.abspath(os.fspath(path))
         _logger.debug("IO directory set to: %s", _io_dir)
-    dir = _io_dir or ".data"
-    os.makedirs(dir, exist_ok=True)
-    return dir
+    dir_path = _io_dir or ".data"
+    os.makedirs(dir_path, exist_ok=True)
+    return dir_path
 
 
 _all_env: Optional[Set[str]] = None
