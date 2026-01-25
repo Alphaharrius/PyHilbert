@@ -216,5 +216,5 @@ uv.lock
 .DS_Store
 
 # Pickle files
-.pickle/
+.data/
 *.pkl

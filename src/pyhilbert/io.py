@@ -18,7 +18,7 @@ def iodir(path: Optional[Union[str, os.PathLike[str]]] = None) -> str:
 
     If a path is provided, it becomes the active IO directory. The directory
     is created if needed. If no path is provided, the current IO directory
-    is returned; when unset, defaults to ".pickle".
+    is returned; when unset, defaults to ".data".
 
     Parameters
     ----------
@@ -34,7 +34,7 @@ def iodir(path: Optional[Union[str, os.PathLike[str]]] = None) -> str:
     if path is not None:
         _io_dir = os.path.abspath(os.fspath(path))
         _logger.debug("IO directory set to: %s", _io_dir)
-    dir = _io_dir or ".pickle"
+    dir = _io_dir or ".data"
     os.makedirs(dir, exist_ok=True)
     return dir
 
