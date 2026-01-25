@@ -32,7 +32,7 @@ def iodir(path: Optional[Union[str, os.PathLike[str]]] = None) -> str:
     """
     global _io_dir
     if path is not None:
-        _io_dir = os.fspath(path)
+        _io_dir = os.path.abspath(os.fspath(path))
         _logger.debug("IO directory set to: %s", _io_dir)
     dir = _io_dir or ".pickle"
     os.makedirs(dir, exist_ok=True)
