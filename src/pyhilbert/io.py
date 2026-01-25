@@ -1,5 +1,7 @@
 import os
-from typing import Set, Optional, Union
+import pickle
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set, Union
 
 from .logging import get_logger
 
@@ -42,7 +44,7 @@ _all_env: Optional[Set[str]] = None
 _current_env: Optional[str] = None
 
 
-def env(name: Optional[str] = None) -> Optional[str]:
+def env(name: Optional[str] = None) -> str:
     """
     Get or set the active environment name under the IO directory.
 
@@ -89,3 +91,145 @@ def env(name: Optional[str] = None) -> Optional[str]:
     _current_env = name
     _logger.debug("Environment set to: %s", _current_env)
     return _current_env
+
+
+def _scan_versions(path: str) -> List[int]:
+    versions: List[int] = []
+    try:
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if not entry.is_file():
+                    continue
+                name = entry.name
+                if not (name.startswith("version_") and name.endswith(".pkl")):
+                    continue
+                ver_str = name[len("version_") : -len(".pkl")]
+                try:
+                    versions.append(int(ver_str))
+                except ValueError:
+                    continue
+    except FileNotFoundError:
+        return []
+    return versions
+
+
+def save(obj: Any, name: str) -> int:
+    """
+    Save an object to disk as a pickle with automatic versioning.
+
+    Parameters
+    ----------
+    `obj`
+        Object to serialize.
+    `name`
+        Logical name for grouping versions.
+    Returns
+    -------
+    `int`
+        The assigned version number.
+    """
+    root = os.path.join(iodir(), env())
+    name_dir = os.path.join(root, name)
+    os.makedirs(name_dir, exist_ok=True)
+
+    versions = _scan_versions(name_dir)
+    version = max(versions) + 1 if versions else 1
+    path = os.path.join(name_dir, f"version_{version}.pkl")
+    with open(path, "wb") as file:
+        pickle.dump(obj, file, protocol=pickle.HIGHEST_PROTOCOL)
+    _logger.debug("Saved %s version %s to: %s", name, version, path)
+    return version
+
+
+def load(name: str, version: int = -1) -> Any:
+    """
+    Load a previously saved object by name and version.
+
+    Parameters
+    ----------
+    `name`
+        Logical name for grouping versions.
+    `version`
+        Version to load; use `-1` for the latest version.
+    Returns
+    -------
+    `Any`
+        The deserialized object.
+
+    Raises
+    ------
+    `FileNotFoundError`
+        If the name or version does not exist.
+    `pickle.UnpicklingError`
+        If the pickle data is corrupted.
+
+    Notes
+    -----
+    Only load data you trust; pickle is not secure against malicious data.
+    """
+    root = os.path.join(iodir(), env())
+    name_dir = os.path.join(root, name)
+    versions = _scan_versions(name_dir)
+    if not versions:
+        raise FileNotFoundError(f"No saved versions for name: {name}")
+
+    if version == -1:
+        version = max(versions)
+    elif version not in versions:
+        raise FileNotFoundError(f"Version {version} not found for name: {name}")
+
+    path = os.path.join(name_dir, f"version_{version}.pkl")
+    with open(path, "rb") as file:
+        obj = pickle.load(file)
+    return obj
+
+
+def list_saved(name: str) -> List[Dict[str, Any]]:
+    """
+    List saved versions for a name.
+
+    Parameters
+    ----------
+    `name`
+        Logical name for grouping versions.
+    Returns
+    -------
+    `list[dict[str, Any]]`
+        Rows with `version`, `created`, and `size_mib`.
+
+    Raises
+    ------
+    `FileNotFoundError`
+        If the name does not exist.
+    """
+    root = os.path.join(iodir(), env())
+    name_dir = os.path.join(root, name)
+    if not os.path.isdir(name_dir):
+        raise FileNotFoundError(f"No saved versions for name: {name}")
+
+    rows: List[Dict[str, Any]] = []
+    with os.scandir(name_dir) as entries:
+        for entry in entries:
+            if not entry.is_file():
+                continue
+            fname = entry.name
+            if not (fname.startswith("version_") and fname.endswith(".pkl")):
+                continue
+            ver_str = fname[len("version_") : -len(".pkl")]
+            try:
+                version = int(ver_str)
+            except ValueError:
+                continue
+            stat = entry.stat()
+            created = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+            size_mib = stat.st_size / (1024 * 1024)
+            rows.append(
+                {
+                    "version": version,
+                    "created": created,
+                    "size_mib": size_mib,
+                }
+            )
+
+    rows.sort(key=lambda row: row["version"])
+    return rows
