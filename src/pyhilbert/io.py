@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 from .logging import get_logger
 
 
-_logger = get_logger(__name__)
+_logger = get_logger(__name__, show_datetime=True)
 
 
 _io_dir: Optional[str] = None
@@ -36,7 +36,6 @@ def iodir(path: Optional[Union[str, os.PathLike[str]]] = None) -> str:
         _logger.debug("IO directory set to: %s", _io_dir)
     dir = _io_dir or ".pickle"
     os.makedirs(dir, exist_ok=True)
-    _logger.debug("IO directory resolved to: %s", dir)
     return dir
 
 
