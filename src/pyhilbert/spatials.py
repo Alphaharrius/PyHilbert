@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -15,6 +15,16 @@ from sympy import ImmutableDenseMatrix, sympify
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, Plottable
 
+
+def supercell_shifts(dim: int, M: ImmutableDenseMatrix) -> List[ImmutableDenseMatrix]:
+    """
+    Generate the integer shifts within the supercell defined by M.
+    """
+    S, U, V = smith_normal_decomp(M, domain=sy.ZZ)
+    Q = V.inv()
+    ranges = [range(int(S[i, i])) for i in range(dim)]
+    shifts = [ImmutableDenseMatrix([n]) @ Q for n in product(*ranges)]
+    return shifts
 
 @dataclass(frozen=True)
 class Spatial(Operable, Plottable, ABC):
@@ -129,13 +139,7 @@ class Lattice(AbstractLattice):
         to preserve physical density.
         """
         # 1. Validate M
-        S, U, V = smith_normal_decomp(M, domain=sy.ZZ)
-
-        Q = V.inv()
-
-        # 3. Generate Integer Shifts (k_vectors)
-        ranges = [range(int(S[i, i])) for i in range(self.dim)]
-        shifts = [ImmutableDenseMatrix([n]) @ Q for n in product(*ranges)]
+        shifts = supercell_shifts(self.dim, M)
 
         # 4. Transform Atoms
         M_inv = M.inv()
@@ -149,6 +153,7 @@ class Lattice(AbstractLattice):
                 # Now both atom_vec and k are 1xN Matrices
                 # Formula: new_frac = (old_frac + shift) * M^-1
                 new_frac = (atom_vec + k) @ M_inv
+                new_frac = new_frac.applyfunc(lambda x: x - sy.floor(x))
 
                 # Generate new label
                 new_label = f"{label}_{i}" if len(shifts) > 1 else label
