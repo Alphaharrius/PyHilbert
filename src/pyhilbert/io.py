@@ -122,10 +122,16 @@ def save(obj: Any, name: str) -> int:
         Object to serialize.
     `name`
         Logical name for grouping versions.
+
     Returns
     -------
     `int`
         The assigned version number.
+
+    Raises
+    ------
+    `pickle.PicklingError`
+        If the object cannot be pickled.
     """
     root = os.path.join(iodir(), env())
     name_dir = os.path.join(root, name)
@@ -134,8 +140,11 @@ def save(obj: Any, name: str) -> int:
     versions = _scan_versions(name_dir)
     version = max(versions) + 1 if versions else 1
     path = os.path.join(name_dir, f"version_{version}.pkl")
-    with open(path, "wb") as file:
-        pickle.dump(obj, file, protocol=pickle.HIGHEST_PROTOCOL)
+    try:
+        with open(path, "wb") as file:
+            pickle.dump(obj, file, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception as exc:
+        raise pickle.PicklingError("Object is not picklable.") from exc
     _logger.debug("Saved %s version %s to: %s", name, version, path)
     return version
 

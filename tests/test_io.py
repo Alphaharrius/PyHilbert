@@ -1,4 +1,5 @@
 import os
+import pickle
 from datetime import datetime
 
 import pytest
@@ -96,3 +97,11 @@ def test_multi_environment_isolation(io_root):
 
     io.env("env_b")
     assert io.load("sample", -1) == {"env": "b"}
+
+
+def test_save_unpicklable_raises_pickling_error(io_root, io_env):
+    def _unpicklable():
+        return 1
+
+    with pytest.raises(pickle.PicklingError):
+        io.save(_unpicklable, "sample")
