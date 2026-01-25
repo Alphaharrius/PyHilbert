@@ -1,6 +1,6 @@
 import torch
 
-from pyhilbert.decompose import eig, eigh, qr, svd
+from pyhilbert.decompose import eig, eigh, eigvals, qr, svd
 from pyhilbert.hilbert import Mode, FactorSpace, hilbert
 from pyhilbert.tensors import Tensor
 from pyhilbert.utils import FrozenDict
@@ -45,6 +45,29 @@ def test_eig_reconstructs_general_matrix():
     diag = torch.diag(eigvals.data)
     recon = eigvecs.data @ diag @ torch.linalg.inv(eigvecs.data)
     assert torch.allclose(recon, data, atol=1e-5, rtol=1e-5)
+
+
+def test_eigvals_band_groups_have_close_values():
+    mode = Mode(count=4, attr=FrozenDict({"name": "m"}))
+    space = hilbert([mode])
+
+    eps = 5e-4
+    values = torch.tensor(
+        [1.0 + 1.0e-4j, 1.0 + 2.0e-4j, 2.0 + 0.0j, 2.0 + 1.0e-6j],
+        dtype=torch.complex64,
+    )
+    data = torch.diag(values)
+    tensor = Tensor(data=data, dims=(space, space))
+
+    vals = eigvals(tensor, group_band_eps=eps)
+
+    factor = vals.dims[-1]
+    assert [band.count for band in factor] == [2, 2]
+    for band in factor:
+        s = factor.get_slice(band)
+        band_vals = vals.data[s]
+        max_delta = torch.max(torch.abs(band_vals - band_vals[0])).item()
+        assert max_delta <= eps
 
 
 def test_qr_reconstructs_tall_matrix():

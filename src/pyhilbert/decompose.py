@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, overload
 from collections import namedtuple
 
 import torch
@@ -140,6 +140,37 @@ def eigvalsh(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     return vals
 
 
+def _lexsort_eigenvalues(eigenvalues: torch.Tensor) -> torch.Tensor:
+    imag_order = torch.argsort(eigenvalues.imag, dim=-1, stable=True)
+    real_sorted = torch.gather(eigenvalues.real, -1, imag_order)
+    real_order = torch.argsort(real_sorted, dim=-1, stable=True)
+    return torch.gather(imag_order, -1, real_order)
+
+
+@overload
+def _sort_eigenpairs(
+    eigenvalues: torch.Tensor, eigenvectors: None = None
+) -> tuple[torch.Tensor, None]: ...
+
+
+@overload
+def _sort_eigenpairs(
+    eigenvalues: torch.Tensor, eigenvectors: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]: ...
+
+
+def _sort_eigenpairs(
+    eigenvalues: torch.Tensor, eigenvectors: torch.Tensor | None = None
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    order = _lexsort_eigenvalues(eigenvalues)
+    eigenvalues = torch.gather(eigenvalues, -1, order)
+    if eigenvectors is None:
+        return eigenvalues, None
+    index = order.unsqueeze(-2).expand(*eigenvectors.shape[:-1], eigenvectors.shape[-1])
+    eigenvectors = torch.gather(eigenvectors, -1, index)
+    return eigenvalues, eigenvectors
+
+
 def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     """
     Perform eigen-value decomposition on a `Tensor` with general square matrices
@@ -151,8 +182,8 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
         Input tensor with square matrices at the last two indices.
     `group_band_eps` : `float`, default `1e-8`
         Tolerance for grouping eigenvalues into bands. Eigenvalues within this
-        tolerance are considered part of the same band based on the order
-        returned by `torch.linalg.eig`.
+        tolerance are considered part of the same band after lexicographic
+        sorting by `(real, imag)`.
 
     Returns
     -------
@@ -170,15 +201,16 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
 
     Notes
     -----
-    `torch.linalg.eig` does not guarantee any ordering of the eigenvalues. Band
-    grouping is therefore based on the returned order and may not match
-    expectations for non-Hermitian spectra.
+    `torch.linalg.eig` does not guarantee any ordering of the eigenvalues. This
+    function sorts eigenvalues lexicographically by `(real, imag)` before band
+    grouping, and applies the same reordering to eigenvectors.
     """
     _assert_eig_dims(tensor)
 
     dim0 = tensor.dims[-2]
     target = tensor.align(-1, dim0)  # Align column space to match the row space
     eigenvalues, eigenvectors = torch.linalg.eig(target.data)
+    eigenvalues, eigenvectors = _sort_eigenpairs(eigenvalues, eigenvectors)
 
     band_counts = _band_counts(eigenvalues, float(group_band_eps))
     spectrum = FactorSpace.from_band_counts(band_counts)
@@ -206,8 +238,8 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
         Input tensor with square matrices at the last two indices.
     `group_band_eps` : `float`, default `1e-8`
         Tolerance for grouping eigenvalues into bands. Eigenvalues within this
-        tolerance are considered part of the same band based on the order
-        returned by `torch.linalg.eigvals`.
+        tolerance are considered part of the same band after lexicographic
+        sorting by `(real, imag)`.
 
     Returns
     -------
@@ -221,14 +253,15 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     Notes
     -----
     `torch.linalg.eigvals` does not guarantee any ordering of the eigenvalues.
-    Band grouping is therefore based on the returned order and may not match
-    expectations for non-Hermitian spectra.
+    This function sorts eigenvalues lexicographically by `(real, imag)` before
+    band grouping.
     """
     _assert_eig_dims(tensor)
 
     dim0 = tensor.dims[-2]
     target = tensor.align(-1, dim0)  # Align column space to match the row space
     eigenvalues = torch.linalg.eigvals(target.data)
+    eigenvalues, _ = _sort_eigenpairs(eigenvalues)
 
     band_counts = _band_counts(eigenvalues, float(group_band_eps))
     spectrum = FactorSpace.from_band_counts(band_counts)
