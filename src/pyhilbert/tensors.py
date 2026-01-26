@@ -1,14 +1,16 @@
-from typing import Dict, Tuple, Union, Sequence, cast
+from typing import Tuple, Union, Sequence, cast, Dict
 from numbers import Number
 from dataclasses import dataclass
+from collections import OrderedDict
 from multipledispatch import dispatch  # type: ignore[import-untyped]
-
+import sympy as sy
+from sympy import ImmutableDenseMatrix
 import torch
+import numpy as np
 
-from . import hilbert
 from .abstracts import Operable, Plottable
-from .hilbert import StateSpace, HilbertSpace, Mode
-
+from .hilbert import StateSpace, MomentumSpace, HilbertSpace, BroadcastSpace, embedding_order, same_span, flat_permutation_order, Mode
+from .spatials import supercell_shifts, Momentum, Offset
 
 @dataclass(frozen=True)
 class Tensor(Operable, Plottable):
@@ -205,6 +207,186 @@ class Tensor(Operable, Plottable):
                 "Only CUDA and MPS devices are supported for GPU operations!"
             )
 
+    def scale(self, M: ImmutableDenseMatrix) -> "Tensor":
+        """
+        Perform lattice scaling transformation (band folding).
+
+        This transforms a tensor defined on a primitive lattice to a supercell lattice
+        defined by the scaling matrix M. It folds the momentum space and expands
+        the Hilbert space dimensions.
+
+        Parameters
+        ----------
+        M : array-like
+            The integer scaling matrix.
+
+        Returns
+        -------
+        Tensor
+            The transformed tensor in the supercell representation.
+        """
+        k_dim_idx = -1
+        h_dim_indices = []
+        for i, dim in enumerate(self.dims):
+            if isinstance(dim, MomentumSpace):
+                if k_dim_idx != -1:
+                    raise ValueError("Multiple MomentumSpaces found, ambiguous scaling.")
+                k_dim_idx = i
+            elif isinstance(dim, HilbertSpace):
+                h_dim_indices.append(i)
+
+        if k_dim_idx == -1:
+            raise ValueError("No MomentumSpace found for scaling.")
+
+        k_space = self.dims[k_dim_idx]
+        if not k_space.elements():
+            return self
+
+        # --- 1. Construct New MomentumSpace (Geometry) ---
+        new_k_space, inverse_indices = k_space.fold(M)
+
+        # --- 2. Compute Combined Phase Factors ---
+        # We need the original lattice to compute shifts
+        first_k = k_space.elements()[0]
+        recip_lattice = first_k.space
+        orig_lattice = recip_lattice.dual
+
+        shifts = supercell_shifts(orig_lattice.dim, M)
+        n_shifts = len(shifts)
+
+        # Convert shifts to Offsets for fourier_transform
+        shift_offsets = tuple(Offset(rep=s, space=orig_lattice.affine) for s in shifts)
+        k_points = tuple(k_space.elements())
+
+        # fourier_transform returns exp(-i 2pi k.r), we need exp(+i 2pi k.r) for folding
+        # Base phases: (K_old, S)
+        from .fourier import fourier_transform
+        base_phases = fourier_transform(k_points, shift_offsets).conj().to(self.data.device)
+
+        # Combine phases for Tensor Product Spaces (e.g. Ket @ Bra)
+        # We assume standard ordering: Ket (no conj), Bra (conj), etc.
+        # P_total(k, s1, s2) = P(k, s1) * P*(k, s2)
+        # We flatten all S dimensions into one S_total dimension.
+        combined_phases = torch.ones(len(k_space), 1, dtype=base_phases.dtype, device=self.data.device)
+
+        for i, _ in enumerate(h_dim_indices):
+            p = base_phases
+            # Apply conjugate for the second Hilbert Space (Bra convention)
+            if i == 1: 
+                p = p.conj()
+            
+            # Kronecker product: (K, S_accum) x (K, S_new) -> (K, S_accum * S_new)
+            # (K, S_accum, 1) * (K, 1, S_new) -> (K, S_accum, S_new) -> flatten
+            combined_phases = (combined_phases.unsqueeze(2) * p.unsqueeze(1)).view(len(k_space), -1)
+
+        n_s_total = combined_phases.shape[1]  # This is (n_shifts ** n_hs)
+
+        # --- 3. Construct Sparse Folding Operator ---
+        # Matrix W maps: K_old -> (K_new * S_total)
+        # Shape: (N_new * N_s_total, N_old)
+        
+        # Row indices: k_new_idx * n_s_total + s_idx
+        # We need to generate indices for every (k_old, s) pair.
+        n_old = len(k_space)
+        n_new = len(new_k_space)
+
+        # k_old indices repeated for each s: [0, 0, ..., 1, 1, ...]
+        col_indices = torch.arange(n_old, device=self.data.device).repeat_interleave(n_s_total)
+        
+        # s indices tiled for each k: [0, 1, ..., 0, 1, ...]
+        s_indices = torch.arange(n_s_total, device=self.data.device).repeat(n_old)
+        
+        # Map k_old to k_new
+        k_new_indices = inverse_indices.to(self.data.device)[col_indices]
+
+        row_indices = k_new_indices * n_s_total + s_indices
+        
+        indices = torch.stack([row_indices, col_indices])
+        values = combined_phases.flatten() # Flatten is row-major (K, S), matches our index generation
+        
+        # [FIXED] Normalization: 1/sqrt(N) for Ket, 1/N for Operator
+        norm_factor = n_shifts ** (len(h_dim_indices) / 2.0)
+        values = values / norm_factor
+
+        folding_matrix = torch.sparse_coo_tensor(indices, values, size=(n_new * n_s_total, n_old))
+
+        # --- 4. Contract (Sparse Matrix Multiplication) ---
+        # Permute: [K, H1, H2, ..., Others]
+        hs_dims = [d for d in h_dim_indices]
+        other_dims = [i for i in range(self.rank()) if i != k_dim_idx and i not in hs_dims]
+        refined_perm = [k_dim_idx] + hs_dims + other_dims
+        
+        t_ordered = self.data.permute(refined_perm)
+        
+        # Flatten: (K, Everything_Else)
+        t_flat_ordered = t_ordered.reshape(n_old, -1)
+        
+        # THE CORE OPERATION: Sparse MatMul
+        # (N_new * S_total, N_old) @ (N_old, Rest) -> (N_new * S_total, Rest)
+        if t_flat_ordered.dtype != folding_matrix.dtype:
+            t_flat_ordered = t_flat_ordered.to(folding_matrix.dtype)
+        res_ordered = torch.sparse.mm(folding_matrix, t_flat_ordered)
+        
+        # --- 5. Unpack and Restore Dimensions ---
+        # Current Layout: (N_new, S1, S2..., H1, H2..., Others)
+        # Target Layout:  (N_new, H1_new, H2_new..., Others)
+        # Where Hi_new involves merging Hi and Si
+        
+        # 5a. Split the flattened dimensions
+        split_shape = [n_new] + [n_shifts] * len(hs_dims) + \
+                      [self.dims[h].size for h in hs_dims] + \
+                      [self.dims[o].size for o in other_dims]
+        res_split = res_ordered.reshape(split_shape)
+        
+        # 5b. Permute to interleave (Hi, Si) for merging
+        # Current: K, S1, S2, H1, H2, O...
+        # Target:  K, H1, S1, H2, S2, O...
+        final_perm_order = [0] # K_new
+        s_start = 1
+        h_start = 1 + len(hs_dims)
+        o_start = h_start + len(hs_dims)
+        
+        for i in range(len(hs_dims)):
+            final_perm_order.append(h_start + i) # H_i
+            final_perm_order.append(s_start + i) # S_i
+            
+        for i in range(len(other_dims)):
+            final_perm_order.append(o_start + i)
+            
+        res_interleaved = res_split.permute(final_perm_order).contiguous()
+        
+        # 5c. Merge (Hi, Si) -> Hi_new
+        # We assume standard supercell ordering: Atom index is coarse, Cell index is fine.
+        merge_shape = [n_new]
+        for i in range(len(hs_dims)):
+            h_size = self.dims[hs_dims[i]].size
+            merge_shape.append(h_size * n_shifts)
+        for i in range(len(other_dims)):
+            merge_shape.append(self.dims[other_dims[i]].size)
+            
+        final_data = res_interleaved.reshape(merge_shape)
+        
+        # 5d. Permute back to original tensor dimension order
+        # Map: Where did original dimension 'i' end up in our 'refined_perm'?
+        # We construct the inverse of 'refined_perm' logic.
+        restore_perm = [0] * self.rank()
+        for current_pos, original_idx in enumerate(refined_perm):
+            restore_perm[original_idx] = current_pos
+            
+        final_data = final_data.permute(restore_perm).contiguous()
+
+        # Construct new dims
+        scaled_dims = []
+        for d in self.dims:
+            if isinstance(d, MomentumSpace):
+                scaled_dims.append(new_k_space)
+            elif isinstance(d, HilbertSpace):
+                scaled_dims.append(d.scale(M))
+            else:
+                scaled_dims.append(d)
+
+        return Tensor(data=final_data, dims=tuple(scaled_dims))
+
     @property
     def requires_grad(self) -> bool:
         """
@@ -300,10 +482,10 @@ def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
 def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
     ignores = set()
     for n, ld in enumerate(left.dims[:-2]):
-        if not isinstance(ld, hilbert.BroadcastSpace):
+        if not isinstance(ld, BroadcastSpace):
             continue
         rd = right.dims[n]
-        if isinstance(rd, hilbert.BroadcastSpace):
+        if isinstance(rd, BroadcastSpace):
             continue
         left = left.align(n, rd)
         ignores.add(n)
@@ -443,7 +625,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     # fill the right tensor into the new data
     right_embedding_order = (
         torch.tensor(
-            hilbert.embedding_order(r, u), dtype=torch.long, device=left.data.device
+            embedding_order(r, u), dtype=torch.long, device=left.data.device
         )
         for r, u in zip(right.dims, union_dims)
     )
@@ -742,7 +924,7 @@ def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
     if dim < 0:
         dim = dim + len(tensor.dims) + 1
     new_data = tensor.data.unsqueeze(dim)
-    new_dims = tensor.dims[:dim] + (hilbert.BroadcastSpace(),) + tensor.dims[dim:]
+    new_dims = tensor.dims[:dim] + (BroadcastSpace(),) + tensor.dims[dim:]
 
     return Tensor(data=new_data, dims=new_dims)
 
@@ -765,7 +947,7 @@ def squeeze(tensor: Tensor, dim: int) -> Tensor:
     """
     if dim < 0:
         dim = dim + len(tensor.dims)
-    if not isinstance(tensor.dims[dim], hilbert.BroadcastSpace):
+    if not isinstance(tensor.dims[dim], BroadcastSpace):
         return tensor  # No squeezing needed if not BroadcastSpace
 
     new_data = tensor.data.squeeze(dim)
@@ -793,10 +975,10 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         The aligned tensor.
     """
     current_dim = tensor.dims[dim]
-    if isinstance(target_dim, hilbert.BroadcastSpace):
+    if isinstance(target_dim, BroadcastSpace):
         return tensor  # No alignment needed for BroadcastSpace
 
-    if isinstance(current_dim, hilbert.BroadcastSpace):
+    if isinstance(current_dim, BroadcastSpace):
         # Expand broadcast dimension to match the target StateSpace size.
         expanded_shape = list(tensor.data.shape)
         expanded_shape[dim] = target_dim.size
@@ -811,10 +993,10 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
             f"Cannot align dimensions with different StateSpace types: "
             f"current dim={type(current_dim)} vs target dim={type(target_dim)}!"
         )
-    if not hilbert.same_span(current_dim, target_dim):
+    if not same_span(current_dim, target_dim):
         raise ValueError(f"StateSpace at {dim} cannot be aligned to target StateSpace!")
 
-    target_order = hilbert.flat_permutation_order(current_dim, target_dim)
+    target_order = flat_permutation_order(current_dim, target_dim)
     aligned_data = torch.index_select(
         tensor.data,
         dim,
@@ -852,15 +1034,15 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     Performs expansion in a single pass to avoid intermediate Tensor creation.
     """
 
-    if not any(isinstance(d, hilbert.BroadcastSpace) for d in tensor.dims):
+    if not any(isinstance(d, BroadcastSpace) for d in tensor.dims):
         return tensor
     target_shape = []
     new_dims = []
     needs_expansion = False
 
     for dim, u_dim, size in zip(tensor.dims, union_dims, tensor.data.shape):
-        if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(
-            u_dim, hilbert.BroadcastSpace
+        if isinstance(dim, BroadcastSpace) and not isinstance(
+            u_dim, BroadcastSpace
         ):
             target_shape.append(u_dim.size)
             new_dims.append(u_dim)
