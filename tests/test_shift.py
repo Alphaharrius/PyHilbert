@@ -1,9 +1,11 @@
 import pytest
 import numpy as np
 import sympy as sy
+import torch
 from sympy import ImmutableDenseMatrix
 from pyhilbert.spatials import Lattice, Offset
-from pyhilbert.hilbert import hilbert, Mode, HilbertSpace
+from pyhilbert.hilbert import hilbert, Mode, HilbertSpace, brillouin_zone
+from pyhilbert.tensors import Tensor
 from pyhilbert.utils import FrozenDict
 
 
@@ -104,3 +106,126 @@ def test_hilbert_scale():
                 found = True
                 break
         assert found, f"Expected fraction {ef} not found in {found_fracs}"
+
+
+def test_tensor_scale():
+    """
+    Test Tensor.scale(M) for band folding of a 1D tight-binding chain.
+    """
+    # 1. Setup 1D Lattice
+    a = 1.0
+    basis = ImmutableDenseMatrix([[a]])
+    lattice = Lattice(basis=basis, shape=(4,))  # 4 unit cells
+    recip = lattice.dual
+
+    # 2. Setup MomentumSpace (4 points)
+    # cartes(recip) gives k points: 0, 1/4, 2/4, 3/4 in fractional recip coords
+    k_space = brillouin_zone(recip)
+    assert k_space.dim == 4
+
+    # 3. Setup HilbertSpace (1 orbital)
+    r_vec = ImmutableDenseMatrix([0.0])
+    offset = Offset(rep=r_vec, space=lattice)
+    mode = Mode(count=1, attr=FrozenDict({"orb": "s", "r": offset}))
+    h_space = hilbert([mode])
+
+    # 4. Create Hamiltonian Tensor
+    # H(k) = -2t cos(k*a) -> E = -2, 0, 2, 0
+    energies = torch.tensor([-2.0, 0.0, 2.0, 0.0], dtype=torch.float64).reshape(4, 1, 1)
+    H = Tensor(data=energies, dims=(k_space, h_space, h_space))
+
+    # 5. Scale by M=[[2]]
+    M = ImmutableDenseMatrix([[2]])
+    H_super = H.scale(M)
+
+    # 6. Verify Dimensions
+    # New MomentumSpace should have 2 points
+    # New HilbertSpace should have 2 modes
+    assert len(H_super.dims) == 3
+    new_k_space = H_super.dims[0]
+    new_h_space = H_super.dims[1]
+
+    assert new_k_space.dim == 2
+    assert new_h_space.dim == 2
+
+    # 7. Verify Eigenvalues at each k-point
+    # k_new = 0 (folds k_old=0 and k_old=0.5 -> E=-2, 2)
+    block_0 = H_super.data[0]  # 2x2 matrix
+    evals_0 = torch.linalg.eigvalsh(block_0)
+    assert torch.allclose(evals_0, torch.tensor([-2.0, 2.0], dtype=torch.float64))
+
+    # k_new = 0.5 (folds k_old=0.25 and k_old=0.75 -> E=0, 0)
+    block_1 = H_super.data[1]
+    evals_1 = torch.linalg.eigvalsh(block_1)
+    assert torch.allclose(
+        evals_1, torch.tensor([0.0, 0.0], dtype=torch.float64), atol=1e-7
+    )
+
+
+def test_tensor_scale_2d():
+    """
+    Test Tensor.scale(M) for band folding of a 2D square lattice tight-binding model.
+    """
+    # 1. Setup 2D Lattice
+    basis = ImmutableDenseMatrix([[1.0, 0.0], [0.0, 1.0]])
+    lattice = Lattice(basis=basis, shape=(2, 2))
+    recip = lattice.dual
+
+    # 2. Setup MomentumSpace (4 points: 0,0; 0.5,0; 0,0.5; 0.5,0.5)
+    k_space = brillouin_zone(recip)
+    assert k_space.dim == 4
+
+    # 3. Setup HilbertSpace (1 orbital)
+    r_vec = ImmutableDenseMatrix([0.0, 0.0])
+    offset = Offset(rep=r_vec, space=lattice)
+    mode = Mode(count=1, attr=FrozenDict({"orb": "s", "r": offset}))
+    h_space = hilbert([mode])
+
+    # 4. Create Hamiltonian Tensor
+    # H(k) = -2t (cos(kx*a) + cos(ky*a))
+    # k points are fractional. k_cart = k_frac * b_i.
+    # k.r = k_frac * 2pi.
+    # E = -2 * (cos(2pi*kx) + cos(2pi*ky))
+
+    # Extract k-points to compute energies
+    k_fracs = []
+    for k in k_space.elements():
+        k_fracs.append(np.array(k.rep, dtype=float).flatten())
+    k_fracs = np.array(k_fracs)  # (4, 2)
+
+    kx = k_fracs[:, 0]
+    ky = k_fracs[:, 1]
+
+    # t = 1.0
+    energies = -2.0 * (np.cos(2 * np.pi * kx) + np.cos(2 * np.pi * ky))
+    # Expected: -4, 0, 0, 4 (order depends on k_space iteration, but set is same)
+
+    energies_tensor = torch.tensor(energies, dtype=torch.float64).reshape(4, 1, 1)
+    H = Tensor(data=energies_tensor, dims=(k_space, h_space, h_space))
+
+    # 5. Scale by M=[[2, 0], [0, 2]]
+    # This folds all 4 points into Gamma (0,0) of the supercell BZ
+    M = ImmutableDenseMatrix([[2, 0], [0, 2]])
+    H_super = H.scale(M)
+
+    # 6. Verify Dimensions
+    # New MomentumSpace should have 1 point (Gamma)
+    # New HilbertSpace should have 4 modes (1 * det(M))
+    assert len(H_super.dims) == 3
+    new_k_space = H_super.dims[0]
+    new_h_space = H_super.dims[1]
+
+    assert new_k_space.dim == 1
+    assert new_h_space.dim == 4
+
+    # 7. Verify Eigenvalues
+    # The single block at Gamma should contain all original energies
+    block = H_super.data[0]  # 4x4 matrix
+    evals = torch.linalg.eigvalsh(block)
+
+    expected_evals = torch.tensor([-4.0, 0.0, 0.0, 4.0], dtype=torch.float64)
+    # Sort both to compare
+    evals_sorted, _ = torch.sort(evals)
+    expected_sorted, _ = torch.sort(expected_evals)
+
+    assert torch.allclose(evals_sorted, expected_sorted, atol=1e-7)
