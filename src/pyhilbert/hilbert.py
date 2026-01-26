@@ -7,6 +7,8 @@ from functools import lru_cache
 from itertools import chain
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
+import torch
+import numpy as np
 
 from .abstracts import Updatable
 from .utils import FrozenDict
@@ -292,6 +294,64 @@ class MomentumSpace(StateSpace[Momentum]):
             [f"{n}: {k}" for n, k in enumerate(self.structure.keys())]
         )
         return header + body
+
+    def fold(self, M: ImmutableDenseMatrix) -> Tuple["MomentumSpace", torch.Tensor]:
+        """
+        Fold the momentum space based on the supercell scaling matrix M.
+
+        Parameters
+        ----------
+        M : ImmutableDenseMatrix
+            The scaling matrix.
+
+        Returns
+        -------
+        Tuple[MomentumSpace, torch.Tensor]
+            The new folded MomentumSpace and the inverse indices tensor
+            mapping original k-points to the new ones.
+        """
+        if not self.elements():
+            return self, torch.empty(0, dtype=torch.long)
+
+        # 1. Get reciprocal lattice info
+        first_k = self.elements()[0]
+        recip_lattice = first_k.space
+        orig_lattice = recip_lattice.dual
+        new_lattice = orig_lattice.scale(M)
+        new_recip_lattice = new_lattice.dual
+
+        # 2. Convert k-points to tensor
+        k_reps = torch.tensor(
+            np.array([list(k.rep) for k in self.elements()], dtype=np.float64),
+            dtype=torch.float64,
+        )
+
+        # 3. Apply folding: k' = k * M^T
+        M_T = torch.tensor(
+            np.array(M.T.tolist(), dtype=np.float64), dtype=torch.float64
+        )
+        k_new_reps = k_reps @ M_T
+        # Wrap to [0, 1)
+        k_new_reps = k_new_reps - torch.floor(k_new_reps + 1e-5)
+
+        # 4. Find unique points
+        k_new_rounded = torch.round(k_new_reps * 1e6).long()
+        unique_k, inverse_indices = torch.unique(
+            k_new_rounded, dim=0, return_inverse=True, sorted=True
+        )
+
+        # 5. Construct new MomentumSpace
+        new_momenta = []
+        for row in unique_k:
+            rep_val = row.float() / 1e6
+            rep_sym = ImmutableDenseMatrix(rep_val.numpy())
+            new_momenta.append(Momentum(rep=rep_sym, space=new_recip_lattice))
+
+        new_k_structure = OrderedDict()
+        for i, m in enumerate(new_momenta):
+            new_k_structure[m] = slice(i, i + 1)
+
+        return MomentumSpace(structure=new_k_structure), inverse_indices
 
 
 @dataclass(frozen=True)
