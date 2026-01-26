@@ -16,7 +16,8 @@ from .utils import FrozenDict
 from .abstracts import Operable, HasDual, Plottable
 
 
-def supercell_shifts(dim: int, M: ImmutableDenseMatrix) -> List[ImmutableDenseMatrix]:
+@lru_cache
+def supercell_shifts(dim: int, M: ImmutableDenseMatrix) -> Tuple[ImmutableDenseMatrix, ...]:
     """
     Generate the integer shifts within the supercell defined by M.
     """
@@ -24,7 +25,7 @@ def supercell_shifts(dim: int, M: ImmutableDenseMatrix) -> List[ImmutableDenseMa
     Q = V.inv()
     ranges = [range(int(S[i, i])) for i in range(dim)]
     shifts = [ImmutableDenseMatrix([n]) @ Q for n in product(*ranges)]
-    return shifts
+    return tuple(shifts)
 
 @dataclass(frozen=True)
 class Spatial(Operable, Plottable, ABC):
