@@ -252,7 +252,7 @@ class Tensor(Operable, Plottable):
             return self
 
         # --- 1. Construct New MomentumSpace (Geometry) ---
-        new_k_space, inverse_indices = k_space.fold(M)
+        new_k_space, inverse_indices = cast(MomentumSpace, k_space).fold(M)
 
         # --- 2. Compute Combined Phase Factors ---
         # We need the original lattice to compute shifts
@@ -403,7 +403,7 @@ class Tensor(Operable, Plottable):
         final_data = final_data.permute(restore_perm).contiguous()
 
         # Construct new dims
-        scaled_dims = []
+        scaled_dims: list[StateSpace] = []
         for d in self.dims:
             if isinstance(d, MomentumSpace):
                 scaled_dims.append(new_k_space)

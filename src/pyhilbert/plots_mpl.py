@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, cast
 from .abstracts import Plottable
 from .spatials import Lattice
 from .utils import compute_bonds
@@ -105,7 +105,7 @@ def plot_structure_mpl(
             colors.append(basis_colors[b % len(basis_colors)])
 
     if is_3d:
-        ax.scatter(x, y, z, c=colors, s=20, label="Sites")
+        cast(Any, ax).scatter(x, y, z, c=colors, s=20, label="Sites")
     else:
         ax.scatter(x, y, c=colors, s=50, zorder=5, label="Sites")
 
@@ -137,7 +137,7 @@ def plot_structure_mpl(
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     if is_3d:
-        ax.set_zlabel("Z")
+        cast(Any, ax).set_zlabel("Z")
 
     if save_path:
         plt.savefig(save_path, bbox_inches="tight")

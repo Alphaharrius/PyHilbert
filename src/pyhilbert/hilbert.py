@@ -1,6 +1,6 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Dict, Tuple, TypeVar, Generic
+from typing import Any, Callable, Dict, Tuple, TypeVar, Generic, cast
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
@@ -323,7 +323,7 @@ class MomentumSpace(StateSpace[Momentum]):
 
         # 1. Get reciprocal lattice info
         first_k = self.elements()[0]
-        recip_lattice = first_k.space
+        recip_lattice = cast(ReciprocalLattice, first_k.space)
         orig_lattice = recip_lattice.dual
         new_lattice = orig_lattice.scale(M)
         new_recip_lattice = new_lattice.dual
@@ -409,10 +409,15 @@ class HilbertSpace(StateSpace[Mode], Updatable):
             for i, k in enumerate(shifts):
                 new_frac = (atom_vec + k) @ M_inv
                 new_offset = Offset(rep=new_frac, space=new_lattice.affine)
-                new_mode = mode.update(r=new_offset)
+                new_mode = cast(Mode, mode.update(r=new_offset))
                 new_structure[new_mode] = slice(0, mode.count)
 
-        return HilbertSpace(structure=restructure(new_structure))
+        return HilbertSpace(
+            structure=cast(
+                OrderedDict[Mode, slice],
+                restructure(cast(OrderedDict[Spatial, slice], new_structure)),
+            )
+        )
 
     def collect(self, *key: str) -> Tuple[Any, ...]:
         """
