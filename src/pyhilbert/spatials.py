@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Optional, Dict
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -17,7 +17,9 @@ from .abstracts import Operable, HasDual, Plottable
 
 
 @lru_cache
-def supercell_shifts(dim: int, M: ImmutableDenseMatrix) -> Tuple[ImmutableDenseMatrix, ...]:
+def supercell_shifts(
+    dim: int, M: ImmutableDenseMatrix
+) -> Tuple[ImmutableDenseMatrix, ...]:
     """
     Generate the integer shifts within the supercell defined by M.
     """
@@ -26,6 +28,7 @@ def supercell_shifts(dim: int, M: ImmutableDenseMatrix) -> Tuple[ImmutableDenseM
     ranges = [range(int(S[i, i])) for i in range(dim)]
     shifts = [ImmutableDenseMatrix([n]) @ Q for n in product(*ranges)]
     return tuple(shifts)
+
 
 @dataclass(frozen=True)
 class Spatial(Operable, Plottable, ABC):

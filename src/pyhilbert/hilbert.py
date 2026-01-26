@@ -12,8 +12,16 @@ import numpy as np
 
 from .abstracts import Updatable
 from .utils import FrozenDict
-from .spatials import Spatial, ReciprocalLattice, Momentum, cartes, Offset, Lattice, supercell_shifts
-from sympy import sympify, ImmutableDenseMatrix
+from .spatials import (
+    Spatial,
+    ReciprocalLattice,
+    Momentum,
+    cartes,
+    Offset,
+    Lattice,
+    supercell_shifts,
+)
+from sympy import ImmutableDenseMatrix
 
 
 @dataclass(frozen=True)
@@ -380,10 +388,10 @@ class HilbertSpace(StateSpace[Mode], Updatable):
 
         # Infer lattice from the first mode
         first_mode = next(iter(self.structure.keys()))
-        if not isinstance(first_mode['r'].space, Lattice):
+        if not isinstance(first_mode["r"].space, Lattice):
             raise ValueError("HilbertSpace scaling only supported for Lattice spaces.")
 
-        lattice: Lattice = first_mode['r'].space
+        lattice: Lattice = first_mode["r"].space
         dim = lattice.dim
         shifts = supercell_shifts(dim, M)
 
@@ -393,11 +401,11 @@ class HilbertSpace(StateSpace[Mode], Updatable):
         new_structure = OrderedDict()
 
         for mode, sl in self.structure.items():
-            if 'r' not in mode.attr:
+            if "r" not in mode.attr:
                 raise ValueError(
                     "HilbertSpace scaling requires Mode with 'r' Offset attribute."
                 )
-            atom_vec = mode['r'].rep.reshape(1, dim)
+            atom_vec = mode["r"].rep.reshape(1, dim)
             for i, k in enumerate(shifts):
                 new_frac = (atom_vec + k) @ M_inv
                 new_offset = Offset(rep=new_frac, space=new_lattice.affine)

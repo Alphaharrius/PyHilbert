@@ -1,10 +1,8 @@
-import pytest
 import numpy as np
-import sympy as sy
 import torch
 from sympy import ImmutableDenseMatrix
 from pyhilbert.spatials import Lattice, Offset
-from pyhilbert.hilbert import hilbert, Mode, HilbertSpace, brillouin_zone
+from pyhilbert.hilbert import hilbert, Mode, brillouin_zone
 from pyhilbert.tensors import Tensor
 from pyhilbert.utils import FrozenDict
 
@@ -95,7 +93,7 @@ def test_hilbert_scale():
 
         # Check position
         # m.r.rep contains the fractional coordinates in the new lattice basis
-        rep = np.array(m['r'].rep, dtype=float).flatten()
+        rep = np.array(m["r"].rep, dtype=float).flatten()
         found_fracs.append(tuple(rep))
 
     # Verify all expected positions are present
