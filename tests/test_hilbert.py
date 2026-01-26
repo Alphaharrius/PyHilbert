@@ -1,4 +1,6 @@
 import pytest
+import torch
+import numpy as np
 from pyhilbert.hilbert import Mode, hilbert, HilbertSpace, MomentumSpace, brillouin_zone
 from pyhilbert.spatials import Lattice
 from pyhilbert.utils import FrozenDict
@@ -152,3 +154,38 @@ def test_hilbert_update_error():
     # Let's try to subclass and cheat or use replace if possible, but replace checks types? No.
     pass
     # Skipping this specific error branch as it requires invalid state construction.
+
+
+def test_momentum_space_folding():
+    # 1. Setup 1D Lattice and Reciprocal
+    basis = ImmutableDenseMatrix([[1.0]])
+    lattice = Lattice(basis=basis, shape=(4,))
+    recip = lattice.dual
+
+    # 2. Create MomentumSpace
+    # cartes(recip) -> 0, 1/4, 2/4, 3/4
+    ms = brillouin_zone(recip)
+    assert ms.dim == 4
+
+    # 3. Fold with M=[[2]]
+    M = ImmutableDenseMatrix([[2]])
+    folded_ms, inverse_indices = ms.fold(M)
+
+    # 4. Verify
+    # New k-points should be 0, 0.5 (in terms of new BZ basis)
+    # Original k=0.25 -> k_cart = 0.25 * b_orig
+    # b_orig = 2 * b_new
+    # k_cart = 0.25 * (2 * b_new) = 0.5 * b_new.
+    # So rep should be 0.5.
+
+    assert folded_ms.dim == 2
+
+    # Check elements
+    reps = [float(k.rep[0]) for k in folded_ms.elements()]
+    # Expected unique reps: 0.0, 0.5
+    reps.sort()
+    assert np.allclose(reps, [0.0, 0.5])
+
+    # Check indices: 0->0, 0.25->0.5(1), 0.5->0(0), 0.75->0.5(1)
+    expected_indices = torch.tensor([0, 1, 0, 1], dtype=torch.long)
+    assert torch.equal(inverse_indices, expected_indices)
