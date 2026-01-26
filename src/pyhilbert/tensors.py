@@ -271,7 +271,7 @@ class Tensor(Operable, Plottable):
         device_type = self.data.device.type
         device = "GPU" if device_type in {"cuda", "mps"} else "CPU"
         if self.dims:
-            shape = ", ".join(f"{type(dim).__name__}:{dim.size}" for dim in self.dims)
+            shape = ", ".join(f"{type(dim).__name__}:{dim.dim}" for dim in self.dims)
             shape_repr = f"({shape})"
         else:
             shape_repr = "()"
@@ -435,10 +435,10 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     right = right.expand_to_union(union_dims)
 
     # calculate the new shape
-    new_shape = tuple(u.size for u in union_dims)
+    new_shape = tuple(u.dim for u in union_dims)
     new_data = torch.zeros(new_shape, dtype=left.data.dtype, device=left.data.device)
     # fill the left tensor into the new data
-    left_slices = tuple(slice(0, d.size) for d in left.dims)
+    left_slices = tuple(slice(0, d.dim) for d in left.dims)
     new_data[left_slices] = left.data
     # fill the right tensor into the new data
     right_embedding_order = (
@@ -784,7 +784,7 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         The tensor to align.
     dim : `int`
         The dimension index to align.
-    target : `StateSpace`
+    target_dim : `StateSpace`
         The target StateSpace to align to.
 
     Returns
@@ -792,6 +792,13 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     `Tensor`
         The aligned tensor.
     """
+    if dim < 0:
+        dim = dim + len(tensor.dims)
+    if dim < 0 or dim >= len(tensor.dims):
+        raise IndexError(
+            f"Dimension index {dim} out of range for rank {len(tensor.dims)}"
+        )
+
     current_dim = tensor.dims[dim]
     if isinstance(target_dim, hilbert.BroadcastSpace):
         return tensor  # No alignment needed for BroadcastSpace
@@ -799,7 +806,7 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     if isinstance(current_dim, hilbert.BroadcastSpace):
         # Expand broadcast dimension to match the target StateSpace size.
         expanded_shape = list(tensor.data.shape)
-        expanded_shape[dim] = target_dim.size
+        expanded_shape[dim] = target_dim.dim
         aligned_data = tensor.data.expand(*expanded_shape)
         return Tensor(
             data=aligned_data,
@@ -862,7 +869,7 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
         if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(
             u_dim, hilbert.BroadcastSpace
         ):
-            target_shape.append(u_dim.size)
+            target_shape.append(u_dim.dim)
             new_dims.append(u_dim)
             needs_expansion = True
         else:
@@ -879,7 +886,7 @@ def mapping_matrix(
     from_space: HilbertSpace, to_space: HilbertSpace, mapping: Dict[Mode, Mode]
 ) -> Tensor:
     # TODO: Use globally defined complex dtype
-    mat = torch.zeros((from_space.size, to_space.size), dtype=torch.complex64)
+    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex64)
     for fm, tm in mapping.items():
         fslice = from_space.get_slice(fm)
         tslice = to_space.get_slice(tm)
@@ -906,6 +913,6 @@ def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
             f"Identity tensor creation requires at least rank 2, got rank {len(dims)}!"
         )
     matrix_dims = dims[-2:]
-    rows = matrix_dims[0].size
-    cols = matrix_dims[1].size
+    rows = matrix_dims[0].dim
+    cols = matrix_dims[1].dim
     return Tensor(data=torch.eye(rows, cols), dims=matrix_dims)

@@ -57,10 +57,10 @@ def test_hilbert_space_creation():
 
     hs = hilbert([m1, m2])
     assert isinstance(hs, HilbertSpace)
-    # The dimension of the StateSpace is the number of elements in the structure (keys),
-    # which are the modes. So it should be 2.
-    assert hs.dim == 2
-    assert len(hs.structure) == 2
+    # The dimension of the StateSpace is the sum of sector dimensions (mode counts),
+    # so 2 + 3 = 5.
+    assert hs.dim == 5
+    assert len(hs.elements()) == 2
 
 
 def test_hilbert_space_operations():

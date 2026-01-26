@@ -56,6 +56,10 @@ class Mode(Spatial, Updatable):
 
         return replace(self, attr=FrozenDict(updated_attr))
 
+    @classmethod
+    def from_attr(cls, count: int, **attr) -> "Mode":
+        return cls(count=count, attr=FrozenDict(attr))
+
 
 TSpatial = TypeVar("TSpatial", bound=Spatial)
 
@@ -86,11 +90,6 @@ class StateSpace(Spatial, Generic[TSpatial]):
 
     @property
     def dim(self) -> int:
-        """The total dimension of the state space, calculated as the count of elements regardless of their lengths."""
-        return len(self)
-
-    @property
-    def size(self) -> int:
         """The total size of the vector space (sum of all sector dimensions)."""
         if not self.structure:
             return 0
@@ -430,3 +429,59 @@ def mode_mapping(
         mapping[sm] = dest_base[sb]
 
     return mapping
+
+
+@dataclass(frozen=True)
+class FactorBand(Spatial):
+    """
+    A spectral band in an eigenvalue spectrum.
+
+    Attributes
+    ----------
+    idx : int
+        Zero-based band index.
+    count : int
+        Number of eigenvalues in the band.
+    """
+
+    idx: int
+    count: int
+
+    @property
+    def dim(self) -> int:
+        """Return the band dimension (number of eigenvalues in the band)."""
+        return self.count
+
+
+@dataclass(frozen=True)
+class FactorSpace(StateSpace[FactorBand]):
+    """
+    State space describing a spectrum partitioned into spectral bands.
+
+    Each band corresponds to a contiguous block of eigenvalues, and the total
+    dimension equals the sum of all band sizes.
+    """
+
+    __hash__ = StateSpace.__hash__
+
+    def __str__(self):
+        band_count_repr = ", ".join([str(band.dim) for band in self])
+        return f"FactorSpace({band_count_repr})"
+
+    @classmethod
+    def from_band_counts(cls, band_counts: Iterable[int]) -> "FactorSpace":
+        """
+        Construct a `FactorSpace` from per-band eigenvalue counts.
+
+        Parameters
+        ----------
+        band_counts : Iterable[int]
+            Sizes of each band in order.
+        """
+        structure = OrderedDict()
+        base = 0
+        for idx, count in enumerate(band_counts):
+            band = FactorBand(idx=idx, count=count)
+            structure[band] = slice(base, base + count)
+            base += count
+        return cls(structure=structure)
