@@ -6,7 +6,7 @@ from itertools import product
 from functools import lru_cache
 from collections import OrderedDict
 from functools import reduce
-from sympy.matrices.normalforms import smith_normal_decomp # type: ignore[import-untyped]
+from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
 import sympy as sy
 import numpy as np
 import torch
