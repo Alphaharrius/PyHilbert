@@ -6,28 +6,12 @@ from itertools import product
 from functools import lru_cache
 from collections import OrderedDict
 from functools import reduce
-from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
 import sympy as sy
 import numpy as np
 import torch
 from sympy import ImmutableDenseMatrix, sympify
-
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, Plottable
-
-
-@lru_cache
-def supercell_shifts(
-    dim: int, M: ImmutableDenseMatrix
-) -> Tuple[ImmutableDenseMatrix, ...]:
-    """
-    Generate the integer shifts within the supercell defined by M.
-    """
-    S, U, V = smith_normal_decomp(M, domain=sy.ZZ)
-    Q = V.inv()
-    ranges = [range(int(S[i, i])) for i in range(dim)]
-    shifts = [ImmutableDenseMatrix([n]) @ Q for n in product(*ranges)]
-    return tuple(shifts)
 
 
 @dataclass(frozen=True)
@@ -41,6 +25,8 @@ class Spatial(Operable, Plottable, ABC):
 @dataclass(frozen=True)
 class AffineSpace(Spatial):
     basis: ImmutableDenseMatrix
+
+    #TODO __post_init__ to validate basis is rational / int
 
     @property
     def dim(self) -> int:
@@ -75,7 +61,7 @@ class Lattice(AbstractLattice):
     @lru_cache
     def dual(self) -> "ReciprocalLattice":
         reciprocal_basis = 2 * sy.pi * self.basis.inv().T
-        return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape)
+        return ReciprocalLattice(basis=reciprocal_basis, shape=self.shape, lattice=self)
 
     def coords(
         self,
@@ -136,45 +122,15 @@ class Lattice(AbstractLattice):
 
         return coords
 
-    def scale(self, M: ImmutableDenseMatrix) -> "Lattice":
-        """
-        Generates a Supercell based on the scaling matrix M.
-        Automatically populates the new unit cell with original atoms
-        to preserve physical density.
-        """
-        # 1. Validate M
-        shifts = supercell_shifts(self.dim, M)
-
-        # 4. Transform Atoms
-        M_inv = M.inv()
-        new_unit_cell = {}
-
-        # Iterate over existing atoms (or implicit origin)
-        items = self.unit_cell.items() if self.unit_cell else [("0", [0] * self.dim)]
-        for label, atom in items:
-            atom_vec = ImmutableDenseMatrix(atom).reshape(1, self.dim)
-            for i, k in enumerate(shifts):
-                # Now both atom_vec and k are 1xN Matrices
-                # Formula: new_frac = (old_frac + shift) * M^-1
-                new_frac = (atom_vec + k) @ M_inv
-                new_frac = new_frac.applyfunc(lambda x: x - sy.floor(x))
-
-                # Generate new label
-                new_label = f"{label}_{i}" if len(shifts) > 1 else label
-                new_unit_cell[new_label] = new_frac
-        new_basis = M @ self.basis
-        return Lattice(
-            basis=new_basis, shape=self.shape, unit_cell=FrozenDict(new_unit_cell)
-        )
-
 
 @dataclass(frozen=True)
 class ReciprocalLattice(AbstractLattice):
+    lattice: Lattice
+
     @property
     @lru_cache
     def dual(self) -> Lattice:
-        basis = (1 / (2 * sy.pi)) * self.basis.inv().T
-        return Lattice(basis=basis, shape=self.shape)
+        return self.lattice
 
 
 @dataclass(frozen=True)
@@ -190,14 +146,29 @@ class Offset(Spatial):
         """
         Return the fractional coordinates of this Offset within its lattice space.
         """
-        basis = self.space.basis
-        uv = basis.LUsolve(self.rep)  # fractional coords u,v
-        n = sy.Matrix([sy.floor(x) for x in uv])  # integer cell indices
-        s = uv - n  # fractional coords in [0,1)
-        frac = basis * s  # point inside reference cell
-        return Offset(rep=sy.ImmutableDenseMatrix(frac), space=self.space)
+        n = sy.Matrix([sy.floor(x) for x in self.rep])
+        s = self.rep - n 
+        return Offset(rep=sy.ImmutableDenseMatrix(s), space=self.space)
 
     fractional = lru_cache(fractional)
+
+    def rebase(self, space: AffineSpace) -> "Offset":
+        """
+        Re-express this Offset in a different AffineSpace.
+
+        Parameters
+        ----------
+        `space` : `AffineSpace`
+            The new affine space to express this Offset in.
+
+        Returns
+        -------
+        `Offset`
+            New Offset expressed in the given affine space.
+        """
+        rebase_transform_mat = space.basis.inv() @ self.space.basis
+        new_rep = rebase_transform_mat @ self.rep
+        return Offset(rep=ImmutableDenseMatrix(new_rep), space=space)
 
     def __str__(self):
         # If it's a column vector, flatten to 1D python list
@@ -218,14 +189,29 @@ class Momentum(Offset):
         """
         Return the fractional coordinates of this Offset within its lattice space.
         """
-        basis = self.space.basis
-        uv = basis.LUsolve(self.rep)  # fractional coords
-        n = sy.Matrix([sy.floor(x) for x in uv])  # reciprocal cell indices
-        s = uv - n  # fractional coords in [0,1)
-        frac = basis * s  # point inside reference cell
-        return Momentum(rep=sy.ImmutableDenseMatrix(frac), space=self.space)
+        n = sy.Matrix([sy.floor(x) for x in self.rep]) 
+        s = self.rep - n 
+        return Momentum(rep=sy.ImmutableDenseMatrix(s), space=self.space)
 
     fractional = lru_cache(fractional)
+
+    def rebase(self, space: ReciprocalLattice) -> "Momentum":
+        """
+        Re-express this Momentum in a different ReciprocalLattice.
+
+        Parameters
+        ----------
+        `space` : `ReciprocalLattice`
+            The new reciprocal lattice to express this Momentum in.
+
+        Returns
+        -------
+        `Momentum`
+            New Momentum expressed in the given reciprocal lattice.
+        """
+        rebase_transform_mat = space.basis.inv() @ self.space.basis
+        new_rep = rebase_transform_mat @ self.rep
+        return Momentum(rep=ImmutableDenseMatrix(new_rep), space=space)
 
 
 @dispatch(Lattice)  # type: ignore[no-redef]
