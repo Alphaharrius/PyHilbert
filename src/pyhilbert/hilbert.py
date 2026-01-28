@@ -338,7 +338,34 @@ class HilbertSpace(StateSpace[Mode], Updatable):
         return tuple(m[key] for m in self)
     
     def mode_lookup(self, **kwargs) -> Mode:
-        ...
+        """
+        Find a single mode with matching attributes.
+
+        Parameters
+        ----------
+        **kwargs
+            Attribute names and values to match.
+
+        Returns
+        -------
+        `Mode`
+            The unique `Mode` matching the criteria.
+
+        Raises
+        ------
+        `ValueError`
+            If no mode or multiple modes are found.
+        """
+        found = [
+            m
+            for m in self
+            if all(m.attr.get(k) == v for k, v in kwargs.items())
+        ]
+        if not found:
+            raise ValueError(f"No mode found with attributes {kwargs}")
+        if len(found) > 1:
+            raise ValueError(f"Multiple modes found with attributes {kwargs}")
+        return found[0]
 
 
 @dispatch(Iterable)
