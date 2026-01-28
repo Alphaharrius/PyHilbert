@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from sympy import ImmutableDenseMatrix
+import torch
+from sympy import ImmutableDenseMatrix, Rational
 import sympy as sy
-from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
+from sympy.matrices.normalforms import smith_normal_decomp, smith_normal_form  # type: ignore[import-untyped]
 from functools import lru_cache
 from itertools import product
-from typing import Tuple, Any, cast, Dict, Callable, ClassVar, Union
+from typing import Tuple, Any, cast, Dict, Callable, ClassVar, Union, Literal
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from collections import OrderedDict
 import torch
@@ -12,8 +13,8 @@ import numpy as np
 from abc import ABC
 from .utils import FrozenDict
 from .spatials import Lattice, ReciprocalLattice, Spatial, Offset, Momentum, AffineSpace
-from .hilbert import HilbertSpace, MomentumSpace, Mode, restructure, StateSpace
-from .tensors import Tensor
+from .hilbert import HilbertSpace, MomentumSpace, Mode, restructure, StateSpace, brillouin_zone, hilbert
+from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 
 @dataclass(frozen=True)
@@ -93,9 +94,14 @@ def lattice_transform(t: AbstractTransform, lat: Lattice) -> Lattice:
     new_unit_cell = {}
 
     # Iterate over existing atoms (or implicit origin)
-    items = lat.unit_cell.items() if lat.unit_cell else [("0", [0] * lat.dim)]
-    for label, atom in items:
-        atom_vec = ImmutableDenseMatrix(atom).reshape(1, lat.dim)
+    if lat.unit_cell:
+        items = lat.unit_cell.items()
+    else:
+        default_offset = Offset(rep=ImmutableDenseMatrix([0] * lat.dim), space=lat.affine)
+        items = [("0", default_offset)]
+
+    for label, atom_offset in items:
+        atom_vec = atom_offset.rep.reshape(1, lat.dim)
         for i, k in enumerate(shifts):
             # Now both atom_vec and k are 1xN Matrices
             # Formula: new_frac = (old_frac + shift) * M^-1
@@ -106,8 +112,9 @@ def lattice_transform(t: AbstractTransform, lat: Lattice) -> Lattice:
             new_label = f"{label}_{i}" if len(shifts) > 1 else label
             new_unit_cell[new_label] = new_frac
     new_basis = t.M @ lat.basis
+    new_shape = tuple(s // m for s, m in zip(lat.shape, t.M.diagonal()))
     return Lattice(
-        basis=new_basis, shape=lat.shape, unit_cell=FrozenDict(new_unit_cell)
+        basis=new_basis, shape=new_shape, unit_cell=FrozenDict(new_unit_cell)
     )
 
 @BasisTransform.register_transform_method(ReciprocalLattice)
@@ -141,20 +148,67 @@ def momentum_transform(t: AbstractTransform, momentum: Momentum) -> Momentum:
     new_space = t(momentum.space)
     return momentum.rebase(new_space)
 
-
-
-def bandfold(M: ImmutableDenseMatrix, tensor: Tensor) -> Tensor:
+def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left', 'right'] = 'both') -> Tensor:
     """
     make Tensor with (Momentum, Hilbert, Hilbert) to (scaled Momentum, Hilbert, Hilbert)
     Parameters
     ----------
     """
-    pass
+    # 1. Parse inputs
+    if not tensor.rank() == 3:
+        raise ValueError(
+            f"Input tensor must be of rank 3, but has rank {tensor.rank()}"
+        )
+    if not isinstance(tensor.dims[0], MomentumSpace):
+        raise TypeError(
+            "The first dimension of the tensor must be a MomentumSpace, "
+            f"but is of type {type(tensor.dims[0])}"
+        )
+    k_space = cast(MomentumSpace, tensor.dims[0])
+    if not k_space.elements():
+        raise ValueError("MomentumSpace is empty")
+    lattice_set = set(map(lambda k: k.space, k_space))
+    if len(lattice_set) != 1:
+        raise ValueError("Invalid BZ")
+    reciprocal_lattice = lattice_set.pop()
+    if not isinstance(reciprocal_lattice, ReciprocalLattice):
+        raise TypeError(f"Space of momentum should be ReciprocalLattice, but got {type(reciprocal_lattice)}")
+    reciprocal_lattice = cast(ReciprocalLattice, reciprocal_lattice)
+    lattice = reciprocal_lattice.dual
+    
+    # 2. Apply the transformation
+    transform = BasisTransform(M)
+    scaled_lattice = transform(lattice)
 
+    # 3. Create new transformed spaces
+    scaled_reciprocal_lattice = scaled_lattice.dual
+    scaled_offsets = scaled_lattice.unit_cell.values()
+    enlarge_unit_cell = tuple(r.rebase(lattice.affine) for r in scaled_offsets)
+    
+    # Transform based on opt
+    switch_index = -2 if opt == 'left' else -1
+    rebased_hilbert = hilbert(tensor.dims[switch_index].mode_lookup(r=r.fractional()).update(r=r) for r in enlarge_unit_cell)
+    S = int(smith_normal_form(M,domain=sy.ZZ).det())
+    # # Transform both sides
+    f = fourier_transform(k_space, tensor.dims[switch_index], rebased_hilbert)
+    scaling =  S if opt == "both" else np.sqrt(S)
+    f = f /scaling
+    fh = f.h(-2, -1) # (K, B', B)
+    transformed = fh @ tensor @ f # (K, B', B')
+    transformed = transformed.permute(1, 2, 0).unsqueeze(-1) # (B', B', K, 1)
 
+    new_k_space = brillouin_zone(scaled_reciprocal_lattice)
+    new_k_lookup = {k.fractional(): k for k in new_k_space}
 
+    mapping = {}
+    for k in k_space:
+        k_frac = transform(k).fractional()
+        if k_frac in new_k_lookup:
+            mapping[k] = new_k_lookup[k_frac]
+        else:
+            raise ValueError(f"Transformed k-point {k_frac} not found in new BZ.")
 
+    k_map = mapping_matrix(k_space, new_k_space, mapping).transpose(0, 1)
 
-
-
-
+    return (k_map @ transformed).squeeze(-1).permute(2, 0, 1)
+    
