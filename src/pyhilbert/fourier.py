@@ -51,7 +51,7 @@ def fourier_transform(
     region_space: HilbertSpace,
     *,
     r_name: str = "r",
-) -> torch.Tensor:
+) -> Tensor:
     """
     Build the Fourier transform tensor between `k_space` and `region_space`.
 
