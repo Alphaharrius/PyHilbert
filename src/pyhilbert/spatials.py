@@ -51,11 +51,28 @@ class AbstractLattice(AffineSpace, HasDual):
 
 @dataclass(frozen=True)
 class Lattice(AbstractLattice):
-    unit_cell: FrozenDict = field(default_factory=FrozenDict)
+    unit_cell: FrozenDict = field(default_factory=FrozenDict) #TODO : Any way to improve the init
 
     def __post_init__(self):
-        if not isinstance(self.unit_cell, FrozenDict):
-            object.__setattr__(self, "unit_cell", FrozenDict(self.unit_cell))
+        unit_cell_source = self.unit_cell
+        if len(unit_cell_source) == 0:
+            unit_cell_source = FrozenDict({"r": Offset(rep=ImmutableDenseMatrix([0] * self.dim), space=self.affine)})
+        processed_cell = {}
+        for key, value in unit_cell_source.items():
+            if not isinstance(key, str):
+                raise TypeError(f"unit_cell keys must be strings, but got {type(key)}")
+            if isinstance(value, Offset):
+                    processed_cell[key] = value
+            else:
+                try:
+                    rep = ImmutableDenseMatrix(value).T
+                    processed_cell[key] = Offset(rep=rep, space=self.affine)
+                except Exception as e:
+                    raise TypeError(
+                        f"Could not convert unit_cell value {value} for key '{key}' to an Offset."
+                    ) from e
+
+        object.__setattr__(self, "unit_cell", FrozenDict(processed_cell))
 
     @property
     @lru_cache
@@ -104,8 +121,8 @@ class Lattice(AbstractLattice):
             basis_reps.append(np.zeros(self.dim, dtype=np.float64))
         else:
             sorted_unit_cell = sorted(self.unit_cell.items(), key=lambda x: str(x[0]))
-            for _, site in sorted_unit_cell:
-                site_vec = sy.ImmutableDenseMatrix(site)
+            for _, site_offset in sorted_unit_cell:
+                site_vec = site_offset.rep
                 if subs:
                     site_vec = site_vec.subs(subs)
                 basis_reps.append(np.array(site_vec).flatten().astype(np.float64))
@@ -137,6 +154,20 @@ class ReciprocalLattice(AbstractLattice):
 class Offset(Spatial):
     rep: ImmutableDenseMatrix
     space: AffineSpace
+
+    def __eq__(self, other):
+        if isinstance(other, tuple) and len(other) == 1:
+            other = other[0]
+        if not isinstance(other, Offset):
+            return NotImplemented
+        return self.rep == other.rep and self.space == other.space
+
+    def __hash__(self):
+        return hash((tuple(self.rep), self.space))
+
+    def __post_init__(self):
+        if self.rep.shape != (self.space.dim, 1):
+            raise ValueError("Invalid Shape")
 
     @property
     def dim(self) -> int:
