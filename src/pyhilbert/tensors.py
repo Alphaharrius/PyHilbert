@@ -398,7 +398,7 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     left, right = _align_dims_for_matmul(left, right)
 
     right = right.align(-2, left.dims[-1])
-    data = torch.matmul(left.data, right.data)
+    data = torch.matmul(left.data.to(dtype=torch.complex128), right.data.to(dtype=torch.complex128))
     new_dims = left.dims[:-1] + right.dims[-1:]
 
     prod = Tensor(data=data, dims=new_dims)
