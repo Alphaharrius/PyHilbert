@@ -188,18 +188,17 @@ def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left
     # Transform based on opt
     switch_index = -2 if opt == 'left' else -1
     rebased_hilbert = hilbert(tensor.dims[switch_index].mode_lookup(r=r.fractional()).update(r=r) for r in enlarge_unit_cell)
-    S = int(smith_normal_form(M,domain=sy.ZZ).det())
     # # Transform both sides
     f = fourier_transform(k_space, tensor.dims[switch_index], rebased_hilbert)
-    scaling =  S if opt == "both" else np.sqrt(S)
-    f = f /scaling
+    vratio = np.sqrt(len(enlarge_unit_cell)/len(lattice.unit_cell))
+    f = f / vratio
     fh = f.h(-2, -1) # (K, B', B)
     transformed = fh @ tensor @ f # (K, B', B')
     transformed = transformed.permute(1, 2, 0).unsqueeze(-1) # (B', B', K, 1)
 
+    # k-mapping
     new_k_space = brillouin_zone(scaled_reciprocal_lattice)
     new_k_lookup = {k.fractional(): k for k in new_k_space}
-
     mapping = {}
     for k in k_space:
         k_frac = transform(k).fractional()
@@ -207,8 +206,6 @@ def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left
             mapping[k] = new_k_lookup[k_frac]
         else:
             raise ValueError(f"Transformed k-point {k_frac} not found in new BZ.")
-
     k_map = mapping_matrix(k_space, new_k_space, mapping).transpose(0, 1)
-
     return (k_map @ transformed).squeeze(-1).permute(2, 0, 1)
     
