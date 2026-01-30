@@ -50,12 +50,12 @@ class TestMatmul:
         # right: (K, N) -> (space1, space2)
         # result: (M, N) -> (space2, space2)
 
-        data_left = torch.randn(matmul_ctx.space2.size, matmul_ctx.space1.size)
+        data_left = torch.randn(matmul_ctx.space2.dim, matmul_ctx.space1.dim)
         tensor_left = Tensor(
             data=data_left, dims=(matmul_ctx.space2, matmul_ctx.space1)
         )
 
-        data_right = torch.randn(matmul_ctx.space1.size, matmul_ctx.space2.size)
+        data_right = torch.randn(matmul_ctx.space1.dim, matmul_ctx.space2.dim)
         tensor_right = Tensor(
             data=data_right, dims=(matmul_ctx.space1, matmul_ctx.space2)
         )
@@ -72,7 +72,7 @@ class TestMatmul:
         # right: (space3, space2)
         # space1 and space3 cover {A, B} but in different order.
 
-        data_left = torch.randn(matmul_ctx.space2.size, matmul_ctx.space1.size)
+        data_left = torch.randn(matmul_ctx.space2.dim, matmul_ctx.space1.dim)
         tensor_left = Tensor(
             data=data_left, dims=(matmul_ctx.space2, matmul_ctx.space1)
         )
@@ -83,7 +83,7 @@ class TestMatmul:
         # logical vector v in space3 order [b0, b1, b2, a0, a1]
         # logical vector v in space1 order [a0, a1, b0, b1, b2]
 
-        data_right_s3 = torch.randn(matmul_ctx.space3.size, matmul_ctx.space2.size)
+        data_right_s3 = torch.randn(matmul_ctx.space3.dim, matmul_ctx.space2.dim)
         tensor_right = Tensor(
             data=data_right_s3, dims=(matmul_ctx.space3, matmul_ctx.space2)
         )
@@ -118,10 +118,10 @@ class TestMatmul:
         dims_right = (matmul_ctx.space2, matmul_ctx.space1, matmul_ctx.space2)
 
         data_left = torch.randn(
-            matmul_ctx.space2.size, matmul_ctx.space2.size, matmul_ctx.space1.size
+            matmul_ctx.space2.dim, matmul_ctx.space2.dim, matmul_ctx.space1.dim
         )
         data_right = torch.randn(
-            matmul_ctx.space2.size, matmul_ctx.space1.size, matmul_ctx.space2.size
+            matmul_ctx.space2.dim, matmul_ctx.space1.dim, matmul_ctx.space2.dim
         )
 
         t_left = Tensor(data_left, dims_left)
@@ -164,11 +164,11 @@ class TestMatmul:
         # Left: (space1, )
         # Right: (space2, space1, space2)
 
-        data_left = torch.randn(matmul_ctx.space1.size)
+        data_left = torch.randn(matmul_ctx.space1.dim)
         tensor_left = Tensor(data=data_left, dims=(matmul_ctx.space1,))
 
         data_right = torch.randn(
-            matmul_ctx.space2.size, matmul_ctx.space1.size, matmul_ctx.space2.size
+            matmul_ctx.space2.dim, matmul_ctx.space1.dim, matmul_ctx.space2.dim
         )
         tensor_right = Tensor(
             data=data_right,
@@ -178,8 +178,8 @@ class TestMatmul:
         result = tensor_left @ tensor_right
 
         # Expected:
-        # left broadcasted to (1, 1, space1.size)
-        # right is (space2.size, space1.size, space2.size)
+        # left broadcasted to (1, 1, space1.dim)
+        # right is (space2.dim, space1.dim, space2.dim)
         # but the broadcasting logic in matmul implementation:
         # unsqueeze adds BroadcastSpace.
         # align expands BroadcastSpace if the other is not BroadcastSpace.
@@ -299,8 +299,8 @@ class TestMatmul:
         # Create a tensor with explicit BroadcastSpace
         # BroadcastSpace has size 1 implicitly for data generation usually?
         # But Tensor.data shape must match dims. BroadcastSpace doesn't have a fixed size property that returns 1?
-        # StateSpace.size relies on structure. BroadcastSpace structure is empty, size is 0?
-        # Let's check StateSpace.size implementation.
+        # StateSpace.dim relies on structure. BroadcastSpace structure is empty, size is 0?
+        # Let's check StateSpace.dim implementation.
         # size returns structure[last].stop. If empty, 0.
 
         # If BroadcastSpace size is 0, we can't create a tensor with dim size 0 and expect it to broadcast to N?
@@ -309,7 +309,7 @@ class TestMatmul:
         # unsqueeze() creates data with dim size 1.
 
         # Let's use unsqueeze to create the tensor with BroadcastSpace
-        data_orig = torch.randn(matmul_ctx.space1.size)
+        data_orig = torch.randn(matmul_ctx.space1.dim)
         tensor_orig = Tensor(data=data_orig, dims=(matmul_ctx.space1,))
         from pyhilbert.tensors import unsqueeze
 
@@ -317,7 +317,7 @@ class TestMatmul:
 
         # right tensor
         data_right = torch.randn(
-            matmul_ctx.space2.size, matmul_ctx.space1.size, matmul_ctx.space2.size
+            matmul_ctx.space2.dim, matmul_ctx.space1.dim, matmul_ctx.space2.dim
         )
         tensor_right = Tensor(
             data=data_right,
@@ -359,12 +359,12 @@ class TestMatmul:
         # matmul aligns right[-2] (Broadcast) to left[-1] (space2).
         # expected: right expands to (4, 5). matmul((4,4), (4,5)) -> (4, 5).
 
-        data_left = torch.randn(matmul_ctx.space2.size, matmul_ctx.space2.size)
+        data_left = torch.randn(matmul_ctx.space2.dim, matmul_ctx.space2.dim)
         tensor_left = Tensor(
             data=data_left, dims=(matmul_ctx.space2, matmul_ctx.space2)
         )
 
-        data_right = torch.randn(1, matmul_ctx.space1.size)
+        data_right = torch.randn(1, matmul_ctx.space1.dim)
         tensor_right = Tensor(
             data=data_right, dims=(BroadcastSpace(), matmul_ctx.space1)
         )
@@ -373,9 +373,7 @@ class TestMatmul:
 
         # Verify
         # right expanded
-        expanded_right = data_right.expand(
-            matmul_ctx.space2.size, matmul_ctx.space1.size
-        )
+        expanded_right = data_right.expand(matmul_ctx.space2.dim, matmul_ctx.space1.dim)
         expected = torch.matmul(data_left, expanded_right)
 
         assert result.dims == (matmul_ctx.space2, matmul_ctx.space1)
@@ -394,7 +392,7 @@ class TestMatmul:
 
     def test_matmul_rejects_scalar(self, matmul_ctx):
         t1 = Tensor(torch.tensor(1.0), ())
-        t2 = Tensor(torch.randn(matmul_ctx.space2.size), (matmul_ctx.space2,))
+        t2 = Tensor(torch.randn(matmul_ctx.space2.dim), (matmul_ctx.space2,))
 
         with pytest.raises(ValueError):
             matmul(t1, t2)
@@ -404,8 +402,8 @@ class TestMatmul:
         structure = OrderedDict([(mode_one, slice(0, 1))])
         space_one = HilbertSpace(structure=structure)
 
-        data_left = torch.randn(space_one.size)
-        data_right = torch.randn(space_one.size)
+        data_left = torch.randn(space_one.dim)
+        data_right = torch.randn(space_one.dim)
         tensor_left = Tensor(data=data_left, dims=(space_one,))
         tensor_right = Tensor(data=data_right, dims=(space_one,))
 
@@ -464,12 +462,8 @@ def tensor_add_ctx():
 
 class TestTensorAdd:
     def test_add_union_disjoint_axis(self, tensor_add_ctx):
-        left_data = torch.randn(
-            tensor_add_ctx.space_a.size, tensor_add_ctx.space_b.size
-        )
-        right_data = torch.randn(
-            tensor_add_ctx.space_d.size, tensor_add_ctx.space_b.size
-        )
+        left_data = torch.randn(tensor_add_ctx.space_a.dim, tensor_add_ctx.space_b.dim)
+        right_data = torch.randn(tensor_add_ctx.space_d.dim, tensor_add_ctx.space_b.dim)
         left = Tensor(
             data=left_data, dims=(tensor_add_ctx.space_a, tensor_add_ctx.space_b)
         )
@@ -484,19 +478,19 @@ class TestTensorAdd:
         )
 
         assert result.dims == expected_dims
-        assert torch.allclose(result.data[: tensor_add_ctx.space_a.size, :], left_data)
+        assert torch.allclose(result.data[: tensor_add_ctx.space_a.dim, :], left_data)
         assert torch.allclose(
             result.data[
-                tensor_add_ctx.space_a.size : tensor_add_ctx.space_a.size
-                + tensor_add_ctx.space_d.size,
+                tensor_add_ctx.space_a.dim : tensor_add_ctx.space_a.dim
+                + tensor_add_ctx.space_d.dim,
                 :,
             ],
             right_data,
         )
 
     def test_add_reorders_right_by_state_space(self, tensor_add_ctx):
-        left_data = torch.zeros(tensor_add_ctx.space_ab.size)
-        right_data = torch.arange(tensor_add_ctx.space_ba.size, dtype=left_data.dtype)
+        left_data = torch.zeros(tensor_add_ctx.space_ab.dim)
+        right_data = torch.arange(tensor_add_ctx.space_ba.dim, dtype=left_data.dtype)
         left = Tensor(data=left_data, dims=(tensor_add_ctx.space_ab,))
         right = Tensor(data=right_data, dims=(tensor_add_ctx.space_ba,))
 
@@ -514,14 +508,14 @@ class TestTensorAdd:
 
     def test_add_union_multiple_axes(self, tensor_add_ctx):
         left_data = torch.zeros(
-            tensor_add_ctx.space_a.size,
-            tensor_add_ctx.space_b.size,
-            tensor_add_ctx.space_c.size,
+            tensor_add_ctx.space_a.dim,
+            tensor_add_ctx.space_b.dim,
+            tensor_add_ctx.space_c.dim,
         )
         right_data = torch.randn(
-            tensor_add_ctx.space_d.size,
-            tensor_add_ctx.space_b.size,
-            tensor_add_ctx.space_m.size,
+            tensor_add_ctx.space_d.dim,
+            tensor_add_ctx.space_b.dim,
+            tensor_add_ctx.space_m.dim,
         )
         left = Tensor(
             data=left_data,
@@ -549,18 +543,18 @@ class TestTensorAdd:
 
         assert result.dims == expected_dims
         a_slice = slice(
-            tensor_add_ctx.space_a.size,
-            tensor_add_ctx.space_a.size + tensor_add_ctx.space_d.size,
+            tensor_add_ctx.space_a.dim,
+            tensor_add_ctx.space_a.dim + tensor_add_ctx.space_d.dim,
         )
         c_slice = slice(
-            tensor_add_ctx.space_c.size,
-            tensor_add_ctx.space_c.size + tensor_add_ctx.space_m.size,
+            tensor_add_ctx.space_c.dim,
+            tensor_add_ctx.space_c.dim + tensor_add_ctx.space_m.dim,
         )
         assert torch.allclose(result.data[a_slice, :, c_slice], right_data)
 
     def test_add_accumulates_overlap(self, tensor_add_ctx):
-        left_data = torch.ones(tensor_add_ctx.space_ab.size)
-        right_data = torch.ones(tensor_add_ctx.space_ab.size)
+        left_data = torch.ones(tensor_add_ctx.space_ab.dim)
+        right_data = torch.ones(tensor_add_ctx.space_ab.dim)
         left = Tensor(data=left_data, dims=(tensor_add_ctx.space_ab,))
         right = Tensor(data=right_data, dims=(tensor_add_ctx.space_ab,))
 
@@ -576,9 +570,9 @@ class TestTensorAdd:
         # T3 should be broadcasted to (Broadcast, A, B, C) and then expanded to (D, A, B, C)
 
         t3_data = torch.ones(
-            tensor_add_ctx.space_a.size,
-            tensor_add_ctx.space_b.size,
-            tensor_add_ctx.space_c.size,
+            tensor_add_ctx.space_a.dim,
+            tensor_add_ctx.space_b.dim,
+            tensor_add_ctx.space_c.dim,
         )
         t3 = Tensor(
             data=t3_data,
@@ -590,10 +584,10 @@ class TestTensorAdd:
         )
 
         t4_data = torch.ones(
-            tensor_add_ctx.space_d.size,
-            tensor_add_ctx.space_a.size,
-            tensor_add_ctx.space_b.size,
-            tensor_add_ctx.space_c.size,
+            tensor_add_ctx.space_d.dim,
+            tensor_add_ctx.space_a.dim,
+            tensor_add_ctx.space_b.dim,
+            tensor_add_ctx.space_c.dim,
         )
         t4 = Tensor(
             data=t4_data,
@@ -625,11 +619,11 @@ class TestTensorAdd:
         # M2: (C, D)
         # Result: (A+C, B+D)
 
-        m1_data = torch.ones(tensor_add_ctx.space_a.size, tensor_add_ctx.space_b.size)
+        m1_data = torch.ones(tensor_add_ctx.space_a.dim, tensor_add_ctx.space_b.dim)
         m1 = Tensor(data=m1_data, dims=(tensor_add_ctx.space_a, tensor_add_ctx.space_b))
 
         m2_data = torch.full(
-            (tensor_add_ctx.space_c.size, tensor_add_ctx.space_d.size), 2.0
+            (tensor_add_ctx.space_c.dim, tensor_add_ctx.space_d.dim), 2.0
         )
         m2 = Tensor(data=m2_data, dims=(tensor_add_ctx.space_c, tensor_add_ctx.space_d))
 
@@ -645,28 +639,28 @@ class TestTensorAdd:
         # Check data structure (Block Diagonal)
         # Top-left (A x B) should be M1
         assert torch.allclose(
-            result.data[: tensor_add_ctx.space_a.size, : tensor_add_ctx.space_b.size],
+            result.data[: tensor_add_ctx.space_a.dim, : tensor_add_ctx.space_b.dim],
             m1_data,
         )
 
         # Bottom-right (C x D) should be M2
-        # C is after A (indices [A.size : A.size+C.size])
-        # D is after B (indices [B.size : B.size+D.size])
+        # C is after A (indices [A.dim : A.dim+C.dim])
+        # D is after B (indices [B.dim : B.dim+D.dim])
         assert torch.allclose(
-            result.data[tensor_add_ctx.space_a.size :, tensor_add_ctx.space_b.size :],
+            result.data[tensor_add_ctx.space_a.dim :, tensor_add_ctx.space_b.dim :],
             m2_data,
         )
 
         # Off-diagonal blocks should be zero
         # Top-right (A x D)
         assert torch.allclose(
-            result.data[: tensor_add_ctx.space_a.size, tensor_add_ctx.space_b.size :],
-            torch.zeros(tensor_add_ctx.space_a.size, tensor_add_ctx.space_d.size),
+            result.data[: tensor_add_ctx.space_a.dim, tensor_add_ctx.space_b.dim :],
+            torch.zeros(tensor_add_ctx.space_a.dim, tensor_add_ctx.space_d.dim),
         )
         # Bottom-left (C x B)
         assert torch.allclose(
-            result.data[tensor_add_ctx.space_a.size :, : tensor_add_ctx.space_b.size],
-            torch.zeros(tensor_add_ctx.space_c.size, tensor_add_ctx.space_b.size),
+            result.data[tensor_add_ctx.space_a.dim :, : tensor_add_ctx.space_b.dim],
+            torch.zeros(tensor_add_ctx.space_c.dim, tensor_add_ctx.space_b.dim),
         )
 
 
@@ -707,6 +701,15 @@ class TestTensorErrorConditions:
         # space_a and space_b have different keys -> different span
         with pytest.raises(ValueError):
             t1.align(0, space_b)
+
+    def test_align_negative_dim(self, tensor_error_ctx):
+        t1 = Tensor(
+            torch.randn(2, 2),
+            dims=(tensor_error_ctx.space_a, tensor_error_ctx.space_a),
+        )
+        aligned = t1.align(-1, tensor_error_ctx.space_a)
+        assert aligned.dims == t1.dims
+        assert aligned.data.shape == t1.data.shape
 
     def test_permute_invalid_length(self, tensor_error_ctx):
         t1 = Tensor(
