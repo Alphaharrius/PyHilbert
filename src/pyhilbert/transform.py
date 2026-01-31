@@ -9,7 +9,7 @@ import numpy as np
 from abc import ABC
 from .utils import FrozenDict
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
-from .hilbert import MomentumSpace, brillouin_zone, hilbert
+from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 
@@ -73,7 +73,7 @@ def _supercell_shifts(
 
 
 @BasisTransform.register_transform_method(AffineSpace)
-def affine_transform(t: AbstractTransform, space: AffineSpace) -> AffineSpace:
+def affine_transform(t: BasisTransform, space: AffineSpace) -> AffineSpace:
     """
     Transform an AffineSpace by the basis transformation M.
     """
@@ -82,7 +82,7 @@ def affine_transform(t: AbstractTransform, space: AffineSpace) -> AffineSpace:
 
 
 @BasisTransform.register_transform_method(Lattice)
-def lattice_transform(t: AbstractTransform, lat: Lattice) -> Lattice:
+def lattice_transform(t: BasisTransform, lat: Lattice) -> Lattice:
     """
     Generates a Supercell based on the scaling matrix M.
     Automatically populates the new unit cell with original atoms
@@ -203,8 +203,14 @@ def bandfold(
 
     # Transform based on opt
     switch_index = -2 if opt == "left" else -1
+    target_space = tensor.dims[switch_index]
+    if not isinstance(target_space, HilbertSpace):
+        raise TypeError(
+            f"Dimension at index {switch_index} must be a HilbertSpace, "
+            f"but got {type(target_space)}"
+        )
     rebased_hilbert = hilbert(
-        tensor.dims[switch_index].mode_lookup(r=r.fractional()).update(r=r)
+        target_space.mode_lookup(r=r.fractional()).update(r=r)
         for r in enlarge_unit_cell
     )
     # # Transform both sides
