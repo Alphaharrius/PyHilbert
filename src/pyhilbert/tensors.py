@@ -1,4 +1,4 @@
-from typing import Tuple, Union, Sequence, cast, Dict
+from typing import Tuple, Union, Sequence, cast, Dict, Any
 from numbers import Number
 from dataclasses import dataclass
 from multipledispatch import dispatch  # type: ignore[import-untyped]
@@ -7,12 +7,10 @@ import torch
 from .abstracts import Operable, Plottable
 from .hilbert import (
     StateSpace,
-    HilbertSpace,
     BroadcastSpace,
     embedding_order,
     same_span,
     flat_permutation_order,
-    Mode,
 )
 
 
@@ -909,10 +907,9 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
 
 
 def mapping_matrix(
-    from_space: HilbertSpace, to_space: HilbertSpace, mapping: Dict[Mode, Mode]
+    from_space: StateSpace, to_space: StateSpace, mapping: Dict[Any, Any]
 ) -> Tensor:
-    # TODO: Use globally defined complex dtype
-    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex64)
+    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex128)
     for fm, tm in mapping.items():
         fslice = from_space.get_slice(fm)
         tslice = to_space.get_slice(tm)
@@ -921,7 +918,7 @@ def mapping_matrix(
         tlen = tslice.stop - tslice.start
         if flen != tlen:
             raise ValueError(
-                f"Cannot create mapping matrix between modes of different sizes: {flen} != {tlen}"
+                f"Cannot create mapping matrix between sectors of different sizes: {flen} != {tlen}"
             )
 
         mat[fslice, tslice] = torch.eye(flen, dtype=mat.dtype, device=mat.device)
@@ -979,9 +976,9 @@ def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
             raise ValueError(
                 f"Cannot replace dimension of size {current_size} with empty BroadcastSpace (expects size 1)."
             )
-    elif new_dim.size != current_size:
+    elif new_dim.dim != current_size:
         raise ValueError(
-            f"New StateSpace size {new_dim.size} does not match tensor data size {current_size} at dimension {dim}!"
+            f"New StateSpace size {new_dim.dim} does not match tensor data size {current_size} at dimension {dim}!"
         )
 
     new_dims = list(tensor.dims)
