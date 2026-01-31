@@ -1,0 +1,12 @@
+tests\test_abstracts.py ...                                                                                                                                                                               [  3%]
+tests\test_decompose.py ....F...                                                                                                                                                                          [ 11%]
+tests\test_groups.py ....                                                                                                                                                                                 [ 16%]
+tests\test_hilbert.py .........F.                                                                                                                                                                         [ 27%]
+tests\test_io.py .........                                                                                                                                                                                [ 37%]
+tests\test_plots.py .                                                                                                                                                                                     [ 38%]
+tests\test_shift.py FFFF                                                                                                                                                                                  [ 43%]
+tests\test_spatials.py FF..F                                                                                                                                                                              [ 48%]
+tests\test_tensors.py FFFFF..F....F..............F...........F                                                                                                                                            [ 91%]
+tests\test_tensors_autograd.py ...                                                                                                                                                                        [ 94%] 
+tests\test_transform.py F                                                                                                                                                                                 [ 95%]
+tests\test_utils.py ....   

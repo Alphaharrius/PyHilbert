@@ -65,7 +65,9 @@ class Lattice(AbstractLattice):
                     processed_cell[key] = value
             else:
                 try:
-                    rep = ImmutableDenseMatrix(value).T
+                    rep = ImmutableDenseMatrix(value)
+                    if rep.shape != (self.dim, 1):
+                        rep = rep.reshape(self.dim, 1)
                     processed_cell[key] = Offset(rep=rep, space=self.affine)
                 except Exception as e:
                     raise TypeError(
