@@ -398,7 +398,8 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     left, right = _align_dims_for_matmul(left, right)
 
     right = right.align(-2, left.dims[-1])
-    data = torch.matmul(left.data.to(dtype=torch.complex128), right.data.to(dtype=torch.complex128))
+    common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
+    data = torch.matmul(left.data.to(dtype=common_dtype), right.data.to(dtype=common_dtype))
     new_dims = left.dims[:-1] + right.dims[-1:]
 
     prod = Tensor(data=data, dims=new_dims)
@@ -464,10 +465,11 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
 
     # calculate the new shape
     new_shape = tuple(u.dim for u in union_dims)
-    new_data = torch.zeros(new_shape, dtype=left.data.dtype, device=left.data.device)
+    common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
+    new_data = torch.zeros(new_shape, dtype=common_dtype, device=left.data.device)
     # fill the left tensor into the new data
     left_slices = tuple(slice(0, d.dim) for d in left.dims)
-    new_data[left_slices] = left.data
+    new_data[left_slices] = left.data.to(common_dtype)
     # fill the right tensor into the new data
     right_embedding_order = (
         torch.tensor(embedding_order(r, u), dtype=torch.long, device=left.data.device)
@@ -475,7 +477,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     )
     new_data.index_put_(
         torch.meshgrid(*right_embedding_order, indexing="ij"),
-        right.data,
+        right.data.to(common_dtype),
         accumulate=True,
     )
 
@@ -892,8 +894,8 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     needs_expansion = False
 
     for dim, u_dim, size in zip(tensor.dims, union_dims, tensor.data.shape):
-        if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(
-            u_dim, hilbert.BroadcastSpace
+        if isinstance(dim, BroadcastSpace) and not isinstance(
+            u_dim, BroadcastSpace
         ):
             target_shape.append(u_dim.dim)
             new_dims.append(u_dim)
