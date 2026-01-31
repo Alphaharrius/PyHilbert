@@ -296,7 +296,6 @@ class MomentumSpace(StateSpace[Momentum]):
         return header + body
 
 
-
 @dataclass(frozen=True)
 class HilbertSpace(StateSpace[Mode], Updatable):
     __hash__ = StateSpace.__hash__
@@ -313,7 +312,6 @@ class HilbertSpace(StateSpace[Mode], Updatable):
 
         # Don't need StateSpace.restructure here since the slices are unchanged
         return HilbertSpace(structure=updated_structure)
-
 
     def collect(self, *key: str) -> Tuple[Any, ...]:
         """
@@ -335,7 +333,7 @@ class HilbertSpace(StateSpace[Mode], Updatable):
         if len(key) == 1:
             return tuple(m[key[0]] for m in self)
         return tuple(m[key] for m in self)
-    
+
     def mode_lookup(self, **kwargs) -> Mode:
         """
         Find a single mode with matching attributes.
@@ -355,11 +353,7 @@ class HilbertSpace(StateSpace[Mode], Updatable):
         `ValueError`
             If no mode or multiple modes are found.
         """
-        found = [
-            m
-            for m in self
-            if all(m.attr.get(k) == v for k, v in kwargs.items())
-        ]
+        found = [m for m in self if all(m.attr.get(k) == v for k, v in kwargs.items())]
         if not found:
             raise ValueError(f"No mode found with attributes {kwargs}")
         if len(found) > 1:

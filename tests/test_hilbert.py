@@ -1,6 +1,4 @@
 import pytest
-import torch
-import numpy as np
 from pyhilbert.hilbert import Mode, hilbert, HilbertSpace, MomentumSpace, brillouin_zone
 from pyhilbert.spatials import Lattice
 from pyhilbert.utils import FrozenDict
@@ -154,6 +152,7 @@ def test_hilbert_update_error():
     # Let's try to subclass and cheat or use replace if possible, but replace checks types? No.
     pass
     # Skipping this specific error branch as it requires invalid state construction.
+
 
 def test_hilbert_space_mode_lookup():
     m1 = Mode(count=1, attr=FrozenDict({"id": 1, "type": "a"}))

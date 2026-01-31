@@ -1,19 +1,19 @@
-from typing import Tuple, Union, Sequence, cast, Dict
+from typing import Tuple, Union, Sequence, cast, Dict, Any
 from numbers import Number
 from dataclasses import dataclass
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
+from functools import wraps
 
 from .abstracts import Operable, Plottable
 from .hilbert import (
     StateSpace,
-    HilbertSpace,
     BroadcastSpace,
     embedding_order,
     same_span,
     flat_permutation_order,
-    Mode,
 )
+
 
 @dataclass(frozen=True)
 class Tensor(Operable, Plottable):
@@ -210,7 +210,6 @@ class Tensor(Operable, Plottable):
                 "Only CUDA and MPS devices are supported for GPU operations!"
             )
 
-
     @property
     def requires_grad(self) -> bool:
         """
@@ -272,8 +271,8 @@ class Tensor(Operable, Plottable):
             The cloned tensor.
         """
         return Tensor(data=self.data.clone(), dims=self.dims)
-    
-    def replace_dim(self, dim: int, new_dim: StateSpace)-> "Tensor":
+
+    def replace_dim(self, dim: int, new_dim: StateSpace) -> "Tensor":
         """
         Replace the StateSpace at the specified dimension with a new StateSpace.
 
@@ -293,8 +292,6 @@ class Tensor(Operable, Plottable):
         """
         return replace_dim(self, dim, new_dim)
 
-
-
     def __repr__(self) -> str:
         device_type = self.data.device.type
         device = "GPU" if device_type in {"cuda", "mps"} else "CPU"
@@ -306,6 +303,22 @@ class Tensor(Operable, Plottable):
         return f"<{device} Tensor grad={self.data.requires_grad} shape={shape_repr}>"
 
     __str__ = __repr__  # Override str to use the same representation
+
+
+def auto_promote(func):
+    """Decorator to automatically promote input Tensors to a common dtype."""
+
+    @wraps(func)
+    def wrapper(left, right, *args, **kwargs):
+        if isinstance(left, Tensor) and isinstance(right, Tensor):
+            common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
+            if left.data.dtype != common_dtype:
+                left = Tensor(data=left.data.to(common_dtype), dims=left.dims)
+            if right.data.dtype != common_dtype:
+                right = Tensor(data=right.data.to(common_dtype), dims=right.dims)
+        return func(left, right, *args, **kwargs)
+
+    return wrapper
 
 
 def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
@@ -344,6 +357,7 @@ def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
     return left, right
 
 
+@auto_promote
 def matmul(left: Tensor, right: Tensor) -> Tensor:
     """
     Perform matrix multiplication between two Tensors with StateSpace-aware
@@ -398,7 +412,7 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     left, right = _align_dims_for_matmul(left, right)
 
     right = right.align(-2, left.dims[-1])
-    data = torch.matmul(left.data.to(dtype=torch.complex128), right.data.to(dtype=torch.complex128))
+    data = torch.matmul(left.data, right.data)
     new_dims = left.dims[:-1] + right.dims[-1:]
 
     prod = Tensor(data=data, dims=new_dims)
@@ -432,6 +446,7 @@ def _match_dims_for_tensoradd(left: Tensor, right: Tensor) -> Tuple[Tensor, Tens
 
 
 @dispatch(Tensor, Tensor)
+@auto_promote
 def operator_add(left: Tensor, right: Tensor) -> Tensor:
     """
     Add two tensors with the same order of dimensions.
@@ -892,9 +907,7 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     needs_expansion = False
 
     for dim, u_dim, size in zip(tensor.dims, union_dims, tensor.data.shape):
-        if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(
-            u_dim, hilbert.BroadcastSpace
-        ):
+        if isinstance(dim, BroadcastSpace) and not isinstance(u_dim, BroadcastSpace):
             target_shape.append(u_dim.dim)
             new_dims.append(u_dim)
             needs_expansion = True
@@ -909,10 +922,9 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
 
 
 def mapping_matrix(
-    from_space: HilbertSpace, to_space: HilbertSpace, mapping: Dict[Mode, Mode]
+    from_space: StateSpace, to_space: StateSpace, mapping: Dict[Any, Any]
 ) -> Tensor:
-    # TODO: Use globally defined complex dtype
-    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex64)
+    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex128)
     for fm, tm in mapping.items():
         fslice = from_space.get_slice(fm)
         tslice = to_space.get_slice(tm)
@@ -921,7 +933,7 @@ def mapping_matrix(
         tlen = tslice.stop - tslice.start
         if flen != tlen:
             raise ValueError(
-                f"Cannot create mapping matrix between modes of different sizes: {flen} != {tlen}"
+                f"Cannot create mapping matrix between sectors of different sizes: {flen} != {tlen}"
             )
 
         mat[fslice, tslice] = torch.eye(flen, dtype=mat.dtype, device=mat.device)
@@ -942,6 +954,7 @@ def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
     rows = matrix_dims[0].dim
     cols = matrix_dims[1].dim
     return Tensor(data=torch.eye(rows, cols), dims=matrix_dims)
+
 
 def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
     """
@@ -978,9 +991,9 @@ def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
             raise ValueError(
                 f"Cannot replace dimension of size {current_size} with empty BroadcastSpace (expects size 1)."
             )
-    elif new_dim.size != current_size:
+    elif new_dim.dim != current_size:
         raise ValueError(
-            f"New StateSpace size {new_dim.size} does not match tensor data size {current_size} at dimension {dim}!"
+            f"New StateSpace size {new_dim.dim} does not match tensor data size {current_size} at dimension {dim}!"
         )
 
     new_dims = list(tensor.dims)

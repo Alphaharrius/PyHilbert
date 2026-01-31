@@ -5,6 +5,7 @@ from pyhilbert import hilbert
 from pyhilbert.tensors import Tensor, matmul
 from pyhilbert.hilbert import HilbertSpace, Mode, BroadcastSpace, MomentumSpace
 from pyhilbert.utils import FrozenDict
+from pyhilbert.tensors import unsqueeze
 
 
 class MockMode(Mode):
@@ -311,7 +312,6 @@ class TestMatmul:
         # Let's use unsqueeze to create the tensor with BroadcastSpace
         data_orig = torch.randn(matmul_ctx.space1.dim)
         tensor_orig = Tensor(data=data_orig, dims=(matmul_ctx.space1,))
-        from pyhilbert.tensors import unsqueeze
 
         tensor_left = unsqueeze(tensor_orig, 0)  # (Broadcast, space1)
 
@@ -412,6 +412,27 @@ class TestMatmul:
 
         assert result.dims == tuple()
         assert torch.allclose(result.data, expected_data)
+
+    def test_matmul_dtype_promotion(self, matmul_ctx):
+        # Test float @ complex -> complex
+
+        # Left: float (space2, space1)
+        data_left = torch.randn(
+            matmul_ctx.space2.dim, matmul_ctx.space1.dim, dtype=torch.float32
+        )
+        t_left = Tensor(data=data_left, dims=(matmul_ctx.space2, matmul_ctx.space1))
+
+        # Right: complex (space1, space2)
+        data_right = torch.randn(
+            matmul_ctx.space1.dim, matmul_ctx.space2.dim, dtype=torch.complex64
+        )
+        t_right = Tensor(data=data_right, dims=(matmul_ctx.space1, matmul_ctx.space2))
+
+        result = matmul(t_left, t_right)
+
+        assert result.data.dtype == torch.complex64
+        expected = torch.matmul(data_left.to(torch.complex64), data_right)
+        assert torch.allclose(result.data, expected)
 
 
 @pytest.fixture
@@ -663,6 +684,52 @@ class TestTensorAdd:
             torch.zeros(tensor_add_ctx.space_c.dim, tensor_add_ctx.space_b.dim),
         )
 
+    def test_add_dtype_promotion(self, tensor_add_ctx):
+        # Test float + complex -> complex promotion
+
+        # Create float tensor on space_a
+        float_data = torch.randn(tensor_add_ctx.space_a.dim, dtype=torch.float32)
+        t_float = Tensor(data=float_data, dims=(tensor_add_ctx.space_a,))
+
+        # Create complex tensor on space_a
+        complex_data = torch.randn(tensor_add_ctx.space_a.dim, dtype=torch.complex64)
+        t_complex = Tensor(data=complex_data, dims=(tensor_add_ctx.space_a,))
+
+        # Add
+        result = t_float + t_complex
+
+        # Check dtype
+        assert result.data.dtype == torch.complex64
+        assert torch.allclose(result.data, float_data + complex_data)
+
+        # Test reverse: complex + float
+        result2 = t_complex + t_float
+        assert result2.data.dtype == torch.complex64
+        assert torch.allclose(result2.data, complex_data + float_data)
+
+    def test_sub_dtype_promotion(self, tensor_add_ctx):
+        # Test float - complex -> complex promotion
+
+        # Create float tensor on space_a
+        float_data = torch.randn(tensor_add_ctx.space_a.dim, dtype=torch.float32)
+        t_float = Tensor(data=float_data, dims=(tensor_add_ctx.space_a,))
+
+        # Create complex tensor on space_a
+        complex_data = torch.randn(tensor_add_ctx.space_a.dim, dtype=torch.complex64)
+        t_complex = Tensor(data=complex_data, dims=(tensor_add_ctx.space_a,))
+
+        # Sub
+        result = t_float - t_complex
+
+        # Check dtype
+        assert result.data.dtype == torch.complex64
+        assert torch.allclose(result.data, float_data - complex_data)
+
+        # Test reverse: complex - float
+        result2 = t_complex - t_float
+        assert result2.data.dtype == torch.complex64
+        assert torch.allclose(result2.data, complex_data - float_data)
+
 
 @pytest.fixture
 def tensor_error_ctx():
@@ -825,7 +892,6 @@ class TestTensorOperations:
     def test_squeeze_unsqueeze_negative_indices(self, tensor_ops_ctx):
         # Tensor shape (2,)
         t = tensor_ops_ctx.tensor
-        from pyhilbert.hilbert import BroadcastSpace
 
         # Unsqueeze at -1 -> (2, 1)
         t_unsq = t.unsqueeze(-1)
@@ -965,3 +1031,50 @@ class TestTensorScaler:
 
         assert result.dims == dims
         assert torch.allclose(result.data, expected_data)
+
+    def test_div_dtype_promotion(self, scaler_ctx):
+        # Test float / complex -> complex
+        t_float = scaler_ctx.tensor_sq
+        scalar_complex = 2.0 + 1.0j
+
+        result = t_float / scalar_complex
+        assert result.data.is_complex()
+        assert torch.allclose(result.data, scaler_ctx.data_sq / scalar_complex)
+
+        # Test complex / float -> complex
+        t_complex = Tensor(
+            data=scaler_ctx.data_sq.to(torch.complex64), dims=scaler_ctx.tensor_sq.dims
+        )
+        scalar_float = 2.0
+
+        result2 = t_complex / scalar_float
+        assert result2.data.is_complex()
+        assert torch.allclose(result2.data, t_complex.data / scalar_float)
+
+    def test_scalar_mixed_type_ops(self, scaler_ctx):
+        # Test mixed type operations for scalar-tensor arithmetic
+
+        t_float = scaler_ctx.tensor_sq
+        t_complex = Tensor(
+            data=scaler_ctx.data_sq.to(torch.complex64), dims=scaler_ctx.tensor_sq.dims
+        )
+        scalar_float = 2.0
+        scalar_complex = 2.0 + 1.0j
+        eye = torch.eye(2)
+
+        # 1. Complex Tensor - Float Scalar
+        res1 = t_complex - scalar_float
+        assert res1.data.dtype == torch.complex64
+        assert torch.allclose(res1.data, t_complex.data - scalar_float * eye)
+
+        # 2. Float Tensor - Complex Scalar
+        res2 = t_float - scalar_complex
+        assert res2.data.dtype == torch.complex64
+        assert torch.allclose(res2.data, t_float.data - scalar_complex * eye)
+
+        # 3. Complex Scalar - Float Tensor
+        res3 = scalar_complex - t_float
+        assert res3.data.dtype == torch.complex64
+        # Note: scalar - tensor broadcasts scalar to diagonal
+        expected = scalar_complex * eye - t_float.data
+        assert torch.allclose(res3.data, expected)
