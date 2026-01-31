@@ -165,16 +165,6 @@ class Offset(Spatial):
     rep: ImmutableDenseMatrix
     space: AffineSpace
 
-    def __eq__(self, other):
-        if isinstance(other, tuple) and len(other) == 1:
-            other = other[0]
-        if not isinstance(other, Offset):
-            return NotImplemented
-        return self.rep == other.rep and self.space == other.space
-
-    def __hash__(self):
-        return hash((tuple(self.rep), self.space))
-
     def __post_init__(self):
         if self.rep.shape != (self.space.dim, 1):
             raise ValueError("Invalid Shape")
