@@ -1,10 +1,17 @@
 import torch
+import sympy as sy
 from sympy import ImmutableDenseMatrix
 
-from pyhilbert.spatials import Lattice, Offset
+from pyhilbert.spatials import (
+    Lattice,
+    Offset,
+    AffineSpace,
+    ReciprocalLattice,
+    Momentum,
+)
 from pyhilbert.hilbert import brillouin_zone, hilbert, Mode
 from pyhilbert.tensors import Tensor
-from pyhilbert.transform import bandfold
+from pyhilbert.transform import bandfold, BasisTransform
 from pyhilbert.utils import FrozenDict
 
 
@@ -111,3 +118,82 @@ def test_bandfold_2d():
 
     assert torch.allclose(tensor_out.data[0].real, expected_matrix)
     assert torch.allclose(tensor_out.data[0].imag, torch.zeros_like(expected_matrix))
+
+
+def test_affine_space_transform():
+    basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
+    space = AffineSpace(basis=basis)
+    M = ImmutableDenseMatrix([[2, 0], [0, 2]])
+    t = BasisTransform(M)
+
+    new_space = t(space)
+    assert isinstance(new_space, AffineSpace)
+    assert new_space.basis == M @ basis
+
+
+def test_lattice_transform():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(basis=basis, shape=(4,))
+    M = ImmutableDenseMatrix([[2]])
+    t = BasisTransform(M)
+
+    new_lat = t(lat)
+    assert isinstance(new_lat, Lattice)
+    # Basis scaled by 2
+    assert new_lat.basis == ImmutableDenseMatrix([[2]])
+    # Shape halved
+    assert new_lat.shape == (2,)
+    # Unit cell populated (det(M)=2 atoms)
+    assert len(new_lat.unit_cell) == 2
+    # Check keys and positions
+    # Default key is "r", so we expect "r_0", "r_1"
+    assert "r_0" in new_lat.unit_cell
+    assert "r_1" in new_lat.unit_cell
+    # Positions: 0 and 0.5
+    assert new_lat.unit_cell["r_0"].rep == ImmutableDenseMatrix([0])
+    assert new_lat.unit_cell["r_1"].rep == ImmutableDenseMatrix([sy.Rational(1, 2)])
+
+
+def test_reciprocal_lattice_transform():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(basis=basis, shape=(4,))
+    recip = lat.dual  # Basis is [2pi]
+
+    M = ImmutableDenseMatrix([[2]])
+    t = BasisTransform(M)
+
+    new_recip = t(recip)
+    assert isinstance(new_recip, ReciprocalLattice)
+    # New recip basis should be old_recip_basis * M^-T = [2pi] * [1/2] = [pi]
+    assert new_recip.basis == ImmutableDenseMatrix([[sy.pi]])
+
+
+def test_offset_transform():
+    basis = ImmutableDenseMatrix([[1]])
+    space = AffineSpace(basis=basis)
+    offset = Offset(rep=ImmutableDenseMatrix([1]), space=space)
+
+    M = ImmutableDenseMatrix([[2]])
+    t = BasisTransform(M)
+
+    new_offset = t(offset)
+    # Physical position is 1. New basis is 2. New rep should be 0.5.
+    assert new_offset.rep == ImmutableDenseMatrix([sy.Rational(1, 2)])
+    assert new_offset.space.basis == ImmutableDenseMatrix([[2]])
+
+
+def test_momentum_transform():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(basis=basis, shape=(4,))
+    recip = lat.dual  # Basis [2pi]
+    # Momentum at 0.5 (fractional) -> physical pi
+    k = Momentum(rep=ImmutableDenseMatrix([sy.Rational(1, 2)]), space=recip)
+
+    M = ImmutableDenseMatrix([[2]])
+    t = BasisTransform(M)
+
+    new_k = t(k)
+    # New recip basis is [pi]. Physical momentum pi. New rep should be 1.
+    # Formula: new_rep = M^T @ old_rep = [2] @ [0.5] = [1]
+    assert new_k.rep == ImmutableDenseMatrix([1])
+    assert new_k.space.basis == ImmutableDenseMatrix([[sy.pi]])

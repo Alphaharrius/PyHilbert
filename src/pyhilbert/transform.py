@@ -73,7 +73,7 @@ def _supercell_shifts(
 
 
 @BasisTransform.register_transform_method(AffineSpace)
-def affine_transform(t: BasisTransform, space: AffineSpace) -> AffineSpace:
+def affine_space_transform(t: BasisTransform, space: AffineSpace) -> AffineSpace:
     """
     Transform an AffineSpace by the basis transformation M.
     """
