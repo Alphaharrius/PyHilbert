@@ -236,20 +236,25 @@ class Momentum(Offset):
 
     fractional = lru_cache(fractional)
 
-    def rebase(self, space: ReciprocalLattice) -> "Momentum":
+    def rebase(self, space: AffineSpace) -> "Momentum":
         """
         Re-express this Momentum in a different ReciprocalLattice.
 
         Parameters
         ----------
-        `space` : `ReciprocalLattice`
-            The new reciprocal lattice to express this Momentum in.
+        `space` : `AffineSpace`
+            The new affine space (must be a ReciprocalLattice) to express this Momentum in.
 
         Returns
         -------
         `Momentum`
             New Momentum expressed in the given reciprocal lattice.
         """
+        if not isinstance(space, ReciprocalLattice):
+            raise TypeError(
+                f"Momentum can only be rebased to a ReciprocalLattice, got {type(space)}"
+            )
+
         rebase_transform_mat = space.basis.inv() @ self.space.basis
         new_rep = rebase_transform_mat @ self.rep
         return Momentum(rep=ImmutableDenseMatrix(new_rep), space=space)
