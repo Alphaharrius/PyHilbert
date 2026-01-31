@@ -3,6 +3,7 @@ from numbers import Number
 from dataclasses import dataclass
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
+from functools import wraps
 
 from .abstracts import Operable, Plottable
 from .hilbert import (
@@ -304,6 +305,22 @@ class Tensor(Operable, Plottable):
     __str__ = __repr__  # Override str to use the same representation
 
 
+def auto_promote(func):
+    """Decorator to automatically promote input Tensors to a common dtype."""
+
+    @wraps(func)
+    def wrapper(left, right, *args, **kwargs):
+        if isinstance(left, Tensor) and isinstance(right, Tensor):
+            common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
+            if left.data.dtype != common_dtype:
+                left = Tensor(data=left.data.to(common_dtype), dims=left.dims)
+            if right.data.dtype != common_dtype:
+                right = Tensor(data=right.data.to(common_dtype), dims=right.dims)
+        return func(left, right, *args, **kwargs)
+
+    return wrapper
+
+
 def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
     if left.rank() == 1:
         left = left.unsqueeze(0)
@@ -340,6 +357,7 @@ def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
     return left, right
 
 
+@auto_promote
 def matmul(left: Tensor, right: Tensor) -> Tensor:
     """
     Perform matrix multiplication between two Tensors with StateSpace-aware
@@ -394,10 +412,7 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     left, right = _align_dims_for_matmul(left, right)
 
     right = right.align(-2, left.dims[-1])
-    common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
-    data = torch.matmul(
-        left.data.to(dtype=common_dtype), right.data.to(dtype=common_dtype)
-    )
+    data = torch.matmul(left.data, right.data)
     new_dims = left.dims[:-1] + right.dims[-1:]
 
     prod = Tensor(data=data, dims=new_dims)
@@ -431,6 +446,7 @@ def _match_dims_for_tensoradd(left: Tensor, right: Tensor) -> Tuple[Tensor, Tens
 
 
 @dispatch(Tensor, Tensor)
+@auto_promote
 def operator_add(left: Tensor, right: Tensor) -> Tensor:
     """
     Add two tensors with the same order of dimensions.
@@ -463,11 +479,10 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
 
     # calculate the new shape
     new_shape = tuple(u.dim for u in union_dims)
-    common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
-    new_data = torch.zeros(new_shape, dtype=common_dtype, device=left.data.device)
+    new_data = torch.zeros(new_shape, dtype=left.data.dtype, device=left.data.device)
     # fill the left tensor into the new data
     left_slices = tuple(slice(0, d.dim) for d in left.dims)
-    new_data[left_slices] = left.data.to(common_dtype)
+    new_data[left_slices] = left.data
     # fill the right tensor into the new data
     right_embedding_order = (
         torch.tensor(embedding_order(r, u), dtype=torch.long, device=left.data.device)
@@ -475,7 +490,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     )
     new_data.index_put_(
         torch.meshgrid(*right_embedding_order, indexing="ij"),
-        right.data.to(common_dtype),
+        right.data,
         accumulate=True,
     )
 
