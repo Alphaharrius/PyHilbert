@@ -182,7 +182,10 @@ def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left
 
     # 3. Create new transformed spaces
     scaled_reciprocal_lattice = scaled_lattice.dual
-    scaled_offsets = scaled_lattice.unit_cell.values()
+    scaled_offsets = sorted(
+        scaled_lattice.unit_cell.values(), 
+        key=lambda x: tuple(x.rep)
+    )
     enlarge_unit_cell = tuple(r.rebase(lattice.affine) for r in scaled_offsets)
     
     # Transform based on opt
