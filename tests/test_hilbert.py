@@ -1,6 +1,4 @@
 import pytest
-import torch
-import numpy as np
 from pyhilbert.hilbert import Mode, hilbert, HilbertSpace, MomentumSpace, brillouin_zone
 from pyhilbert.spatials import Lattice
 from pyhilbert.utils import FrozenDict

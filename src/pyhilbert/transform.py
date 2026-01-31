@@ -1,19 +1,15 @@
 from dataclasses import dataclass
-import torch
-from sympy import ImmutableDenseMatrix, Rational
+from sympy import ImmutableDenseMatrix
 import sympy as sy
-from sympy.matrices.normalforms import smith_normal_decomp, smith_normal_form  # type: ignore[import-untyped]
+from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
 from functools import lru_cache
 from itertools import product
-from typing import Tuple, Any, cast, Dict, Callable, ClassVar, Union, Literal
-from multipledispatch import dispatch  # type: ignore[import-untyped]
-from collections import OrderedDict
-import torch
+from typing import Tuple, Any, cast, Dict, Callable, ClassVar, Literal
 import numpy as np
 from abc import ABC
 from .utils import FrozenDict
-from .spatials import Lattice, ReciprocalLattice, Spatial, Offset, Momentum, AffineSpace
-from .hilbert import HilbertSpace, MomentumSpace, Mode, restructure, StateSpace, brillouin_zone, hilbert
+from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
+from .hilbert import MomentumSpace, brillouin_zone, hilbert
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 

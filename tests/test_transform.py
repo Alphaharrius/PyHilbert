@@ -1,7 +1,5 @@
-import pytest
 import torch
 from sympy import ImmutableDenseMatrix
-import sympy as sy
 
 from pyhilbert.spatials import Lattice, Offset
 from pyhilbert.hilbert import brillouin_zone, hilbert, Mode
