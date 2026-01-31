@@ -26,7 +26,7 @@ class Spatial(Operable, Plottable, ABC):
 class AffineSpace(Spatial):
     basis: ImmutableDenseMatrix
 
-    #TODO __post_init__ to validate basis is rational / int
+    # TODO __post_init__ to validate basis is rational / int
 
     @property
     def dim(self) -> int:
@@ -51,18 +51,26 @@ class AbstractLattice(AffineSpace, HasDual):
 
 @dataclass(frozen=True)
 class Lattice(AbstractLattice):
-    unit_cell: FrozenDict = field(default_factory=FrozenDict) #TODO : Any way to improve the init
+    unit_cell: FrozenDict = field(
+        default_factory=FrozenDict
+    )  # TODO : Any way to improve the init
 
     def __post_init__(self):
         unit_cell_source = self.unit_cell
         if len(unit_cell_source) == 0:
-            unit_cell_source = FrozenDict({"r": Offset(rep=ImmutableDenseMatrix([0] * self.dim), space=self.affine)})
+            unit_cell_source = FrozenDict(
+                {
+                    "r": Offset(
+                        rep=ImmutableDenseMatrix([0] * self.dim), space=self.affine
+                    )
+                }
+            )
         processed_cell = {}
         for key, value in unit_cell_source.items():
             if not isinstance(key, str):
                 raise TypeError(f"unit_cell keys must be strings, but got {type(key)}")
             if isinstance(value, Offset):
-                    processed_cell[key] = value
+                processed_cell[key] = value
             else:
                 try:
                     rep = ImmutableDenseMatrix(value)
@@ -180,7 +188,7 @@ class Offset(Spatial):
         Return the fractional coordinates of this Offset within its lattice space.
         """
         n = sy.Matrix([sy.floor(x) for x in self.rep])
-        s = self.rep - n 
+        s = self.rep - n
         return Offset(rep=sy.ImmutableDenseMatrix(s), space=self.space)
 
     fractional = lru_cache(fractional)
@@ -222,8 +230,8 @@ class Momentum(Offset):
         """
         Return the fractional coordinates of this Offset within its lattice space.
         """
-        n = sy.Matrix([sy.floor(x) for x in self.rep]) 
-        s = self.rep - n 
+        n = sy.Matrix([sy.floor(x) for x in self.rep])
+        s = self.rep - n
         return Momentum(rep=sy.ImmutableDenseMatrix(s), space=self.space)
 
     fractional = lru_cache(fractional)

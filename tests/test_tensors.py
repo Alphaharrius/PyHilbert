@@ -7,6 +7,7 @@ from pyhilbert.hilbert import HilbertSpace, Mode, BroadcastSpace, MomentumSpace
 from pyhilbert.utils import FrozenDict
 from pyhilbert.tensors import unsqueeze
 
+
 class MockMode(Mode):
     pass
 
@@ -312,7 +313,6 @@ class TestMatmul:
         data_orig = torch.randn(matmul_ctx.space1.dim)
         tensor_orig = Tensor(data=data_orig, dims=(matmul_ctx.space1,))
 
-
         tensor_left = unsqueeze(tensor_orig, 0)  # (Broadcast, space1)
 
         # right tensor
@@ -417,11 +417,15 @@ class TestMatmul:
         # Test float @ complex -> complex
 
         # Left: float (space2, space1)
-        data_left = torch.randn(matmul_ctx.space2.dim, matmul_ctx.space1.dim, dtype=torch.float32)
+        data_left = torch.randn(
+            matmul_ctx.space2.dim, matmul_ctx.space1.dim, dtype=torch.float32
+        )
         t_left = Tensor(data=data_left, dims=(matmul_ctx.space2, matmul_ctx.space1))
 
         # Right: complex (space1, space2)
-        data_right = torch.randn(matmul_ctx.space1.dim, matmul_ctx.space2.dim, dtype=torch.complex64)
+        data_right = torch.randn(
+            matmul_ctx.space1.dim, matmul_ctx.space2.dim, dtype=torch.complex64
+        )
         t_right = Tensor(data=data_right, dims=(matmul_ctx.space1, matmul_ctx.space2))
 
         result = matmul(t_left, t_right)
@@ -889,7 +893,6 @@ class TestTensorOperations:
         # Tensor shape (2,)
         t = tensor_ops_ctx.tensor
 
-
         # Unsqueeze at -1 -> (2, 1)
         t_unsq = t.unsqueeze(-1)
         assert t_unsq.rank() == 2
@@ -1039,7 +1042,9 @@ class TestTensorScaler:
         assert torch.allclose(result.data, scaler_ctx.data_sq / scalar_complex)
 
         # Test complex / float -> complex
-        t_complex = Tensor(data=scaler_ctx.data_sq.to(torch.complex64), dims=scaler_ctx.tensor_sq.dims)
+        t_complex = Tensor(
+            data=scaler_ctx.data_sq.to(torch.complex64), dims=scaler_ctx.tensor_sq.dims
+        )
         scalar_float = 2.0
 
         result2 = t_complex / scalar_float
@@ -1048,9 +1053,11 @@ class TestTensorScaler:
 
     def test_scalar_mixed_type_ops(self, scaler_ctx):
         # Test mixed type operations for scalar-tensor arithmetic
-        
+
         t_float = scaler_ctx.tensor_sq
-        t_complex = Tensor(data=scaler_ctx.data_sq.to(torch.complex64), dims=scaler_ctx.tensor_sq.dims)
+        t_complex = Tensor(
+            data=scaler_ctx.data_sq.to(torch.complex64), dims=scaler_ctx.tensor_sq.dims
+        )
         scalar_float = 2.0
         scalar_complex = 2.0 + 1.0j
         eye = torch.eye(2)

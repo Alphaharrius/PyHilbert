@@ -15,6 +15,7 @@ from .hilbert import (
     Mode,
 )
 
+
 @dataclass(frozen=True)
 class Tensor(Operable, Plottable):
     data: torch.Tensor
@@ -210,7 +211,6 @@ class Tensor(Operable, Plottable):
                 "Only CUDA and MPS devices are supported for GPU operations!"
             )
 
-
     @property
     def requires_grad(self) -> bool:
         """
@@ -272,8 +272,8 @@ class Tensor(Operable, Plottable):
             The cloned tensor.
         """
         return Tensor(data=self.data.clone(), dims=self.dims)
-    
-    def replace_dim(self, dim: int, new_dim: StateSpace)-> "Tensor":
+
+    def replace_dim(self, dim: int, new_dim: StateSpace) -> "Tensor":
         """
         Replace the StateSpace at the specified dimension with a new StateSpace.
 
@@ -292,8 +292,6 @@ class Tensor(Operable, Plottable):
             A new Tensor with the updated dimension.
         """
         return replace_dim(self, dim, new_dim)
-
-
 
     def __repr__(self) -> str:
         device_type = self.data.device.type
@@ -399,7 +397,9 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
 
     right = right.align(-2, left.dims[-1])
     common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
-    data = torch.matmul(left.data.to(dtype=common_dtype), right.data.to(dtype=common_dtype))
+    data = torch.matmul(
+        left.data.to(dtype=common_dtype), right.data.to(dtype=common_dtype)
+    )
     new_dims = left.dims[:-1] + right.dims[-1:]
 
     prod = Tensor(data=data, dims=new_dims)
@@ -894,9 +894,7 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     needs_expansion = False
 
     for dim, u_dim, size in zip(tensor.dims, union_dims, tensor.data.shape):
-        if isinstance(dim, BroadcastSpace) and not isinstance(
-            u_dim, BroadcastSpace
-        ):
+        if isinstance(dim, BroadcastSpace) and not isinstance(u_dim, BroadcastSpace):
             target_shape.append(u_dim.dim)
             new_dims.append(u_dim)
             needs_expansion = True
@@ -944,6 +942,7 @@ def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
     rows = matrix_dims[0].dim
     cols = matrix_dims[1].dim
     return Tensor(data=torch.eye(rows, cols), dims=matrix_dims)
+
 
 def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
     """

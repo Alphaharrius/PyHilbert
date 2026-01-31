@@ -153,6 +153,7 @@ def test_hilbert_update_error():
     pass
     # Skipping this specific error branch as it requires invalid state construction.
 
+
 def test_hilbert_space_mode_lookup():
     m1 = Mode(count=1, attr=FrozenDict({"id": 1, "type": "a"}))
     m2 = Mode(count=1, attr=FrozenDict({"id": 2, "type": "b"}))

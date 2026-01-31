@@ -8,7 +8,6 @@ from pyhilbert.transform import bandfold
 from pyhilbert.utils import FrozenDict
 
 
-
 def test_bandfold_1d():
     # 1. Setup
     # 1a. Define a 1D lattice with 4 k-points
@@ -37,9 +36,9 @@ def test_bandfold_1d():
     # 3a. Check new dimensions
     scaled_k_space = tensor_out.dims[0]
     new_h_space = tensor_out.dims[1]
-    
-    assert scaled_k_space.dim == 2 # 4 / det(M) = 4 / 2 = 2
-    assert new_h_space.dim == 2 # 1 * det(M) = 1 * 2 = 2
+
+    assert scaled_k_space.dim == 2  # 4 / det(M) = 4 / 2 = 2
+    assert new_h_space.dim == 2  # 1 * det(M) = 1 * 2 = 2
     assert tensor_out.dims[2].dim == 2
 
     # 3b. Check the data
@@ -47,7 +46,7 @@ def test_bandfold_1d():
     # k=1/4 folds to k=1/4. k=3/4 folds to k=1/4.
     # Original k-points: 0, 1/4, 1/2, 3/4
     # New k-points: 0, 1/2.
-    
+
     # Check data for k_new=0 (index 0)
     # Maps k=0 (val 0) and k=1/2 (val 2)
     # Expected matrix: [[1, -1], [-1, 1]]
@@ -100,12 +99,15 @@ def test_bandfold_2d():
     # All 4 k-points fold to the single Gamma point.
     # Expected matrix derived from folding 0, 1, 2, 3
     # Basis order: (0,0), (0,1), (1,0), (1,1)
-    expected_matrix = torch.tensor([
-        [ 1.5, -0.5, -1.0,  0.0],
-        [-0.5,  1.5,  0.0, -1.0],
-        [-1.0,  0.0,  1.5, -0.5],
-        [ 0.0, -1.0, -0.5,  1.5]
-    ], dtype=torch.float64)
-    
+    expected_matrix = torch.tensor(
+        [
+            [1.5, -0.5, -1.0, 0.0],
+            [-0.5, 1.5, 0.0, -1.0],
+            [-1.0, 0.0, 1.5, -0.5],
+            [0.0, -1.0, -0.5, 1.5],
+        ],
+        dtype=torch.float64,
+    )
+
     assert torch.allclose(tensor_out.data[0].real, expected_matrix)
     assert torch.allclose(tensor_out.data[0].imag, torch.zeros_like(expected_matrix))

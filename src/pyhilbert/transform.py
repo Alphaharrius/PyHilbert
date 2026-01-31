@@ -13,6 +13,7 @@ from .hilbert import MomentumSpace, brillouin_zone, hilbert
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 
+
 @dataclass(frozen=True)
 class AbstractTransform(ABC):
     _register_transform_method: ClassVar[Dict[Tuple[type, type], Callable]] = {}
@@ -20,37 +21,42 @@ class AbstractTransform(ABC):
     @classmethod
     def register_transform_method(cls, obj_type: type):
         """Register a transform method for a specific object type."""
+
         def decorator(func: Callable):
             key = (obj_type, cls)
             cls._register_transform_method[key] = func
             return func
+
         return decorator
-    
+
     def transform(self, obj: Any, **kwargs) -> Any:
         transform_class = type(self)
         obj_class = type(obj)
         key = (obj_class, transform_class)
-        
+
         # Use the correct attribute name
         callable = self._register_transform_method.get(key)
-        
+
         if callable is None:
             raise NotImplementedError(
                 f"No transform registered for {obj_class.__name__} "
                 f"with {transform_class.__name__}"
             )
-        
+
         return callable(self, obj, **kwargs)
 
     def __call__(self, obj: Any, **kwargs) -> Any:
         return self.transform(obj, **kwargs)
 
+
 @dataclass(frozen=True)
 class BasisTransform(AbstractTransform):
     M: ImmutableDenseMatrix
+
     def __post_init__(self):
         if self.M.det() == 0:
             raise ValueError("M must have non-zero determinant")
+
 
 @lru_cache
 def _supercell_shifts(
@@ -93,7 +99,9 @@ def lattice_transform(t: AbstractTransform, lat: Lattice) -> Lattice:
     if lat.unit_cell:
         items = lat.unit_cell.items()
     else:
-        default_offset = Offset(rep=ImmutableDenseMatrix([0] * lat.dim), space=lat.affine)
+        default_offset = Offset(
+            rep=ImmutableDenseMatrix([0] * lat.dim), space=lat.affine
+        )
         items = [("0", default_offset)]
 
     for label, atom_offset in items:
@@ -113,8 +121,11 @@ def lattice_transform(t: AbstractTransform, lat: Lattice) -> Lattice:
         basis=new_basis, shape=new_shape, unit_cell=FrozenDict(new_unit_cell)
     )
 
+
 @BasisTransform.register_transform_method(ReciprocalLattice)
-def reciprocal_lattice_transform(t: AbstractTransform, lat: ReciprocalLattice) -> ReciprocalLattice:
+def reciprocal_lattice_transform(
+    t: AbstractTransform, lat: ReciprocalLattice
+) -> ReciprocalLattice:
     """
     Generate the reciprocal lattice corresponding to the transformed direct lattice.
     """
@@ -122,7 +133,6 @@ def reciprocal_lattice_transform(t: AbstractTransform, lat: ReciprocalLattice) -
     transformed_dual_lat = t(dual_lat)
     return transformed_dual_lat.dual
 
-    
 
 @BasisTransform.register_transform_method(Offset)
 def offset_transform(t: AbstractTransform, r: Offset) -> Offset:
@@ -133,18 +143,24 @@ def offset_transform(t: AbstractTransform, r: Offset) -> Offset:
     new_space = t(r.space)
     return r.rebase(new_space)
 
+
 @BasisTransform.register_transform_method(Momentum)
 def momentum_transform(t: AbstractTransform, momentum: Momentum) -> Momentum:
     """
     Docstring for momentum_transform
-    
+
     Parameters
     ----------
     """
     new_space = t(momentum.space)
     return momentum.rebase(new_space)
 
-def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left', 'right'] = 'both') -> Tensor:
+
+def bandfold(
+    M: ImmutableDenseMatrix,
+    tensor: Tensor,
+    opt: Literal["both", "left", "right"] = "both",
+) -> Tensor:
     """
     make Tensor with (Momentum, Hilbert, Hilbert) to (scaled Momentum, Hilbert, Hilbert)
     Parameters
@@ -168,10 +184,12 @@ def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left
         raise ValueError("Invalid BZ")
     reciprocal_lattice = lattice_set.pop()
     if not isinstance(reciprocal_lattice, ReciprocalLattice):
-        raise TypeError(f"Space of momentum should be ReciprocalLattice, but got {type(reciprocal_lattice)}")
+        raise TypeError(
+            f"Space of momentum should be ReciprocalLattice, but got {type(reciprocal_lattice)}"
+        )
     reciprocal_lattice = cast(ReciprocalLattice, reciprocal_lattice)
     lattice = reciprocal_lattice.dual
-    
+
     # 2. Apply the transformation
     transform = BasisTransform(M)
     scaled_lattice = transform(lattice)
@@ -179,21 +197,23 @@ def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left
     # 3. Create new transformed spaces
     scaled_reciprocal_lattice = scaled_lattice.dual
     scaled_offsets = sorted(
-        scaled_lattice.unit_cell.values(), 
-        key=lambda x: tuple(x.rep)
+        scaled_lattice.unit_cell.values(), key=lambda x: tuple(x.rep)
     )
     enlarge_unit_cell = tuple(r.rebase(lattice.affine) for r in scaled_offsets)
-    
+
     # Transform based on opt
-    switch_index = -2 if opt == 'left' else -1
-    rebased_hilbert = hilbert(tensor.dims[switch_index].mode_lookup(r=r.fractional()).update(r=r) for r in enlarge_unit_cell)
+    switch_index = -2 if opt == "left" else -1
+    rebased_hilbert = hilbert(
+        tensor.dims[switch_index].mode_lookup(r=r.fractional()).update(r=r)
+        for r in enlarge_unit_cell
+    )
     # # Transform both sides
     f = fourier_transform(k_space, tensor.dims[switch_index], rebased_hilbert)
-    vratio = np.sqrt(len(enlarge_unit_cell)/len(lattice.unit_cell))
+    vratio = np.sqrt(len(enlarge_unit_cell) / len(lattice.unit_cell))
     f = f / vratio
-    fh = f.h(-2, -1) # (K, B', B)
-    transformed = fh @ tensor @ f # (K, B', B')
-    transformed = transformed.permute(1, 2, 0).unsqueeze(-1) # (B', B', K, 1)
+    fh = f.h(-2, -1)  # (K, B', B)
+    transformed = fh @ tensor @ f  # (K, B', B')
+    transformed = transformed.permute(1, 2, 0).unsqueeze(-1)  # (B', B', K, 1)
 
     # k-mapping
     new_k_space = brillouin_zone(scaled_reciprocal_lattice)
@@ -207,4 +227,3 @@ def bandfold(M: ImmutableDenseMatrix, tensor: Tensor, opt: Literal['both', 'left
             raise ValueError(f"Transformed k-point {k_frac} not found in new BZ.")
     k_map = mapping_matrix(k_space, new_k_space, mapping).transpose(0, 1)
     return (k_map @ transformed).squeeze(-1).permute(2, 0, 1)
-    
