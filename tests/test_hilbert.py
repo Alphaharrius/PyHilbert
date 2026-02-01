@@ -109,6 +109,32 @@ def test_hilbert_space_update():
     assert new_m.attr["val"] == 2
 
 
+def test_statespace_getitem():
+    m1 = Mode(count=2, attr=FrozenDict({"id": 1}))
+    m2 = Mode(count=1, attr=FrozenDict({"id": 2}))
+    m3 = Mode(count=3, attr=FrozenDict({"id": 3}))
+    s = hilbert([m1, m2, m3])
+
+    assert s[0] == m1
+    assert s[-1] == m3
+
+    s_slice = s[1:3]
+    assert isinstance(s_slice, HilbertSpace)
+    assert list(s_slice.structure.keys()) == [m2, m3]
+    assert s_slice.dim == 4
+
+    s_range = s[range(0, 2)]
+    assert isinstance(s_range, HilbertSpace)
+    assert list(s_range.structure.keys()) == [m1, m2]
+    assert s_range.dim == 3
+
+    with pytest.raises(IndexError):
+        _ = s[3]
+
+    with pytest.raises(TypeError):
+        _ = s["bad"]
+
+
 def test_momentum_space_brillouin():
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
     lat = Lattice(basis=basis, shape=(2, 2))

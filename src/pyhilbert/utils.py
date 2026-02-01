@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from typing import Iterator, Any, List, Optional, Tuple, Dict, Union, Iterable, Callable
 import pandas as pd
+from typing import Iterator, Any, List, Optional, Tuple, Dict, Union
 import torch
 import numpy as np
 
@@ -65,11 +66,10 @@ class FrozenDict(Mapping):
         return NotImplemented
 
     def __str__(self) -> str:
-        items = pd.DataFrame(self._items(), columns=["Key", "Value"])
-        return items.to_string(index=False)
+        return str(dict(self._items()))
 
     def __repr__(self) -> str:
-        return str(self)
+        return repr(dict(self._items()))
 
     def __getattribute__(self, name: str):
         if name in {"_FrozenDict__items"}:

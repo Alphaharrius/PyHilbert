@@ -1078,3 +1078,148 @@ class TestTensorScaler:
         # Note: scalar - tensor broadcasts scalar to diagonal
         expected = scalar_complex * eye - t_float.data
         assert torch.allclose(res3.data, expected)
+
+class TestTensorGetitem:
+    @pytest.fixture
+    def getitem_ctx(self):
+        class Context:
+            def __init__(self):
+                self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+                self.mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
+                structure = OrderedDict()
+                structure[self.mode_a] = slice(0, 2)
+                structure[self.mode_b] = slice(2, 5)
+                self.space = HilbertSpace(structure=structure)
+
+                self.data_mat = torch.arange(25, dtype=torch.float64).reshape(5, 5)
+                self.tensor_mat = Tensor(
+                    data=self.data_mat, dims=(self.space, self.space)
+                )
+
+                self.data_3d = torch.arange(125, dtype=torch.float64).reshape(5, 5, 5)
+                self.tensor_3d = Tensor(
+                    data=self.data_3d, dims=(self.space, self.space, self.space)
+                )
+
+                sub_structure = OrderedDict()
+                sub_structure[self.mode_b] = slice(2, 5)
+                self.subspace = HilbertSpace(structure=sub_structure)
+
+        return Context()
+
+    def test_getitem_normal_returns_torch_tensor(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[1:4, 2:5]
+        assert isinstance(out, torch.Tensor)
+        assert torch.equal(out, getitem_ctx.data_mat[1:4, 2:5])
+
+    def test_getitem_normal_range_and_none(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[1:5, 0:4]
+        assert isinstance(out, torch.Tensor)
+        assert torch.equal(out, getitem_ctx.data_mat[1:5, 0:4])
+
+        out2 = getitem_ctx.tensor_mat[None, :, :]
+        assert isinstance(out2, torch.Tensor)
+        assert out2.shape == (1, 5, 5)
+
+    def test_getitem_spatial(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.mode_a, getitem_ctx.mode_b]
+        expected_dims = HilbertSpace(
+            structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            expected_dims,
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+        )
+        assert torch.equal(out.data, getitem_ctx.data_mat[0:2, 2:5])
+
+    def test_getitem_statespace(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace, getitem_ctx.space]
+        expected_dims = HilbertSpace(
+            structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == (expected_dims, getitem_ctx.space)
+        expected = getitem_ctx.data_mat[2:5, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_no_mix(self, getitem_ctx):
+        with pytest.raises(ValueError, match="cannot be mixed"):
+            _ = getitem_ctx.tensor_mat[getitem_ctx.mode_a, 0]
+
+    def test_getitem_3d_hilbert(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[
+            getitem_ctx.subspace, getitem_ctx.mode_a, getitem_ctx.space
+        ]
+        expected_dims = (
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_3d[2:5, 0:2, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_none_inserts_dim(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[None, getitem_ctx.mode_a, getitem_ctx.mode_b]
+        expected_dims = (
+            hilbert.BroadcastSpace(),
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_mat[0:2, 2:5].unsqueeze(0)
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_noncontiguous_subspace(self):
+        mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+        mode_b = MockMode(count=2, attr=FrozenDict({"name": "b"}))
+        mode_c = MockMode(count=2, attr=FrozenDict({"name": "c"}))
+        structure = OrderedDict()
+        structure[mode_a] = slice(0, 2)
+        structure[mode_b] = slice(2, 4)
+        structure[mode_c] = slice(4, 6)
+        space = HilbertSpace(structure=structure)
+
+        sub_structure = OrderedDict()
+        sub_structure[mode_a] = slice(0, 2)
+        sub_structure[mode_c] = slice(4, 6)
+        subspace = HilbertSpace(structure=sub_structure)
+
+        data = torch.arange(36, dtype=torch.float64).reshape(6, 6)
+        tensor = Tensor(data=data, dims=(space, space))
+        out = tensor[subspace, space]
+        expected = data.index_select(0, torch.tensor([0, 1, 4, 5]))
+
+        expected_dims = (
+            HilbertSpace(
+                structure=OrderedDict({mode_a: slice(0, 2), mode_c: slice(2, 4)})
+            ),
+            space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_invalid_subspace(self, getitem_ctx):
+        mode_c = MockMode(count=1, attr=FrozenDict({"name": "c"}))
+        sub_structure = OrderedDict()
+        sub_structure[mode_c] = slice(0, 1)
+        subspace = HilbertSpace(structure=sub_structure)
+        with pytest.raises(ValueError, match="not a subspace"):
+            _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
+
+    def test_getitem_hilbert_spatial_missing(self, getitem_ctx):
+        mode_c = MockMode(count=1, attr=FrozenDict({"name": "c"}))
+        with pytest.raises(KeyError, match="Spatial index not found"):
+            _ = getitem_ctx.tensor_mat[mode_c, getitem_ctx.space]
+
+    def test_getitem_hilbert_ellipsis_not_allowed(self, getitem_ctx):
+        with pytest.raises(ValueError, match="cannot be mixed"):
+            _ = getitem_ctx.tensor_mat[getitem_ctx.mode_a, ...]
+
+    def test_getitem_hilbert_short_key_not_allowed(self, getitem_ctx):
+        with pytest.raises(ValueError, match="cannot be mixed"):
+            _ = getitem_ctx.tensor_3d[getitem_ctx.mode_a]
