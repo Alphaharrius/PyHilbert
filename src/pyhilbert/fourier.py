@@ -8,9 +8,9 @@ import torch
 
 from .spatials import Momentum, Offset
 from .hilbert import MomentumSpace, HilbertSpace, Mode
-from .hilbert import mode_mapping
 from .tensors import Tensor
 from .tensors import mapping_matrix
+from .utils import element_mapping
 
 
 @dispatch(tuple, tuple)
@@ -80,7 +80,7 @@ def fourier_transform(
     R: Tuple[Offset] = region_space.collect(r_name)
     f = fourier_transform(K, R)  # (K, R)
 
-    region_to_bloch: Dict[Mode, Mode] = mode_mapping(
+    region_to_bloch: Dict[Mode, Mode] = element_mapping(
         region_space, bloch_space, lambda m: cast(Offset, m[r_name]).fractional()
     )
 

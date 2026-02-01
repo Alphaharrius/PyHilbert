@@ -1,6 +1,6 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Dict, Tuple, TypeVar, Generic
+from typing import Any, Tuple, TypeVar, Generic
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
@@ -421,44 +421,6 @@ def operator_add(a: StateSpace, b: BroadcastSpace):
 @dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
 def operator_add(a: BroadcastSpace, b: StateSpace):
     return b
-
-
-def mode_mapping(
-    source: Iterable[Mode], dest: Iterable[Mode], base_func: Callable[[Mode], Any]
-) -> Dict[Mode, Mode]:
-    """
-    Map modes from source to destination using a provided mapping function.
-
-    Parameters
-    ----------
-    `source` : `Iterable[Mode]`
-        The source modes to be mapped.
-    `dest` : `Iterable[Mode]`
-        The destination modes to map to.
-    `base_func` : `Callable[[Mode], Any]`
-        A function that defines the comparison baseline.
-
-    Returns
-    -------
-    `Dict[Mode, Mode]`
-        A dictionary mapping each source mode to its corresponding destination mode `source -> dest`.
-    """
-    mapping: Dict[Mode, Mode] = {}
-
-    source_base: Dict[Mode, Any] = {m: base_func(m) for m in source}
-    dest_base: Dict[Mode, Any] = {base_func(m): m for m in dest}
-
-    if len(dest_base) != len(tuple(dest)):
-        raise ValueError("Destination modes have non-unique base values!")
-
-    for sm, sb in source_base.items():
-        if sb not in dest_base:
-            raise ValueError(
-                f"Source mode {sm} with base {sb} has no match in destination!"
-            )
-        mapping[sm] = dest_base[sb]
-
-    return mapping
 
 
 @dataclass(frozen=True)
