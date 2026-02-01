@@ -1,6 +1,5 @@
 from collections.abc import Mapping
 from typing import Iterator, Any, List, Optional, Tuple, Dict, Union, Iterable, Callable
-import pandas as pd
 from typing import Iterator, Any, List, Optional, Tuple, Dict, Union
 import torch
 import numpy as np

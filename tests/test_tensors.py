@@ -1079,6 +1079,7 @@ class TestTensorScaler:
         expected = scalar_complex * eye - t_float.data
         assert torch.allclose(res3.data, expected)
 
+
 class TestTensorGetitem:
     @pytest.fixture
     def getitem_ctx(self):

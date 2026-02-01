@@ -13,8 +13,8 @@ from .hilbert import (
     embedding_order,
     same_span,
     flat_permutation_order,
+    restructure,
 )
-from .hilbert import StateSpace, HilbertSpace, Mode
 from .spatials import Spatial
 
 
@@ -294,6 +294,7 @@ class Tensor(Operable, Plottable):
             A new Tensor with the updated dimension.
         """
         return replace_dim(self, dim, new_dim)
+
     def __getitem__(self, key):
         if key is Ellipsis:
             key = (slice(None),) * len(self.dims)
@@ -351,6 +352,8 @@ def auto_promote(func):
         return func(left, right, *args, **kwargs)
 
     return wrapper
+
+
 def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
     data = tensor.data
     new_dims = list(tensor.dims)
@@ -359,7 +362,7 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
     for k in key:
         if k is None:
             data = data.unsqueeze(dim_index)
-            new_dims.insert(dim_index, hilbert.BroadcastSpace())
+            new_dims.insert(dim_index, BroadcastSpace())
             dim_index += 1
             continue
         if dim_pos >= len(tensor.dims):
@@ -369,9 +372,9 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
         if isinstance(k, StateSpace):
             if not set(k.structure.keys()).issubset(dim.structure.keys()):
                 raise ValueError("StateSpace index is not a subspace of tensor dim")
-            sub_space = replace(k, structure=hilbert.restructure(k.structure))
+            sub_space = replace(k, structure=restructure(k.structure))
             idx = torch.tensor(
-                hilbert.embedding_order(sub_space, dim),
+                embedding_order(sub_space, dim),
                 dtype=torch.long,
                 device=data.device,
             )
@@ -384,7 +387,7 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
                 raise KeyError("Spatial index not found in tensor dim")
             sl = dim.get_slice(k)
             data = data.narrow(dim_index, sl.start, sl.stop - sl.start)
-            sub = replace(dim, structure=hilbert.restructure(OrderedDict({k: sl})))
+            sub = replace(dim, structure=restructure(OrderedDict({k: sl})))
             new_dims[dim_index] = sub
             dim_index += 1
             continue
