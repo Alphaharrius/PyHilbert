@@ -1,6 +1,7 @@
 from typing import Dict, Tuple, Union, Sequence, cast
 from numbers import Number
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from collections import OrderedDict
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 import torch
@@ -8,6 +9,7 @@ import torch
 from . import hilbert
 from .abstracts import Operable, Plottable
 from .hilbert import StateSpace, HilbertSpace, Mode
+from .spatials import Spatial
 
 
 @dataclass(frozen=True)
@@ -267,6 +269,36 @@ class Tensor(Operable, Plottable):
         """
         return Tensor(data=self.data.clone(), dims=self.dims)
 
+    def __getitem__(self, key):
+        if key is Ellipsis:
+            key = (slice(None),) * len(self.dims)
+        elif not isinstance(key, tuple):
+            key = (key,)
+
+        if Ellipsis in key:
+            ellipsis_at = key.index(Ellipsis)
+            missing = len(self.dims) - (len(key) - 1)
+            key = key[:ellipsis_at] + (slice(None),) * missing + key[ellipsis_at + 1 :]
+
+        non_none = sum(1 for k in key if k is not None)
+        if non_none < len(self.dims):
+            key = key + (slice(None),) * (len(self.dims) - non_none)
+        if non_none > len(self.dims):
+            raise IndexError("Too many indices for tensor")
+
+        # Decide indexing convention: Hilbert (Spatial/StateSpace) vs normal (int/slice/range).
+        has_hilbert_indices = any(isinstance(k, (Spatial, StateSpace)) for k in key)
+        if has_hilbert_indices:
+            if any(isinstance(k, (int, slice, range)) for k in key if k is not None):
+                # Prevent mixing conventions to avoid ambiguous semantics.
+                raise ValueError(
+                    "Hilbert indexing cannot be mixed with integer/slice indexing"
+                )
+        else:
+            return self.data[key]
+
+        return _tensor_getitem_hilbert(self, key)
+
     def __repr__(self) -> str:
         device_type = self.data.device.type
         device = "GPU" if device_type in {"cuda", "mps"} else "CPU"
@@ -278,6 +310,48 @@ class Tensor(Operable, Plottable):
         return f"<{device} Tensor grad={self.data.requires_grad} shape={shape_repr}>"
 
     __str__ = __repr__  # Override str to use the same representation
+
+
+def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
+    data = tensor.data
+    new_dims = list(tensor.dims)
+    dim_index = 0
+    dim_pos = 0
+    for k in key:
+        if k is None:
+            data = data.unsqueeze(dim_index)
+            new_dims.insert(dim_index, hilbert.BroadcastSpace())
+            dim_index += 1
+            continue
+        if dim_pos >= len(tensor.dims):
+            raise IndexError("Too many indices for tensor")
+        dim = tensor.dims[dim_pos]
+        dim_pos += 1
+        if isinstance(k, StateSpace):
+            if not set(k.structure.keys()).issubset(dim.structure.keys()):
+                raise ValueError("StateSpace index is not a subspace of tensor dim")
+            sub_space = replace(k, structure=hilbert.restructure(k.structure))
+            idx = torch.tensor(
+                hilbert.embedding_order(sub_space, dim),
+                dtype=torch.long,
+                device=data.device,
+            )
+            data = data.index_select(dim_index, idx)
+            new_dims[dim_index] = sub_space
+            dim_index += 1
+            continue
+        if isinstance(k, Spatial):
+            if k not in dim.structure:
+                raise KeyError("Spatial index not found in tensor dim")
+            sl = dim.get_slice(k)
+            data = data.narrow(dim_index, sl.start, sl.stop - sl.start)
+            sub = replace(dim, structure=hilbert.restructure(OrderedDict({k: sl})))
+            new_dims[dim_index] = sub
+            dim_index += 1
+            continue
+        raise TypeError(f"Unsupported index type for StateSpace slicing: {type(k)}")
+
+    return Tensor(data=data, dims=tuple(new_dims))
 
 
 def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
