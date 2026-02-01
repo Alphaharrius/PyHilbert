@@ -232,3 +232,6 @@ def bandfold(
     )
     k_map = mapping_matrix(k_space, new_k_space, mapping).transpose(0, 1)
     return (k_map @ transformed).squeeze(-1).permute(2, 0, 1)
+
+
+# TODO: add bandunfold function
