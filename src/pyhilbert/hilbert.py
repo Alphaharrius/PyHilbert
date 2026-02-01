@@ -1,10 +1,10 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Dict, Tuple, TypeVar, Generic
+from typing import Any, Callable, Dict, Tuple, TypeVar, Generic, Union
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
-from itertools import chain
+from itertools import chain, islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
@@ -115,8 +115,58 @@ class StateSpace(Spatial, Generic[TSpatial]):
         # TODO: Do we need to consider the order of the structure?
         return hash(tuple((k, s.start, s.stop) for k, s in self.structure.items()))
 
+    def __getitem__(
+        self, v: Union[int, slice, range]
+    ) -> Union[TSpatial, "StateSpace[TSpatial]"]:
+        """
+        Index into the state-space by element position.
 
-def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, slice]:
+        Parameters
+        ----------
+        `v` : `Union[int, slice, range]`
+            - `int` returns a single spatial element by position (supports negative
+              indices).
+            - `slice` returns a new instance containing the selected elements in
+              order, with slices re-packed to be contiguous.
+            - `range` returns a new instance containing the elements at the given
+              indices (in the range order), with slices re-packed to be contiguous.
+
+        Returns
+        -------
+        Spatial or StateSpace
+            A spatial element for `int` indexing, otherwise a new instance of the
+            same class containing the selected elements. Any extra dataclass fields
+            on subclasses are preserved in the returned instance.
+
+        Raises
+        ------
+        IndexError
+            If an integer index is out of bounds.
+        TypeError
+            If `v` is not an `int`, `slice`, or `range`.
+        """
+        if isinstance(v, int):
+            if v < 0:
+                v += len(self.structure)
+            if v < 0 or v >= len(self.structure):
+                raise IndexError("StateSpace index out of range")
+            return next(islice(self.structure.keys(), v, None))
+        if isinstance(v, slice):
+            keys = tuple(self.structure.keys())[v]
+            new_structure = OrderedDict((k, self.structure[k]) for k in keys)
+            return replace(self, structure=restructure(new_structure))
+        if isinstance(v, range):
+            keys = tuple(self.structure.keys())
+            new_structure = OrderedDict((keys[i], self.structure[keys[i]]) for i in v)
+            return replace(self, structure=restructure(new_structure))
+        raise TypeError(
+            f"StateSpace indices must be int, slice, or range, not {type(v)}"
+        )
+
+
+def restructure(
+    structure: OrderedDict[TSpatial, slice],
+) -> OrderedDict[TSpatial, slice]:
     """
     Return a new `OrderedDict` with contiguous, ordered slices preserving lengths.
 
@@ -130,7 +180,7 @@ def restructure(structure: OrderedDict[Spatial, slice]) -> OrderedDict[Spatial, 
     `OrderedDict[Spatial, slice]`
         The restructured `OrderedDict` with contiguous, ordered slices.
     """
-    new_structure = OrderedDict()
+    new_structure: OrderedDict[TSpatial, slice] = OrderedDict()
     base = 0
     for k, s in structure.items():
         L = s.stop - s.start

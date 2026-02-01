@@ -7,7 +7,6 @@ requires-python = ">=3.11"
 dependencies = [
     "matplotlib>=3.10.7",
     "multipledispatch>=1.0.0",
-    "pandas>=2.3.3",
     "sympy>=1.14.0",
     "plotly>=6.5.0",
 ]
