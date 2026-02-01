@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from typing import Iterator, Any, List, Optional, Tuple, Dict, Union, Iterable, Callable
 from typing import Iterator, Any, List, Optional, Tuple, Dict, Union
 import torch
 import numpy as np
@@ -192,3 +193,40 @@ def generate_k_path(
         k_dist = torch.tensor([], dtype=torch.float64)
 
     return k_vecs, k_dist, node_indices
+
+
+def matchby(
+    source: Iterable[Any], dest: Iterable[Any], base_func: Callable[[Any], Any]
+) -> Dict[Any, Any]:
+    """
+    Map elements from source to destination using a provided mapping function.
+    Parameters
+    ----------
+    `source` : `Iterable[Any]`
+        The source elements to be mapped.
+    `dest` : `Iterable[Any]`
+        The destination elements to map to.
+    `base_func` : `Callable[[Any], Any]`
+        A function that defines the comparison baseline.
+
+    Returns
+    -------
+    `Dict[Any, Any]`
+        A dictionary mapping each source element to its corresponding destination element `source -> dest`.
+    """
+    mapping: Dict[Any, Any] = {}
+
+    source_base: Dict[Any, Any] = {m: base_func(m) for m in source}
+    dest_base: Dict[Any, Any] = {base_func(m): m for m in dest}
+
+    if len(dest_base) != len(tuple(dest)):
+        raise ValueError("Destination elements have non-unique base values!")
+
+    for sm, sb in source_base.items():
+        if sb not in dest_base:
+            raise ValueError(
+                f"Source element {sm} with base {sb} has no match in destination!"
+            )
+        mapping[sm] = dest_base[sb]
+
+    return mapping

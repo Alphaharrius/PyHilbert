@@ -1,14 +1,20 @@
-from typing import Dict, Tuple, Union, Sequence, cast
+from typing import Tuple, Union, Sequence, cast, Dict, Any
 from numbers import Number
 from dataclasses import dataclass, replace
 from collections import OrderedDict
 from multipledispatch import dispatch  # type: ignore[import-untyped]
-
 import torch
+from functools import wraps
 
-from . import hilbert
 from .abstracts import Operable, Plottable
-from .hilbert import StateSpace, HilbertSpace, Mode
+from .hilbert import (
+    StateSpace,
+    BroadcastSpace,
+    embedding_order,
+    same_span,
+    flat_permutation_order,
+    restructure,
+)
 from .spatials import Spatial
 
 
@@ -269,6 +275,26 @@ class Tensor(Operable, Plottable):
         """
         return Tensor(data=self.data.clone(), dims=self.dims)
 
+    def replace_dim(self, dim: int, new_dim: StateSpace) -> "Tensor":
+        """
+        Replace the StateSpace at the specified dimension with a new StateSpace.
+
+        Parameters
+        ----------
+        tensor : `Tensor`
+            The tensor to modify.
+        dim : `int`
+            The index of the dimension to replace.
+        new_dim : `StateSpace`
+            The new StateSpace to assign to the dimension.
+
+        Returns
+        -------
+        `Tensor`
+            A new Tensor with the updated dimension.
+        """
+        return replace_dim(self, dim, new_dim)
+
     def __getitem__(self, key):
         if key is Ellipsis:
             key = (slice(None),) * len(self.dims)
@@ -312,6 +338,22 @@ class Tensor(Operable, Plottable):
     __str__ = __repr__  # Override str to use the same representation
 
 
+def auto_promote(func):
+    """Decorator to automatically promote input Tensors to a common dtype."""
+
+    @wraps(func)
+    def wrapper(left, right, *args, **kwargs):
+        if isinstance(left, Tensor) and isinstance(right, Tensor):
+            common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
+            if left.data.dtype != common_dtype:
+                left = Tensor(data=left.data.to(common_dtype), dims=left.dims)
+            if right.data.dtype != common_dtype:
+                right = Tensor(data=right.data.to(common_dtype), dims=right.dims)
+        return func(left, right, *args, **kwargs)
+
+    return wrapper
+
+
 def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
     data = tensor.data
     new_dims = list(tensor.dims)
@@ -320,7 +362,7 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
     for k in key:
         if k is None:
             data = data.unsqueeze(dim_index)
-            new_dims.insert(dim_index, hilbert.BroadcastSpace())
+            new_dims.insert(dim_index, BroadcastSpace())
             dim_index += 1
             continue
         if dim_pos >= len(tensor.dims):
@@ -330,9 +372,9 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
         if isinstance(k, StateSpace):
             if not set(k.structure.keys()).issubset(dim.structure.keys()):
                 raise ValueError("StateSpace index is not a subspace of tensor dim")
-            sub_space = replace(k, structure=hilbert.restructure(k.structure))
+            sub_space = replace(k, structure=restructure(k.structure))
             idx = torch.tensor(
-                hilbert.embedding_order(sub_space, dim),
+                embedding_order(sub_space, dim),
                 dtype=torch.long,
                 device=data.device,
             )
@@ -345,7 +387,7 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
                 raise KeyError("Spatial index not found in tensor dim")
             sl = dim.get_slice(k)
             data = data.narrow(dim_index, sl.start, sl.stop - sl.start)
-            sub = replace(dim, structure=hilbert.restructure(OrderedDict({k: sl})))
+            sub = replace(dim, structure=restructure(OrderedDict({k: sl})))
             new_dims[dim_index] = sub
             dim_index += 1
             continue
@@ -374,10 +416,10 @@ def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
 def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
     ignores = set()
     for n, ld in enumerate(left.dims[:-2]):
-        if not isinstance(ld, hilbert.BroadcastSpace):
+        if not isinstance(ld, BroadcastSpace):
             continue
         rd = right.dims[n]
-        if isinstance(rd, hilbert.BroadcastSpace):
+        if isinstance(rd, BroadcastSpace):
             continue
         left = left.align(n, rd)
         ignores.add(n)
@@ -390,6 +432,7 @@ def _align_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]
     return left, right
 
 
+@auto_promote
 def matmul(left: Tensor, right: Tensor) -> Tensor:
     """
     Perform matrix multiplication between two Tensors with StateSpace-aware
@@ -478,6 +521,7 @@ def _match_dims_for_tensoradd(left: Tensor, right: Tensor) -> Tuple[Tensor, Tens
 
 
 @dispatch(Tensor, Tensor)
+@auto_promote
 def operator_add(left: Tensor, right: Tensor) -> Tensor:
     """
     Add two tensors with the same order of dimensions.
@@ -516,9 +560,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     new_data[left_slices] = left.data
     # fill the right tensor into the new data
     right_embedding_order = (
-        torch.tensor(
-            hilbert.embedding_order(r, u), dtype=torch.long, device=left.data.device
-        )
+        torch.tensor(embedding_order(r, u), dtype=torch.long, device=left.data.device)
         for r, u in zip(right.dims, union_dims)
     )
     new_data.index_put_(
@@ -816,7 +858,7 @@ def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
     if dim < 0:
         dim = dim + len(tensor.dims) + 1
     new_data = tensor.data.unsqueeze(dim)
-    new_dims = tensor.dims[:dim] + (hilbert.BroadcastSpace(),) + tensor.dims[dim:]
+    new_dims = tensor.dims[:dim] + (BroadcastSpace(),) + tensor.dims[dim:]
 
     return Tensor(data=new_data, dims=new_dims)
 
@@ -839,7 +881,7 @@ def squeeze(tensor: Tensor, dim: int) -> Tensor:
     """
     if dim < 0:
         dim = dim + len(tensor.dims)
-    if not isinstance(tensor.dims[dim], hilbert.BroadcastSpace):
+    if not isinstance(tensor.dims[dim], BroadcastSpace):
         return tensor  # No squeezing needed if not BroadcastSpace
 
     new_data = tensor.data.squeeze(dim)
@@ -874,10 +916,10 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         )
 
     current_dim = tensor.dims[dim]
-    if isinstance(target_dim, hilbert.BroadcastSpace):
+    if isinstance(target_dim, BroadcastSpace):
         return tensor  # No alignment needed for BroadcastSpace
 
-    if isinstance(current_dim, hilbert.BroadcastSpace):
+    if isinstance(current_dim, BroadcastSpace):
         # Expand broadcast dimension to match the target StateSpace size.
         expanded_shape = list(tensor.data.shape)
         expanded_shape[dim] = target_dim.dim
@@ -892,10 +934,10 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
             f"Cannot align dimensions with different StateSpace types: "
             f"current dim={type(current_dim)} vs target dim={type(target_dim)}!"
         )
-    if not hilbert.same_span(current_dim, target_dim):
+    if not same_span(current_dim, target_dim):
         raise ValueError(f"StateSpace at {dim} cannot be aligned to target StateSpace!")
 
-    target_order = hilbert.flat_permutation_order(current_dim, target_dim)
+    target_order = flat_permutation_order(current_dim, target_dim)
     aligned_data = torch.index_select(
         tensor.data,
         dim,
@@ -933,16 +975,14 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     Performs expansion in a single pass to avoid intermediate Tensor creation.
     """
 
-    if not any(isinstance(d, hilbert.BroadcastSpace) for d in tensor.dims):
+    if not any(isinstance(d, BroadcastSpace) for d in tensor.dims):
         return tensor
     target_shape = []
     new_dims = []
     needs_expansion = False
 
     for dim, u_dim, size in zip(tensor.dims, union_dims, tensor.data.shape):
-        if isinstance(dim, hilbert.BroadcastSpace) and not isinstance(
-            u_dim, hilbert.BroadcastSpace
-        ):
+        if isinstance(dim, BroadcastSpace) and not isinstance(u_dim, BroadcastSpace):
             target_shape.append(u_dim.dim)
             new_dims.append(u_dim)
             needs_expansion = True
@@ -957,10 +997,9 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
 
 
 def mapping_matrix(
-    from_space: HilbertSpace, to_space: HilbertSpace, mapping: Dict[Mode, Mode]
+    from_space: StateSpace, to_space: StateSpace, mapping: Dict[Any, Any]
 ) -> Tensor:
-    # TODO: Use globally defined complex dtype
-    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex64)
+    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex128)
     for fm, tm in mapping.items():
         fslice = from_space.get_slice(fm)
         tslice = to_space.get_slice(tm)
@@ -969,7 +1008,7 @@ def mapping_matrix(
         tlen = tslice.stop - tslice.start
         if flen != tlen:
             raise ValueError(
-                f"Cannot create mapping matrix between modes of different sizes: {flen} != {tlen}"
+                f"Cannot create mapping matrix between sectors of different sizes: {flen} != {tlen}"
             )
 
         mat[fslice, tslice] = torch.eye(flen, dtype=mat.dtype, device=mat.device)
@@ -990,3 +1029,48 @@ def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
     rows = matrix_dims[0].dim
     cols = matrix_dims[1].dim
     return Tensor(data=torch.eye(rows, cols), dims=matrix_dims)
+
+
+def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
+    """
+    Replace the StateSpace at the specified dimension with a new StateSpace.
+
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to modify.
+    dim : `int`
+        The index of the dimension to replace.
+    new_dim : `StateSpace`
+        The new StateSpace to assign to the dimension.
+
+    Returns
+    -------
+    `Tensor`
+        A new Tensor with the updated dimension.
+    """
+    if dim < 0:
+        dim += len(tensor.dims)
+
+    if dim < 0 or dim >= len(tensor.dims):
+        raise IndexError(
+            f"Dimension index {dim} out of range for tensor of rank {len(tensor.dims)}"
+        )
+
+    current_size = tensor.data.shape[dim]
+
+    # Check size compatibility
+    # If new_dim is BroadcastSpace with no structure (size 0), it matches data dimension of size 1.
+    if isinstance(new_dim, BroadcastSpace) and new_dim.dim == 0:
+        if current_size != 1:
+            raise ValueError(
+                f"Cannot replace dimension of size {current_size} with empty BroadcastSpace (expects size 1)."
+            )
+    elif new_dim.dim != current_size:
+        raise ValueError(
+            f"New StateSpace size {new_dim.dim} does not match tensor data size {current_size} at dimension {dim}!"
+        )
+
+    new_dims = list(tensor.dims)
+    new_dims[dim] = new_dim
+    return Tensor(data=tensor.data, dims=tuple(new_dims))

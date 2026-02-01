@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, List, Union, Dict
+from typing import Optional, List, Union, Dict, Any, cast
 from .abstracts import Plottable
 from .spatials import Lattice
 from .utils import compute_bonds
@@ -18,6 +18,7 @@ def plot_structure_mpl(
     elev: float = 30,
     azim: float = -60,
     save_path: Optional[str] = None,
+    ax: Optional[Any] = None,
     **kwargs,
 ) -> plt.Figure:
     """
@@ -40,6 +41,8 @@ def plot_structure_mpl(
         Azimuth angle (in degrees) for 3D plots.
     save_path : str, optional
         If provided, saves the figure to this path. File format is inferred from the extension.
+    ax : matplotlib.axes.Axes, optional
+        Existing axes to plot on.
     **kwargs
         Additional keyword arguments passed to `plt.figure` (e.g., `figsize`).
 
@@ -61,16 +64,18 @@ def plot_structure_mpl(
     is_3d = obj.dim == 3
     z = coords_np[:, 2] if is_3d else None
 
-    fig = plt.figure(figsize=kwargs.get("figsize", (8, 6)))
-
-    if is_3d:
-        ax = fig.add_subplot(111, projection="3d")
-        ax.view_init(elev=elev, azim=azim)
-        ax.set_title("3D Lattice System")
+    if ax is None:
+        fig = plt.figure(figsize=kwargs.get("figsize", (8, 6)))
+        if is_3d:
+            ax = fig.add_subplot(111, projection="3d")
+            ax.view_init(elev=elev, azim=azim)
+            ax.set_title("3D Lattice System")
+        else:
+            ax = fig.add_subplot(111)
+            ax.set_title("2D Lattice System")
+            ax.set_aspect("equal")
     else:
-        ax = fig.add_subplot(111)
-        ax.set_title("2D Lattice System")
-        ax.set_aspect("equal")
+        fig = ax.get_figure()
 
     # Bonds
     if plot_type == "edge-and-node":
@@ -100,7 +105,7 @@ def plot_structure_mpl(
             colors.append(basis_colors[b % len(basis_colors)])
 
     if is_3d:
-        ax.scatter(x, y, z, c=colors, s=20, label="Sites")
+        cast(Any, ax).scatter(x, y, z, c=colors, s=20, label="Sites")
     else:
         ax.scatter(x, y, c=colors, s=50, zorder=5, label="Sites")
 
@@ -132,7 +137,7 @@ def plot_structure_mpl(
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     if is_3d:
-        ax.set_zlabel("Z")
+        cast(Any, ax).set_zlabel("Z")
 
     if save_path:
         plt.savefig(save_path, bbox_inches="tight")

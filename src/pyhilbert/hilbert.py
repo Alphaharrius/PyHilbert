@@ -1,16 +1,20 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Dict, Tuple, TypeVar, Generic, Union
+from typing import Any, Tuple, TypeVar, Generic, Union
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain, islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
-
 from .abstracts import Updatable
 from .utils import FrozenDict
-from .spatials import Spatial, ReciprocalLattice, Momentum, cartes
+from .spatials import (
+    Spatial,
+    ReciprocalLattice,
+    Momentum,
+    cartes,
+)
 
 
 @dataclass(frozen=True)
@@ -380,6 +384,32 @@ class HilbertSpace(StateSpace[Mode], Updatable):
             return tuple(m[key[0]] for m in self)
         return tuple(m[key] for m in self)
 
+    def mode_lookup(self, **kwargs) -> Mode:
+        """
+        Find a single mode with matching attributes.
+
+        Parameters
+        ----------
+        **kwargs
+            Attribute names and values to match.
+
+        Returns
+        -------
+        `Mode`
+            The unique `Mode` matching the criteria.
+
+        Raises
+        ------
+        `ValueError`
+            If no mode or multiple modes are found.
+        """
+        found = [m for m in self if all(m.attr.get(k) == v for k, v in kwargs.items())]
+        if not found:
+            raise ValueError(f"No mode found with attributes {kwargs}")
+        if len(found) > 1:
+            raise ValueError(f"Multiple modes found with attributes {kwargs}")
+        return found[0]
+
 
 @dispatch(Iterable)
 def hilbert(itr: Iterable[Mode]) -> HilbertSpace:
@@ -441,44 +471,6 @@ def operator_add(a: StateSpace, b: BroadcastSpace):
 @dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
 def operator_add(a: BroadcastSpace, b: StateSpace):
     return b
-
-
-def mode_mapping(
-    source: Iterable[Mode], dest: Iterable[Mode], base_func: Callable[[Mode], Any]
-) -> Dict[Mode, Mode]:
-    """
-    Map modes from source to destination using a provided mapping function.
-
-    Parameters
-    ----------
-    `source` : `Iterable[Mode]`
-        The source modes to be mapped.
-    `dest` : `Iterable[Mode]`
-        The destination modes to map to.
-    `base_func` : `Callable[[Mode], Any]`
-        A function that defines the comparison baseline.
-
-    Returns
-    -------
-    `Dict[Mode, Mode]`
-        A dictionary mapping each source mode to its corresponding destination mode `source -> dest`.
-    """
-    mapping: Dict[Mode, Mode] = {}
-
-    source_base: Dict[Mode, Any] = {m: base_func(m) for m in source}
-    dest_base: Dict[Mode, Any] = {base_func(m): m for m in dest}
-
-    if len(dest_base) != len(tuple(dest)):
-        raise ValueError("Destination modes have non-unique base values!")
-
-    for sm, sb in source_base.items():
-        if sb not in dest_base:
-            raise ValueError(
-                f"Source mode {sm} with base {sb} has no match in destination!"
-            )
-        mapping[sm] = dest_base[sb]
-
-    return mapping
 
 
 @dataclass(frozen=True)

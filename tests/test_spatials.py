@@ -22,8 +22,9 @@ def test_lattice_creation_and_dual():
     assert lattice.shape == (2, 2)
     assert isinstance(lattice.affine, AffineSpace)
     assert isinstance(lattice, AbstractLattice)
-    assert lattice.unit_cell == FrozenDict()
     assert isinstance(lattice.unit_cell, FrozenDict)
+    assert len(lattice.unit_cell) == 1
+    assert lattice.unit_cell["r"].rep == ImmutableDenseMatrix([0, 0])
 
     # Check dual
     reciprocal = lattice.dual
@@ -36,20 +37,24 @@ def test_lattice_creation_and_dual():
     orig_basis = lattice.basis
     round_trip_basis = reciprocal.dual.basis
 
-    assert round_trip_basis == orig_basis * (1 / (4 * sy.pi**2))
+    assert round_trip_basis == orig_basis
 
 
 def test_lattice_with_unit_cell():
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
-    unit_cell = FrozenDict({"a": (0, 0), "b": (0.5, 0.5)})
-    lattice = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
+    unit_cell_input = {"a": (0, 0), "b": (0.5, 0.5)}
+    lattice = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell_input)
 
-    assert lattice.unit_cell == unit_cell
     assert isinstance(lattice.unit_cell, FrozenDict)
+    assert len(lattice.unit_cell) == 2
+    assert isinstance(lattice.unit_cell["a"], Offset)
+    assert lattice.unit_cell["a"].rep == ImmutableDenseMatrix([0, 0])
+    assert isinstance(lattice.unit_cell["b"], Offset)
+    assert lattice.unit_cell["b"].rep == ImmutableDenseMatrix([0.5, 0.5])
 
     # ReciprocalLattice should not accept unit_cell
     with pytest.raises(TypeError):
-        ReciprocalLattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
+        ReciprocalLattice(basis=basis, shape=(2, 2), unit_cell=unit_cell_input)
 
 
 def test_cartes_lattice():

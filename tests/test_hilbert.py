@@ -178,3 +178,27 @@ def test_hilbert_update_error():
     # Let's try to subclass and cheat or use replace if possible, but replace checks types? No.
     pass
     # Skipping this specific error branch as it requires invalid state construction.
+
+
+def test_hilbert_space_mode_lookup():
+    m1 = Mode(count=1, attr=FrozenDict({"id": 1, "type": "a"}))
+    m2 = Mode(count=1, attr=FrozenDict({"id": 2, "type": "b"}))
+    m3 = Mode(count=1, attr=FrozenDict({"id": 3, "type": "a"}))
+
+    hs = hilbert([m1, m2, m3])
+
+    # Test successful lookup
+    found_mode = hs.mode_lookup(id=2)
+    assert found_mode is m2
+
+    # Test lookup with multiple attributes
+    found_mode_2 = hs.mode_lookup(id=3, type="a")
+    assert found_mode_2 is m3
+
+    # Test for no mode found
+    with pytest.raises(ValueError, match="No mode found"):
+        hs.mode_lookup(id=4)
+
+    # Test for multiple modes found
+    with pytest.raises(ValueError, match="Multiple modes found"):
+        hs.mode_lookup(type="a")
