@@ -196,7 +196,7 @@ def generate_k_path(
     return k_vecs, k_dist, node_indices
 
 
-def element_mapping(
+def matchby(
     source: Iterable[Any], dest: Iterable[Any], base_func: Callable[[Any], Any]
 ) -> Dict[Any, Any]:
     """
