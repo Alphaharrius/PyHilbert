@@ -7,7 +7,7 @@ from itertools import product
 from typing import Tuple, Any, cast, Dict, Callable, ClassVar, Literal
 import numpy as np
 from abc import ABC
-from .utils import FrozenDict
+from .utils import FrozenDict, element_mapping
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
 from .tensors import Tensor, mapping_matrix
@@ -223,13 +223,12 @@ def bandfold(
 
     # k-mapping
     new_k_space = brillouin_zone(scaled_reciprocal_lattice)
-    new_k_lookup = {k.fractional(): k for k in new_k_space}
-    mapping = {}
-    for k in k_space:
-        k_frac = transform(k).fractional()
-        if k_frac in new_k_lookup:
-            mapping[k] = new_k_lookup[k_frac]
-        else:
-            raise ValueError(f"Transformed k-point {k_frac} not found in new BZ.")
+    mapping = element_mapping(
+        k_space,
+        new_k_space,
+        base_func=lambda k: transform(k).fractional()
+        if k.space == reciprocal_lattice
+        else k.fractional(),
+    )
     k_map = mapping_matrix(k_space, new_k_space, mapping).transpose(0, 1)
     return (k_map @ transformed).squeeze(-1).permute(2, 0, 1)
