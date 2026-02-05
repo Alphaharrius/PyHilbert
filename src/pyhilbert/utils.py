@@ -1,6 +1,15 @@
 from collections.abc import Mapping
-from typing import Iterator, Any, List, Optional, Tuple, Dict, Union, Iterable, Callable
-from typing import Iterator, Any, List, Optional, Tuple, Dict, Union
+from typing import (
+    Iterator,
+    Any,
+    List,
+    Optional,
+    Tuple,
+    Dict,
+    Union,
+    Iterable,
+    Callable,
+)
 import torch
 import numpy as np
 
