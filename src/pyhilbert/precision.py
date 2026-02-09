@@ -10,7 +10,9 @@ global_np_complex_dtype = np.complex128
 PrecisionInput = Union[Literal["32", "64"], int, torch.dtype, np.dtype]
 
 
-def _normalize_precision(precision: PrecisionInput) -> Tuple[torch.dtype, torch.dtype, np.dtype, np.dtype]:
+def _normalize_precision(
+    precision: PrecisionInput,
+) -> Tuple[torch.dtype, torch.dtype, np.dtype, np.dtype]:
     """
     Normalize user precision input to (torch_float, torch_complex, np_float, np_complex).
     """
@@ -35,6 +37,7 @@ def _normalize_precision(precision: PrecisionInput) -> Tuple[torch.dtype, torch.
             return torch.float64, torch.complex128, np.float64, np.complex128
 
     raise ValueError("Precision must be 32/64, torch.dtype, or np.dtype")
+
 
 def set_precision(
     precision: PrecisionInput,
@@ -61,4 +64,9 @@ def get_precision_config() -> Tuple[torch.dtype, torch.dtype, np.dtype, np.dtype
     """
     Returns current global precision config (torch_float, torch_complex, np_float, np_complex).
     """
-    return global_float_dtype, global_complex_dtype, global_np_float_dtype, global_np_complex_dtype
+    return (
+        global_float_dtype,
+        global_complex_dtype,
+        global_np_float_dtype,
+        global_np_complex_dtype,
+    )

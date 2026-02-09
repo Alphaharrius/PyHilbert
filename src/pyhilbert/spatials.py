@@ -107,7 +107,8 @@ class Lattice(AbstractLattice):
 
         try:
             basis_mat = torch.tensor(
-                np.array(basis_eval).astype(global_np_float_dtype), dtype=global_float_dtype
+                np.array(basis_eval).astype(global_np_float_dtype),
+                dtype=global_float_dtype,
             )
         except Exception as e:
             raise ValueError(
@@ -136,7 +137,9 @@ class Lattice(AbstractLattice):
                 site_vec = site_offset.rep
                 if subs:
                     site_vec = site_vec.subs(subs)
-                basis_reps.append(np.array(site_vec).flatten().astype(global_np_float_dtype))
+                basis_reps.append(
+                    np.array(site_vec).flatten().astype(global_np_float_dtype)
+                )
 
         basis_tensor = torch.tensor(
             np.array(basis_reps), dtype=global_float_dtype
