@@ -9,10 +9,10 @@ from typing import (
     Union,
     Iterable,
     Callable,
-    Literal,
 )
 import torch
 import numpy as np
+from .precision import global_float_dtype, global_np_float_dtype
 
 
 class FrozenDict(Mapping):
@@ -164,9 +164,9 @@ def generate_k_path(
     pts_np = {}
     for k, v in points.items():
         if isinstance(v, torch.Tensor):
-            pts_np[k] = v.detach().cpu().numpy().astype(float)
+            pts_np[k] = v.detach().cpu().numpy().astype(global_np_float_dtype)
         else:
-            pts_np[k] = np.array(v, dtype=float)
+            pts_np[k] = np.array(v, dtype=global_np_float_dtype)
 
     for i in range(len(path_labels) - 1):
         start_label = path_labels[i]
@@ -191,16 +191,16 @@ def generate_k_path(
         next_idx = len(k_vecs_list) - 1
         node_indices.append(next_idx)
 
-    k_vecs = torch.tensor(np.array(k_vecs_list), dtype=torch.float64)
+    k_vecs = torch.tensor(np.array(k_vecs_list), dtype=global_float_dtype)
 
     # Recalculate distances precisely from the vectors
     if len(k_vecs) > 0:
         diffs = torch.norm(k_vecs[1:] - k_vecs[:-1], dim=1)
         k_dist = torch.cat(
-            [torch.tensor([0.0], dtype=torch.float64), torch.cumsum(diffs, dim=0)]
+            [torch.tensor([0.0], dtype=global_float_dtype), torch.cumsum(diffs, dim=0)]
         )
     else:
-        k_dist = torch.tensor([], dtype=torch.float64)
+        k_dist = torch.tensor([], dtype=global_float_dtype)
 
     return k_vecs, k_dist, node_indices
 
@@ -240,38 +240,3 @@ def matchby(
         mapping[sm] = dest_base[sb]
 
     return mapping
-
-
-def set_precision(precision: Literal["16", "32", "64", "128"]) -> None:
-    """
-    Set the default floating point precision for PyTorch tensors.
-
-    This implicitly controls the precision of complex number operations:
-    - '32':  Sets float32 (Single Precision).
-             Complex tensors will default to complex64 (two 32-bit components).
-    - '64':  Sets float64 (Double Precision).
-             Complex tensors will default to complex128 (two 64-bit components).
-    - '128': Sets float128 (Quad Precision), if supported.
-
-    Parameters
-    ----------
-    precision : Literal['16', '32', '64', '128']
-        The desired bit-width for the real floating point components.
-    """
-    dtype_map = {
-        "16": torch.float16,
-        "32": torch.float32,
-        "64": torch.float64,
-    }
-    if precision == "128":
-        if hasattr(torch, "float128"):
-            dtype = torch.float128
-        else:
-            raise ValueError("float128 and complex256 is not supported on this system.")
-    elif precision in dtype_map:
-        dtype = dtype_map[precision]
-    else:
-        raise ValueError(f"Precision must be one of {list(dtype_map.keys()) + ['128']}")
-
-    # Apply the default dtype
-    torch.set_default_dtype(dtype)
