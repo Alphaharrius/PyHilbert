@@ -9,6 +9,7 @@ from functools import reduce
 import sympy as sy
 import numpy as np
 import torch
+from .precision import global_float_dtype, global_np_float_dtype
 from sympy import ImmutableDenseMatrix, sympify
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, Plottable
@@ -106,7 +107,7 @@ class Lattice(AbstractLattice):
 
         try:
             basis_mat = torch.tensor(
-                np.array(basis_eval).astype(np.float64), dtype=torch.float64
+                np.array(basis_eval).astype(global_np_float_dtype), dtype=global_float_dtype
             )
         except Exception as e:
             raise ValueError(
@@ -117,28 +118,28 @@ class Lattice(AbstractLattice):
 
         lat_reps = []
         for off in lat_offsets:
-            lat_reps.append(np.array(off.rep).flatten().astype(np.float64))
+            lat_reps.append(np.array(off.rep).flatten().astype(global_np_float_dtype))
 
         if not lat_reps:
             return torch.empty((0, self.dim))
 
         lat_tensor = torch.tensor(
-            np.array(lat_reps), dtype=torch.float64
+            np.array(lat_reps), dtype=global_float_dtype
         )  # (N_cells, Dim)
 
         basis_reps = []
         if not self.unit_cell:
-            basis_reps.append(np.zeros(self.dim, dtype=np.float64))
+            basis_reps.append(np.zeros(self.dim, dtype=global_np_float_dtype))
         else:
             sorted_unit_cell = sorted(self.unit_cell.items(), key=lambda x: str(x[0]))
             for _, site_offset in sorted_unit_cell:
                 site_vec = site_offset.rep
                 if subs:
                     site_vec = site_vec.subs(subs)
-                basis_reps.append(np.array(site_vec).flatten().astype(np.float64))
+                basis_reps.append(np.array(site_vec).flatten().astype(global_np_float_dtype))
 
         basis_tensor = torch.tensor(
-            np.array(basis_reps), dtype=torch.float64
+            np.array(basis_reps), dtype=global_float_dtype
         )  # (N_basis, Dim)
 
         total_crystal = lat_tensor.unsqueeze(1) + basis_tensor.unsqueeze(0)
