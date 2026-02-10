@@ -179,7 +179,7 @@ class Updatable(ABC):
         pass
 
 
-class Plottable:
+class Plottable(ABC):
     """
     An object that can be plottable.
     """
