@@ -236,7 +236,33 @@ class HasBase(Generic[BaseType], ABC):
     """
 
     @abstractmethod
+    def base(self) -> BaseType:
+        """
+        Return the base (basis/coordinate system) this object is currently expressed in.
+
+        This should be a lightweight, stable descriptor of the representation context
+        (e.g., a basis matrix, lattice, coordinate frame, or function basis). The
+        returned base is used by `rebase(...)` to construct an equivalent object in a
+        new base, so implementations should not mutate internal state and should
+        prefer returning an immutable or effectively immutable object.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
     def rebase(self, new_base: BaseType) -> "HasBase[BaseType]":
+        """
+        Return an equivalent object expressed in ``new_base``.
+
+        Implementations must preserve the underlying mathematical object while
+        changing only its representation. This method should be pure: do not
+        mutate ``self`` or ``new_base``. Prefer returning a new instance, even if
+        the base is unchanged; if you choose to return ``self`` for identical
+        bases, document that behavior and ensure immutability.
+
+        ``new_base`` is expected to be compatible with the object. If it is not,
+        raise a clear error (typically ``ValueError``). Do not silently coerce
+        incompatible bases.
+        """
         raise NotImplementedError()
 
 

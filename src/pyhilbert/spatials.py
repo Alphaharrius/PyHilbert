@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, cast
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -183,6 +183,10 @@ class Offset(Spatial, HasBase[AffineSpace]):
 
     fractional = lru_cache(fractional)
 
+    def base(self) -> AffineSpace:
+        """Get the `AffineSpace` this `Offset` is expressed in."""
+        return self.space
+
     def rebase(self, space: AffineSpace) -> "Offset":
         """
         Re-express this Offset in a different AffineSpace.
@@ -225,6 +229,10 @@ class Momentum(Offset, HasBase[ReciprocalLattice]):
         return Momentum(rep=sy.ImmutableDenseMatrix(s), space=self.space)
 
     fractional = lru_cache(fractional)
+
+    def base(self) -> ReciprocalLattice:
+        """Get the `ReciprocalLattice` this `Momentum` is expressed in."""
+        return cast(ReciprocalLattice, self.space)
 
     def rebase(self, space: ReciprocalLattice) -> "Momentum":  # type: ignore[override]
         """
