@@ -184,3 +184,168 @@ def test_affine_transform_zero_basis_vector_raises():
         assert False, "Expected ValueError for zero basis vector."
     except ValueError:
         pass
+
+
+def test_affine_transform_offset_identity_same_space():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    irrep = ImmutableDenseMatrix.eye(2)
+    t = AffineGroupElement(
+        irrep=irrep,
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=space),
+        basis_function_order=1,
+    )
+    offset = Offset(rep=ImmutableDenseMatrix([3, -4]), space=space)
+    result = affine_transform(t, offset)
+    assert result.space == space
+    assert result.rep == offset.rep
+
+
+def test_affine_transform_offset_translation_only():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    irrep = ImmutableDenseMatrix.eye(2)
+    t = AffineGroupElement(
+        irrep=irrep,
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([1, 2]), space=space),
+        basis_function_order=1,
+    )
+    offset = Offset(rep=ImmutableDenseMatrix([3, 4]), space=space)
+    result = affine_transform(t, offset)
+    assert result.rep == ImmutableDenseMatrix([4, 6])
+
+
+def test_affine_transform_offset_linear_only():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    irrep = ImmutableDenseMatrix([[0, -1], [1, 0]])
+    t = AffineGroupElement(
+        irrep=irrep,
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=space),
+        basis_function_order=1,
+    )
+    offset = Offset(rep=ImmutableDenseMatrix([2, 3]), space=space)
+    result = affine_transform(t, offset)
+    assert result.rep == irrep @ offset.rep
+
+
+def test_affine_transform_offset_linear_and_translation():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    irrep = ImmutableDenseMatrix([[2, 0], [0, 3]])
+    t = AffineGroupElement(
+        irrep=irrep,
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([1, 2]), space=space),
+        basis_function_order=1,
+    )
+    offset = Offset(rep=ImmutableDenseMatrix([3, 4]), space=space)
+    result = affine_transform(t, offset)
+    expected = irrep @ offset.rep + ImmutableDenseMatrix([1, 2])
+    assert result.rep == expected
+
+
+def test_affine_transform_offset_rebase_transform_keeps_input_space():
+    x, y = sy.symbols("x y")
+    space_a = AffineSpace(basis=ImmutableDenseMatrix.eye(2))
+    space_b = AffineSpace(basis=ImmutableDenseMatrix([[2, 0], [0, 1]]))
+
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[2, 0], [0, 3]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([1, 2]), space=space_a),
+        basis_function_order=1,
+    )
+    offset = Offset(rep=ImmutableDenseMatrix([1, 1]), space=space_b)
+    result = affine_transform(t, offset)
+
+    t_b = t.rebase(space_b)
+    hom = offset.rep.col_join(sy.ones(1, 1))
+    expected_hom = t_b.affine_rep @ hom
+    expected_rep = expected_hom[:-1, :]
+
+    assert result.space == space_b
+    assert result.rep == ImmutableDenseMatrix(expected_rep)
+
+
+def test_affine_transform_with_nontrivial_origin_matches_original_action():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    irrep = ImmutableDenseMatrix([[2, 1], [0, 3]])
+    t = AffineGroupElement(
+        irrep=irrep,
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([1, -2]), space=space),
+        basis_function_order=1,
+    )
+    origin = Offset(rep=ImmutableDenseMatrix([4, -1]), space=space)
+    target = Offset(rep=ImmutableDenseMatrix([7, 5]), space=space)
+
+    target_prime = Offset(rep=target.rep - origin.rep, space=space)
+    t_prime = t.with_origin(origin)
+    result_prime = affine_transform(t_prime, target_prime)
+    result = Offset(rep=result_prime.rep + origin.rep, space=space)
+
+    expected = affine_transform(t, target)
+    assert result.rep == expected.rep
+
+
+def test_affine_transform_with_origin_at_fixed_point_keeps_origin_fixed():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    irrep = ImmutableDenseMatrix([[2, 0], [0, 3]])
+    t_offset = ImmutableDenseMatrix([1, -2])
+    t = AffineGroupElement(
+        irrep=irrep,
+        axes=(x, y),
+        offset=Offset(rep=t_offset, space=space),
+        basis_function_order=1,
+    )
+
+    R_minus_I = irrep - ImmutableDenseMatrix.eye(2)
+    origin_rep = R_minus_I.inv() @ (-t_offset)
+    origin = Offset(rep=ImmutableDenseMatrix(origin_rep), space=space)
+    t_prime = t.with_origin(origin)
+
+    target_prime = Offset(rep=ImmutableDenseMatrix([0, 0]), space=space)
+    result_prime = affine_transform(t_prime, target_prime)
+    result = Offset(rep=result_prime.rep + origin.rep, space=space)
+    assert result.rep == origin.rep
+
+
+def test_affine_transform_offset_one_dimensional():
+    x = sy.symbols("x")
+    space, _ = _space_and_offset(1)
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[3]]),
+        axes=(x,),
+        offset=Offset(rep=ImmutableDenseMatrix([2]), space=space),
+        basis_function_order=1,
+    )
+    offset = Offset(rep=ImmutableDenseMatrix([5]), space=space)
+    result = affine_transform(t, offset)
+    assert result.rep == ImmutableDenseMatrix([17])
+
+
+def test_affine_transform_offset_fixed_point_invariant():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    irrep = ImmutableDenseMatrix([[2, 0], [0, 3]])
+    t_offset = ImmutableDenseMatrix([1, 2])
+    t = AffineGroupElement(
+        irrep=irrep,
+        axes=(x, y),
+        offset=Offset(rep=t_offset, space=space),
+        basis_function_order=1,
+    )
+
+    # Fixed point solves (R - I) * p = -t.
+    R_minus_I = irrep - ImmutableDenseMatrix.eye(2)
+    p = R_minus_I.inv() @ (-t_offset)
+    fixed = Offset(rep=ImmutableDenseMatrix(p), space=space)
+
+    result = affine_transform(t, fixed)
+    assert result.rep == fixed.rep

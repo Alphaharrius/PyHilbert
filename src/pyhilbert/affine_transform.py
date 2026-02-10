@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Tuple
+from typing import Any, NamedTuple, Tuple
 from collections import OrderedDict
 from itertools import product
 from functools import lru_cache, reduce
@@ -201,6 +201,60 @@ class AffineGroupElement(Transform, HasBase[AffineSpace]):
             basis_function_order=self.basis_function_order,
         )
 
+    def with_origin(self, origin: Offset) -> "AffineGroupElement":
+        """
+        Return an equivalent affine group element expressed relative to a new origin.
+
+        Given the affine action in coordinate form:
+            `x -> R x + t`
+        shifting the origin by `o` (so x = x' + o) yields:
+            `x' -> R x' + t'`
+        with:
+            `t' = t + (R - I) o`
+
+        Parameters
+        ----------
+        `origin` : `Offset`
+            The new origin expressed in an affine space. If it differs from this
+            element's space, the element is rebased to `origin.space` first.
+
+        Returns
+        -------
+        `AffineGroupElement`
+            A new affine group element with the same linear part and adjusted
+            translation so the action is expressed about `origin`.
+        """
+        if origin.space != self.offset.space:
+            t = self.rebase(origin.space)
+        else:
+            t = self
+
+        irrep = t.irrep
+        if not isinstance(irrep, sy.ImmutableDenseMatrix):
+            irrep = sy.ImmutableDenseMatrix(irrep)
+
+        o_rep = origin.rep
+        if not isinstance(o_rep, sy.ImmutableDenseMatrix):
+            o_rep = sy.ImmutableDenseMatrix(o_rep)
+
+        t_rep = t.offset.rep
+        if not isinstance(t_rep, sy.ImmutableDenseMatrix):
+            t_rep = sy.ImmutableDenseMatrix(t_rep)
+
+        ident = sy.eye(irrep.rows)
+        if not isinstance(ident, sy.ImmutableDenseMatrix):
+            ident = sy.ImmutableDenseMatrix(ident)
+
+        new_rep = t_rep + (irrep - ident) @ o_rep
+        new_offset = Offset(rep=sy.ImmutableDenseMatrix(new_rep), space=origin.space)
+
+        return AffineGroupElement(
+            irrep=irrep,
+            axes=t.axes,
+            offset=new_offset,
+            basis_function_order=t.basis_function_order,
+        )
+
     def group_elements(self, max_order: int = 128) -> Tuple["AffineGroupElement", ...]:
         """
         Generate the cyclic group elements produced by this irrep.
@@ -325,3 +379,64 @@ def affine_transform(
 
 
 AffineGroupElement.register_transform_method(AffineFunction)(affine_transform)
+
+
+@dispatch(AffineGroupElement, Offset)  # type: ignore[no-redef]
+def affine_transform(t: AffineGroupElement, offset: Offset) -> Offset:
+    """
+    Apply an affine group element to a spatial Offset using homogeneous coordinates.
+
+    This implementation:
+    - Ensures the transform acts in the same AffineSpace as the input Offset by
+      rebasing the transform if necessary.
+    - Uses the affine (homogeneous) representation of the transform to combine
+      rotation/shear and translation in a single matrix multiply.
+    - Preserves the input Offset's space in the returned result.
+
+    Parameters
+    ----------
+    t : AffineGroupElement
+        The affine group element to apply. If its internal `offset.space` does
+        not match `offset.space`, the transform is rebased to the Offset's space.
+    offset : Offset
+        The spatial offset (column vector) to transform.
+
+    Returns
+    -------
+    Offset
+        A new Offset expressed in the same AffineSpace as the input `offset`.
+
+    Notes
+    -----
+    The method constructs a homogeneous coordinate vector:
+    `[offset.rep; 1]`, multiplies by `t.affine_rep`, then discards the trailing
+    homogeneous component. The result remains a column vector of shape `(dim, 1)`.
+    """
+    if offset.space != t.offset.space:
+        t = t.rebase(offset.space)
+
+    affine_rep = t.affine_rep
+    rep = offset.rep
+    if not isinstance(rep, sy.ImmutableDenseMatrix):
+        rep = sy.ImmutableDenseMatrix(rep)
+
+    hom = rep.col_join(sy.ones(1, 1))
+    new_hom = affine_rep @ hom
+    new_rep = new_hom[:-1, :]
+    return Offset(rep=sy.ImmutableDenseMatrix(new_rep), space=offset.space)
+
+
+AffineGroupElement.register_transform_method(Offset)(affine_transform)
+
+
+@dispatch(AffineGroupElement, Any)  # type: ignore[no-redef]
+def affine_transform(t: AffineGroupElement, v: Any) -> Any:
+    """
+    Apply a Affine transform to a transformable object.
+
+    Affine transform is described by the transformation of elements based on
+    their base `AffineSpace`.
+    """
+    raise NotImplementedError(
+        f"Transforming object of type {type(v)} by {type(t)} is not supported."
+    )
