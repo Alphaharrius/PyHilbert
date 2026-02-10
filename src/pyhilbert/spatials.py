@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Dict, cast
+from typing import Tuple, Optional, Dict
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -232,7 +232,10 @@ class Momentum(Offset, HasBase[ReciprocalLattice]):
 
     def base(self) -> ReciprocalLattice:
         """Get the `ReciprocalLattice` this `Momentum` is expressed in."""
-        return cast(ReciprocalLattice, self.space)
+        assert isinstance(self.space, ReciprocalLattice), (
+            "Momentum.space must be a ReciprocalLattice"
+        )
+        return self.space
 
     def rebase(self, space: ReciprocalLattice) -> "Momentum":  # type: ignore[override]
         """
