@@ -4,49 +4,15 @@ import sympy as sy
 from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
 from functools import lru_cache
 from itertools import product
-from typing import Tuple, Any, cast, Dict, Callable, ClassVar, Literal
+from typing import Tuple, cast, Literal
 import numpy as np
-from abc import ABC
+
+from .abstracts import AbstractTransform
 from .utils import FrozenDict, matchby
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
-
-
-@dataclass(frozen=True)
-class AbstractTransform(ABC):
-    _register_transform_method: ClassVar[Dict[Tuple[type, type], Callable]] = {}
-
-    @classmethod
-    def register_transform_method(cls, obj_type: type):
-        """Register a transform method for a specific object type."""
-
-        def decorator(func: Callable):
-            key = (obj_type, cls)
-            cls._register_transform_method[key] = func
-            return func
-
-        return decorator
-
-    def transform(self, obj: Any, **kwargs) -> Any:
-        transform_class = type(self)
-        obj_class = type(obj)
-        key = (obj_class, transform_class)
-
-        # Use the correct attribute name
-        callable = self._register_transform_method.get(key)
-
-        if callable is None:
-            raise NotImplementedError(
-                f"No transform registered for {obj_class.__name__} "
-                f"with {transform_class.__name__}"
-            )
-
-        return callable(self, obj, **kwargs)
-
-    def __call__(self, obj: Any, **kwargs) -> Any:
-        return self.transform(obj, **kwargs)
 
 
 @dataclass(frozen=True)
