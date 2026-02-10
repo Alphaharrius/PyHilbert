@@ -9,7 +9,7 @@ from functools import reduce
 import sympy as sy
 import numpy as np
 import torch
-from .precision import global_float_dtype, global_np_float_dtype
+from .precision import get_precision_config
 from sympy import ImmutableDenseMatrix, sympify
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, Plottable
@@ -99,6 +99,7 @@ class Lattice(AbstractLattice):
         Vectorized calculation of all site coordinates.
         Avoids running SymPy substitution inside the loop.
         """
+        precision = get_precision_config()
         basis_sym = self.basis
         if subs:
             basis_eval = basis_sym.subs(subs)
@@ -107,8 +108,8 @@ class Lattice(AbstractLattice):
 
         try:
             basis_mat = torch.tensor(
-                np.array(basis_eval).astype(global_np_float_dtype),
-                dtype=global_float_dtype,
+                np.array(basis_eval).astype(precision.np_float),
+                dtype=precision.torch_float,
             )
         except Exception as e:
             raise ValueError(
@@ -119,18 +120,18 @@ class Lattice(AbstractLattice):
 
         lat_reps = []
         for off in lat_offsets:
-            lat_reps.append(np.array(off.rep).flatten().astype(global_np_float_dtype))
+            lat_reps.append(np.array(off.rep).flatten().astype(precision.np_float))
 
         if not lat_reps:
             return torch.empty((0, self.dim))
 
         lat_tensor = torch.tensor(
-            np.array(lat_reps), dtype=global_float_dtype
+            np.array(lat_reps), dtype=precision.torch_float
         )  # (N_cells, Dim)
 
         basis_reps = []
         if not self.unit_cell:
-            basis_reps.append(np.zeros(self.dim, dtype=global_np_float_dtype))
+            basis_reps.append(np.zeros(self.dim, dtype=precision.np_float))
         else:
             sorted_unit_cell = sorted(self.unit_cell.items(), key=lambda x: str(x[0]))
             for _, site_offset in sorted_unit_cell:
@@ -138,11 +139,11 @@ class Lattice(AbstractLattice):
                 if subs:
                     site_vec = site_vec.subs(subs)
                 basis_reps.append(
-                    np.array(site_vec).flatten().astype(global_np_float_dtype)
+                    np.array(site_vec).flatten().astype(precision.np_float)
                 )
 
         basis_tensor = torch.tensor(
-            np.array(basis_reps), dtype=global_float_dtype
+            np.array(basis_reps), dtype=precision.torch_float
         )  # (N_basis, Dim)
 
         total_crystal = lat_tensor.unsqueeze(1) + basis_tensor.unsqueeze(0)

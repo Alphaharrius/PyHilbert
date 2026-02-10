@@ -1,30 +1,35 @@
-from typing import Literal, Tuple, Union
+from typing import Literal, Union
+from collections import namedtuple
 import numpy as np
 import torch
 
-global_float_dtype = torch.float64
-global_complex_dtype = torch.complex128
-global_np_float_dtype = np.dtype(np.float64)
-global_np_complex_dtype = np.dtype(np.complex128)
+_torch_float_dtype = torch.float64
+_torch_complex_dtype = torch.complex128
+_np_float_dtype = np.dtype(np.float64)
+_np_complex_dtype = np.dtype(np.complex128)
 
 PrecisionInput = Union[Literal["32", "64"], int, torch.dtype, np.dtype]
+
+PrecisionInfo = namedtuple(
+    "PrecisionInfo", ["torch_float", "torch_complex", "np_float", "np_complex"]
+)
 
 
 def _normalize_precision(
     precision: PrecisionInput,
-) -> Tuple[torch.dtype, torch.dtype, np.dtype, np.dtype]:
+) -> PrecisionInfo:
     """
     Normalize user precision input to (torch_float, torch_complex, np_float, np_complex).
     """
     if precision in ("32", 32):
-        return (
+        return PrecisionInfo(
             torch.float32,
             torch.complex64,
             np.dtype(np.float32),
             np.dtype(np.complex64),
         )
     if precision in ("64", 64):
-        return (
+        return PrecisionInfo(
             torch.float64,
             torch.complex128,
             np.dtype(np.float64),
@@ -36,14 +41,14 @@ def _normalize_precision(
     ):
         np_dt = np.dtype(precision)
         if np_dt in (np.dtype(np.float32), np.dtype(np.complex64)):
-            return (
+            return PrecisionInfo(
                 torch.float32,
                 torch.complex64,
                 np.dtype(np.float32),
                 np.dtype(np.complex64),
             )
         if np_dt in (np.dtype(np.float64), np.dtype(np.complex128)):
-            return (
+            return PrecisionInfo(
                 torch.float64,
                 torch.complex128,
                 np.dtype(np.float64),
@@ -52,14 +57,14 @@ def _normalize_precision(
 
     if isinstance(precision, torch.dtype):
         if precision in (torch.float32, torch.complex64):
-            return (
+            return PrecisionInfo(
                 torch.float32,
                 torch.complex64,
                 np.dtype(np.float32),
                 np.dtype(np.complex64),
             )
         if precision in (torch.float64, torch.complex128):
-            return (
+            return PrecisionInfo(
                 torch.float64,
                 torch.complex128,
                 np.dtype(np.float64),
@@ -76,27 +81,27 @@ def set_precision(
     """
     Sets default precision and updates global dtype references.
     """
-    global global_float_dtype, global_complex_dtype
-    global global_np_float_dtype, global_np_complex_dtype
+    global _torch_float_dtype, _torch_complex_dtype
+    global _np_float_dtype, _np_complex_dtype
 
-    float_dt, complex_dt, np_float_dt, np_complex_dt = _normalize_precision(precision)
+    precision_info = _normalize_precision(precision)
 
     if set_torch_default:
-        torch.set_default_dtype(float_dt)
+        torch.set_default_dtype(precision_info.torch_float)
 
-    global_float_dtype = float_dt
-    global_complex_dtype = complex_dt
-    global_np_float_dtype = np_float_dt
-    global_np_complex_dtype = np_complex_dt
+    _torch_float_dtype = precision_info.torch_float
+    _torch_complex_dtype = precision_info.torch_complex
+    _np_float_dtype = precision_info.np_float
+    _np_complex_dtype = precision_info.np_complex
 
 
-def get_precision_config() -> Tuple[torch.dtype, torch.dtype, np.dtype, np.dtype]:
+def get_precision_config() -> PrecisionInfo:
     """
     Returns current global precision config (torch_float, torch_complex, np_float, np_complex).
     """
-    return (
-        global_float_dtype,
-        global_complex_dtype,
-        global_np_float_dtype,
-        global_np_complex_dtype,
+    return PrecisionInfo(
+        _torch_float_dtype,
+        _torch_complex_dtype,
+        _np_float_dtype,
+        _np_complex_dtype,
     )
