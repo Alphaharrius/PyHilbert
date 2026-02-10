@@ -5,6 +5,7 @@ import plotly.figure_factory as ff  # type: ignore[import-untyped]
 from typing import Optional, List, Union, Dict
 from .abstracts import Plottable
 from .spatials import Lattice
+from .tensors import Tensor
 from .utils import compute_bonds
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
@@ -181,7 +182,7 @@ def plot_structure(
 
 @Plottable.register_plot_method("heatmap", backend="plotly")
 def plot_heatmap(
-    obj: Union[np.ndarray, torch.Tensor, object],
+    obj: Tensor,
     title: str = "Matrix Visualization",
     show: bool = True,
     **kwargs,
@@ -194,8 +195,8 @@ def plot_heatmap(
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        2D matrix to visualize.
+    obj : Tensor
+        2D Tensor to visualize.
     title : str, default "Matrix Visualization"
         Title of the plot.
     show : bool, default True
@@ -208,16 +209,12 @@ def plot_heatmap(
     plotly.graph_objects.Figure
         The Plotly figure.
     """
-    # 1. Standardize to PyTorch Tensor on CPU
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        tensor = obj.data.detach().cpu()
-    elif isinstance(obj, torch.Tensor):
-        tensor = obj.detach().cpu()
-    else:
-        tensor = torch.from_numpy(np.array(obj))
+    tensor = obj.data.detach().cpu()
 
     if tensor.ndim != 2:
-        raise ValueError(f"Heatmap requires a 2D matrix, got shape {tensor.shape}")
+        raise ValueError(
+            f"Heatmap requires a 2D Tensor, got shape {tuple(tensor.shape)}"
+        )
 
     is_complex = tensor.is_complex()
 

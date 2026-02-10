@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from typing import Optional, List, Union, Dict, Any, cast
 from .abstracts import Plottable
 from .spatials import Lattice
+from .tensors import Tensor
 from .utils import compute_bonds
 
 # --- Registered Plot Methods (Matplotlib Backend) ---
@@ -147,7 +148,7 @@ def plot_structure_mpl(
 
 @Plottable.register_plot_method("heatmap", backend="matplotlib")
 def plot_heatmap_mpl(
-    obj: Union[np.ndarray, torch.Tensor, object],
+    obj: Tensor,
     title: str = "Matrix Visualization",
     save_path: Optional[str] = None,
     **kwargs,
@@ -159,8 +160,8 @@ def plot_heatmap_mpl(
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        2D matrix to visualize.
+    obj : Tensor
+        2D Tensor to visualize.
     title : str, default "Matrix Visualization"
         Title of the figure.
     save_path : str, optional
@@ -173,16 +174,13 @@ def plot_heatmap_mpl(
     matplotlib.figure.Figure
         The generated Matplotlib figure.
     """
-    # Standardize input
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        tensor = obj.data.detach().cpu()
-    elif isinstance(obj, torch.Tensor):
-        tensor = obj.detach().cpu()
-    else:
-        tensor = torch.from_numpy(np.array(obj))
+
+    tensor = obj.data.detach().cpu()
 
     if tensor.ndim != 2:
-        raise ValueError(f"Heatmap requires a 2D matrix, got shape {tensor.shape}")
+        raise ValueError(
+            f"Heatmap requires a 2D Tensor, got shape {tuple(tensor.shape)}"
+        )
 
     is_complex = tensor.is_complex()
 
