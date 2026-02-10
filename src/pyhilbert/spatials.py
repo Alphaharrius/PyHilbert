@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from sympy import ImmutableDenseMatrix, sympify
 from .utils import FrozenDict
-from .abstracts import Operable, HasDual, Plottable
+from .abstracts import Operable, HasDual, HasBase, Plottable
 
 
 @dataclass(frozen=True)
@@ -161,7 +161,7 @@ class ReciprocalLattice(AbstractLattice):
 
 
 @dataclass(frozen=True)
-class Offset(Spatial):
+class Offset(Spatial, HasBase[AffineSpace]):
     rep: ImmutableDenseMatrix
     space: AffineSpace
 
@@ -215,7 +215,7 @@ class Offset(Spatial):
 
 
 @dataclass(frozen=True)
-class Momentum(Offset):
+class Momentum(Offset, HasBase[ReciprocalLattice]):
     def fractional(self) -> "Momentum":
         """
         Return the fractional coordinates of this Offset within its lattice space.

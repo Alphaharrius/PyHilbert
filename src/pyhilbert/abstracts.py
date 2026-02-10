@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from multipledispatch import dispatch
-from typing import Any, Callable, Dict, ClassVar, Tuple
+from typing import Any, Callable, Dict, ClassVar, Tuple, Generic, TypeVar
 
 
 @dataclass(frozen=True)
@@ -213,6 +213,30 @@ class HasDual(ABC):
     @property
     @abstractmethod
     def dual(self):
+        raise NotImplementedError()
+
+
+BaseType = TypeVar("BaseType")
+
+
+class HasBase(Generic[BaseType], ABC):
+    """
+    An object that is expressed in a specific base (basis/coordinate system).
+
+    "Base" here means the same thing you would mean for a vector: a basis (or
+    basis-like structure) that defines how the object's representation is
+    written. Examples include a vector's basis, a lattice/affine space's basis,
+    a function expanded in a basis of functions, or an operator expressed in a
+    particular coordinate frame.
+
+    The key idea is that the *mathematical object* is the same, but its
+    *representation* depends on the base. Implementations should therefore
+    provide `rebase(...)` to return a new equivalent object expressed in a new
+    base, without mutating the original.
+    """
+
+    @abstractmethod
+    def rebase(self, new_base: BaseType) -> "HasBase[BaseType]":
         raise NotImplementedError()
 
 
