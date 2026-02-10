@@ -7,7 +7,7 @@ from itertools import product
 from typing import Tuple, cast, Literal
 import numpy as np
 
-from .abstracts import AbstractTransform
+from .abstracts import Transform
 from .utils import FrozenDict, matchby
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
@@ -16,7 +16,7 @@ from .fourier import fourier_transform
 
 
 @dataclass(frozen=True)
-class BasisTransform(AbstractTransform):
+class BasisTransform(Transform):
     M: ImmutableDenseMatrix
 
     def __post_init__(self):
@@ -90,7 +90,7 @@ def lattice_transform(t: BasisTransform, lat: Lattice) -> Lattice:
 
 @BasisTransform.register_transform_method(ReciprocalLattice)
 def reciprocal_lattice_transform(
-    t: AbstractTransform, lat: ReciprocalLattice
+    t: Transform, lat: ReciprocalLattice
 ) -> ReciprocalLattice:
     """
     Generate the reciprocal lattice corresponding to the transformed direct lattice.
@@ -101,7 +101,7 @@ def reciprocal_lattice_transform(
 
 
 @BasisTransform.register_transform_method(Offset)
-def offset_transform(t: AbstractTransform, r: Offset) -> Offset:
+def offset_transform(t: Transform, r: Offset) -> Offset:
     """
 
     Transform an Offset by the basis transformation M.
@@ -111,7 +111,7 @@ def offset_transform(t: AbstractTransform, r: Offset) -> Offset:
 
 
 @BasisTransform.register_transform_method(Momentum)
-def momentum_transform(t: AbstractTransform, momentum: Momentum) -> Momentum:
+def momentum_transform(t: Transform, momentum: Momentum) -> Momentum:
     """
     Docstring for momentum_transform
 

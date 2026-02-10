@@ -217,7 +217,7 @@ class HasDual(ABC):
 
 
 @dataclass(frozen=True)
-class AbstractTransform(ABC):
+class Transform(ABC):
     _register_transform_method: ClassVar[Dict[Tuple[type, type], Callable]] = {}
 
     @classmethod
