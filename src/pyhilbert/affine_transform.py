@@ -258,6 +258,7 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
             basis_function_order=t.basis_function_order,
         )
 
+    @lru_cache
     def group_elements(self, max_order: int = 128) -> Tuple["AffineGroupElement", ...]:
         """
         Generate the cyclic group elements produced by this irrep.
