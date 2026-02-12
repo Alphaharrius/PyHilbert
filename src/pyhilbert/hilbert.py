@@ -1,13 +1,12 @@
-import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Tuple, TypeVar, Generic, Union
+from typing import Any, Tuple, TypeVar, Generic, Union, cast
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain, islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
-from .abstracts import Updatable
+from .abstracts import Updatable, Gaugable
 from .utils import FrozenDict
 from .spatials import (
     Spatial,
@@ -18,16 +17,19 @@ from .spatials import (
 
 
 @dataclass(frozen=True)
-class Mode(Spatial, Updatable):
+class Mode(Spatial, Updatable["Mode"], Gaugable):
     """
     Mode:
     - r: Real space offset of the mode (unit-cell offset + basis)
-    - orb: Symmetry information Orbital class (PointGroupBasis, eigenvalue)
     - spin: Spin information
     """
 
     count: int
     attr: FrozenDict
+
+    def attr_names(self) -> Tuple[str, ...]:
+        """Return the attribute names of this mode."""
+        return cast(Tuple[str, ...], tuple(self.attr.keys()))
 
     @dispatch(object)
     def __getitem__(self, v):
@@ -51,7 +53,7 @@ class Mode(Spatial, Updatable):
         _MISSING = object()
         for k, v in kwargs.items():
             old = updated_attr.get(k, _MISSING)
-            if isinstance(v, types.FunctionType):
+            if callable(v):
                 if old is _MISSING:
                     continue
                 updated_attr[k] = v(old)
@@ -347,10 +349,10 @@ class MomentumSpace(StateSpace[Momentum]):
 
 
 @dataclass(frozen=True)
-class HilbertSpace(StateSpace[Mode], Updatable):
+class HilbertSpace(StateSpace[Mode], Updatable["HilbertSpace"]):
     __hash__ = StateSpace.__hash__
 
-    def _updated(self, **kwargs):
+    def _updated(self, **kwargs) -> "HilbertSpace":
         updated_structure = {}
         for m, s in self.structure.items():
             if not isinstance(m, Mode):
@@ -361,7 +363,7 @@ class HilbertSpace(StateSpace[Mode], Updatable):
             updated_structure[updated_m] = s
 
         # Don't need StateSpace.restructure here since the slices are unchanged
-        return HilbertSpace(structure=updated_structure)
+        return HilbertSpace(structure=OrderedDict(updated_structure))
 
     def collect(self, *key: str) -> Tuple[Any, ...]:
         """

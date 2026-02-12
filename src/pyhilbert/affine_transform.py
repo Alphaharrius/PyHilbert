@@ -1,19 +1,19 @@
 from dataclasses import dataclass
-from typing import Any, NamedTuple, Tuple
+from typing import Tuple
 from collections import OrderedDict
 from itertools import product
-from functools import lru_cache, reduce
+from functools import lru_cache, partial, reduce
 
-from multipledispatch import dispatch
 import sympy as sy
 
-from .abstracts import HasBase, Transform
-from .spatials import AffineSpace, Spatial, Offset
+from .abstracts import HasBase, Transform, Gaugable, GaugeBasis, Gauged, GaugeInvariant
+from .spatials import AffineSpace, Spatial, Offset, Momentum
+from .hilbert import Mode
 from .utils import FrozenDict
 
 
 @dataclass(frozen=True)
-class AffineFunction(Spatial):
+class AffineFunction(Spatial, Gaugable, GaugeBasis):
     """
     Symbolic affine function expressed in a polynomial basis over given axes.
 
@@ -295,15 +295,18 @@ class AffineGroupElement(Transform, HasBase[AffineSpace]):
         return tuple(elements)
 
 
-class FunctionTransformResult(NamedTuple):
-    func: AffineFunction
-    phase: sy.Expr
+@AffineGroupElement.register_transform_method(GaugeInvariant)
+def _affine_transform_gauge_invariant(
+    t: AffineGroupElement, v: GaugeInvariant
+) -> Gauged[GaugeInvariant, sy.Expr]:
+    """Apply an affine group element to a gauge-invariant object."""
+    return Gauged(gaugable=v, gauge=sy.Integer(1))
 
 
-@dispatch(AffineGroupElement, AffineFunction)
-def affine_transform(
+@AffineGroupElement.register_transform_method(AffineFunction)
+def _affine_transform_affine_function(
     t: AffineGroupElement, f: AffineFunction
-) -> FunctionTransformResult:
+) -> Gauged[AffineFunction, sy.Expr]:
     """
     Apply an affine group element to a basis function and extract its phase factor.
 
@@ -329,11 +332,11 @@ def affine_transform(
 
     Returns
     -------
-    `FunctionTransformResult`
+    `Gauged[AffineFunction, sy.Expr]`
         A named tuple containing:
-        - `func`: The original `AffineFunction` (unchanged).
-        - `phase`: The symbolic phase factor (sy.Expr) such that
+        - `gauge`: The symbolic phase factor (sy.Expr) such that
           `t.rep @ f.rep == phase * f.rep`.
+        - `gaugable`: The original `AffineFunction` (unchanged).
 
     Raises
     ------
@@ -375,14 +378,11 @@ def affine_transform(
     if phase is None:
         raise ValueError(f"{f} is a trivial basis function: zero")
 
-    return FunctionTransformResult(func=f, phase=phase)
+    return Gauged(gauge=phase, gaugable=f)
 
 
-AffineGroupElement.register_transform_method(AffineFunction)(affine_transform)
-
-
-@dispatch(AffineGroupElement, Offset)  # type: ignore[no-redef]
-def affine_transform(t: AffineGroupElement, offset: Offset) -> Offset:
+@AffineGroupElement.register_transform_method(Offset)
+def _affine_transform_offset(t: AffineGroupElement, offset: Offset) -> Offset:
     """
     Apply an affine group element to a spatial Offset using homogeneous coordinates.
 
@@ -395,16 +395,16 @@ def affine_transform(t: AffineGroupElement, offset: Offset) -> Offset:
 
     Parameters
     ----------
-    t : AffineGroupElement
+    `t` : `AffineGroupElement`
         The affine group element to apply. If its internal `offset.space` does
         not match `offset.space`, the transform is rebased to the Offset's space.
-    offset : Offset
+    `offset` : `Offset`
         The spatial offset (column vector) to transform.
 
     Returns
     -------
-    Offset
-        A new Offset expressed in the same AffineSpace as the input `offset`.
+    `Offset`
+        A new `Offset` expressed in the same `AffineSpace` as the input `offset`.
 
     Notes
     -----
@@ -426,17 +426,130 @@ def affine_transform(t: AffineGroupElement, offset: Offset) -> Offset:
     return Offset(rep=sy.ImmutableDenseMatrix(new_rep), space=offset.space)
 
 
-AffineGroupElement.register_transform_method(Offset)(affine_transform)
-
-
-@dispatch(AffineGroupElement, Any)  # type: ignore[no-redef]
-def affine_transform(t: AffineGroupElement, v: Any) -> Any:
+@AffineGroupElement.register_transform_method(Momentum)
+def _affine_transform_momentum(t: AffineGroupElement, k: Momentum) -> Momentum:
     """
-    Apply a Affine transform to a transformable object.
+    Apply an affine group element to a Momentum in fractional reciprocal coordinates.
 
-    Affine transform is described by the transformation of elements based on
-    their base `AffineSpace`.
+    This implementation assumes:
+    - `k.rep` stores fractional coordinates in the reciprocal lattice basis
+      (values typically in [0, 1) per component).
+    - The affine group's linear part is expressed in the *physical* real-space
+      basis of `t.base()` via `t.affine_rep`.
+    - Translations do not act on momenta, so only the linear part is used.
+
+    Let:
+    - `R_phys` be the real-space linear map in physical coordinates,
+      i.e. the top-left block of `t.affine_rep`.
+    - `G` be the reciprocal lattice basis (columns), `G = k.base().basis`.
+      In this codebase `G = 2π * B^{-T}` for real-space basis `B`.
+    - `k_frac` be the fractional reciprocal coordinates (`k.rep`).
+
+    Then physical momentum is `k_phys = G * k_frac`, and it transforms as
+    `k_phys' = (R_phys^{-1})^T * k_phys` (contravariant rule).
+    Mapping back to fractional coordinates gives:
+
+        k_frac' = G^{-1} * (R_phys^{-1})^T * G * k_frac
+
+    The `2π` factor in `G` cancels with `G^{-1}`, so it does not appear explicitly.
+    The output is wrapped with `.fractional()` to keep components in the first
+    Brillouin zone.
+
+    Parameters
+    ----------
+    `t` : `AffineGroupElement`
+        The affine group element to apply. If its base affine space does not
+        match the real-space dual of `k`, it is rebased accordingly.
+    `k` : `Momentum`
+        The momentum expressed in fractional reciprocal coordinates of its
+        reciprocal lattice basis.
+
+    Returns
+    -------
+    `Momentum`
+        The transformed momentum in the same reciprocal lattice space as `k`,
+        wrapped into the first Brillouin zone via `.fractional()`.
     """
-    raise NotImplementedError(
-        f"Transforming object of type {type(v)} by {type(t)} is not supported."
-    )
+    real_space = k.base().dual.affine
+    if t.base() != real_space:
+        t = t.rebase(real_space)
+
+    linear_rep = t.affine_rep[:-1, :-1]
+    if not isinstance(linear_rep, sy.ImmutableDenseMatrix):
+        linear_rep = sy.ImmutableDenseMatrix(linear_rep)
+
+    # Transform fractional reciprocal coordinates using
+    # k_frac' = G^{-1} * (R_phys^{-1})^T * G * k_frac
+    recip_basis = k.base().basis
+    if not isinstance(recip_basis, sy.ImmutableDenseMatrix):
+        recip_basis = sy.ImmutableDenseMatrix(recip_basis)
+    recip_basis_inv = recip_basis.inv()
+    reciprocal_rep = recip_basis_inv @ linear_rep.inv().T @ recip_basis
+
+    rep = k.rep
+    if not isinstance(rep, sy.ImmutableDenseMatrix):
+        rep = sy.ImmutableDenseMatrix(rep)
+    new_rep = reciprocal_rep @ rep
+    return Momentum(rep=sy.ImmutableDenseMatrix(new_rep), space=k.base()).fractional()
+
+
+@AffineGroupElement.register_transform_method(Gaugable, order="back")
+def _affine_transform_gaugable(
+    t: AffineGroupElement, v: Gaugable
+) -> Gauged[Gaugable, sy.Expr]:
+    """Transform a gaugable object by updating its gauge phase.
+
+    Parameters
+    ----------
+    `t` : `AffineGroupElement`
+        Affine symmetry operation applied to the gauge representation of `v`.
+        The operation is evaluated through `t.transform(...)`, and only its
+        gauge phase contribution is used by this method.
+    `v` : `Gaugable`
+        Object that provides a gauge representation via `.gauge_repr()`. The
+        original value is preserved and wrapped in a `Gauged` container.
+
+    Returns
+    -------
+    `Gauged[Gaugable, sy.Expr]`
+        A gauged wrapper whose `gaugable` field is the original input `v` and
+        whose `gauge` field is the phase returned by transforming `v`'s gauge
+        representation with `t`.
+    """
+    basis = v.gauge_repr()
+    phase, _ = t.transform(basis)
+    return Gauged(gaugable=v, gauge=phase)
+
+
+def _optional_transform_mode_attr(t: AffineGroupElement, v: Mode):
+    """Transform a Mode attribute if the transform allows it."""
+    if not t.allows(v):
+        return v
+    return t.transform(v)
+
+
+@AffineGroupElement.register_transform_method(Mode, order="front")
+def _affine_transform_mode(t: AffineGroupElement, m: Mode) -> Mode:
+    """Apply an affine transformation to each transformable attribute of a mode.
+
+    Parameters
+    ----------
+    `t` : `AffineGroupElement`
+        Affine transformation to apply. For each attribute in `m`, this
+        function checks `t.allows(attr)` and applies `t.transform(attr)` only
+        when that attribute is supported by the transform.
+    `m` : `Mode`
+        Input mode whose named attributes are visited and conditionally
+        transformed.
+
+    Returns
+    -------
+    `Mode`
+        A mode instance with the same attribute structure as `m`, where each
+        attribute is transformed by `t` if allowed, and left unchanged
+        otherwise.
+    """
+    attr_names = m.attr_names()
+    func = partial(_optional_transform_mode_attr, t)
+    apply = {name: func for name in attr_names}
+    return m.update(**apply)

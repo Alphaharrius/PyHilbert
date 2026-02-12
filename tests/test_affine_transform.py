@@ -4,7 +4,6 @@ from sympy import ImmutableDenseMatrix
 from pyhilbert.affine_transform import (
     AffineFunction,
     AffineGroupElement,
-    affine_transform,
 )
 from pyhilbert.spatials import AffineSpace, Offset
 
@@ -108,8 +107,8 @@ def test_affine_group_basis_keys_match_eigenvalues():
         assert func.axes == (x, y)
         assert func.order == 1
         assert t.rep @ func.rep == val * func.rep
-        result = affine_transform(t, func)
-        assert result.phase == val
+        result = t(func)
+        assert result.gauge == val
 
 
 def test_affine_transform_eigenfunction_phase():
@@ -120,8 +119,8 @@ def test_affine_transform_eigenfunction_phase():
         irrep=irrep, axes=(x,), offset=offset, basis_function_order=1
     )
     f = AffineFunction(expr=x, axes=(x,), order=1, rep=ImmutableDenseMatrix([1]))
-    result = affine_transform(t, f)
-    assert result.phase == -1
+    result = t(f)
+    assert result.gauge == -1
 
 
 def test_affine_transform_non_eigenfunction_raises():
@@ -138,7 +137,7 @@ def test_affine_transform_non_eigenfunction_raises():
         rep=ImmutableDenseMatrix([1, 1]),
     )
     try:
-        affine_transform(t, f)
+        t(f)
         assert False, "Expected ValueError for non-eigenfunction."
     except ValueError:
         pass
@@ -153,7 +152,7 @@ def test_affine_transform_axes_mismatch_raises():
     )
     f = AffineFunction(expr=y, axes=(y,), order=1, rep=ImmutableDenseMatrix([1]))
     try:
-        affine_transform(t, f)
+        t(f)
         assert False, "Expected ValueError for axes mismatch."
     except ValueError:
         pass
@@ -167,8 +166,8 @@ def test_affine_transform_order_mismatch_rebuilds():
         irrep=irrep, axes=(x,), offset=offset, basis_function_order=1
     )
     f = AffineFunction(expr=x**2, axes=(x,), order=2, rep=ImmutableDenseMatrix([1]))
-    result = affine_transform(t, f)
-    assert result.phase == 4
+    result = t(f)
+    assert result.gauge == 4
 
 
 def test_affine_transform_zero_basis_vector_raises():
@@ -180,7 +179,7 @@ def test_affine_transform_zero_basis_vector_raises():
     )
     f = AffineFunction(expr=0, axes=(x,), order=1, rep=ImmutableDenseMatrix([0]))
     try:
-        affine_transform(t, f)
+        t(f)
         assert False, "Expected ValueError for zero basis vector."
     except ValueError:
         pass
@@ -197,7 +196,7 @@ def test_affine_transform_offset_identity_same_space():
         basis_function_order=1,
     )
     offset = Offset(rep=ImmutableDenseMatrix([3, -4]), space=space)
-    result = affine_transform(t, offset)
+    result = t(offset)
     assert result.space == space
     assert result.rep == offset.rep
 
@@ -213,7 +212,7 @@ def test_affine_transform_offset_translation_only():
         basis_function_order=1,
     )
     offset = Offset(rep=ImmutableDenseMatrix([3, 4]), space=space)
-    result = affine_transform(t, offset)
+    result = t(offset)
     assert result.rep == ImmutableDenseMatrix([4, 6])
 
 
@@ -228,7 +227,7 @@ def test_affine_transform_offset_linear_only():
         basis_function_order=1,
     )
     offset = Offset(rep=ImmutableDenseMatrix([2, 3]), space=space)
-    result = affine_transform(t, offset)
+    result = t(offset)
     assert result.rep == irrep @ offset.rep
 
 
@@ -243,7 +242,7 @@ def test_affine_transform_offset_linear_and_translation():
         basis_function_order=1,
     )
     offset = Offset(rep=ImmutableDenseMatrix([3, 4]), space=space)
-    result = affine_transform(t, offset)
+    result = t(offset)
     expected = irrep @ offset.rep + ImmutableDenseMatrix([1, 2])
     assert result.rep == expected
 
@@ -260,7 +259,7 @@ def test_affine_transform_offset_rebase_transform_keeps_input_space():
         basis_function_order=1,
     )
     offset = Offset(rep=ImmutableDenseMatrix([1, 1]), space=space_b)
-    result = affine_transform(t, offset)
+    result = t(offset)
 
     t_b = t.rebase(space_b)
     hom = offset.rep.col_join(sy.ones(1, 1))
@@ -286,10 +285,10 @@ def test_affine_transform_with_nontrivial_origin_matches_original_action():
 
     target_prime = Offset(rep=target.rep - origin.rep, space=space)
     t_prime = t.with_origin(origin)
-    result_prime = affine_transform(t_prime, target_prime)
+    result_prime = t_prime(target_prime)
     result = Offset(rep=result_prime.rep + origin.rep, space=space)
 
-    expected = affine_transform(t, target)
+    expected = t(target)
     assert result.rep == expected.rep
 
 
@@ -311,9 +310,37 @@ def test_affine_transform_with_origin_at_fixed_point_keeps_origin_fixed():
     t_prime = t.with_origin(origin)
 
     target_prime = Offset(rep=ImmutableDenseMatrix([0, 0]), space=space)
-    result_prime = affine_transform(t_prime, target_prime)
+    result_prime = t_prime(target_prime)
     result = Offset(rep=result_prime.rep + origin.rep, space=space)
     assert result.rep == origin.rep
+
+
+def test_affine_group_element_order_c3_c4():
+    x, y = sy.symbols("x y")
+    space, _ = _space_and_offset(2)
+    zero = Offset(rep=ImmutableDenseMatrix([0, 0]), space=space)
+
+    # C4: 90-degree rotation.
+    irrep_c4 = ImmutableDenseMatrix([[0, -1], [1, 0]])
+    c4 = AffineGroupElement(
+        irrep=irrep_c4,
+        axes=(x, y),
+        offset=zero,
+        basis_function_order=1,
+    )
+    assert len(c4.group_elements(max_order=8)) == 4
+
+    # C3: 120-degree rotation.
+    cos = sy.Rational(-1, 2)
+    sin = sy.sqrt(3) / 2
+    irrep_c3 = ImmutableDenseMatrix([[cos, -sin], [sin, cos]])
+    c3 = AffineGroupElement(
+        irrep=irrep_c3,
+        axes=(x, y),
+        offset=zero,
+        basis_function_order=1,
+    )
+    assert len(c3.group_elements(max_order=8)) == 3
 
 
 def test_affine_transform_offset_one_dimensional():
@@ -326,7 +353,7 @@ def test_affine_transform_offset_one_dimensional():
         basis_function_order=1,
     )
     offset = Offset(rep=ImmutableDenseMatrix([5]), space=space)
-    result = affine_transform(t, offset)
+    result = t(offset)
     assert result.rep == ImmutableDenseMatrix([17])
 
 
@@ -347,5 +374,5 @@ def test_affine_transform_offset_fixed_point_invariant():
     p = R_minus_I.inv() @ (-t_offset)
     fixed = Offset(rep=ImmutableDenseMatrix(p), space=space)
 
-    result = affine_transform(t, fixed)
+    result = t(fixed)
     assert result.rep == fixed.rep
