@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Dict, Literal, Tuple, cast
 from collections import OrderedDict
 from itertools import product
 from functools import lru_cache, partial, reduce
@@ -8,7 +8,9 @@ import sympy as sy
 
 from .abstracts import HasBase, Functional, Gaugable, GaugeBasis, Gauged, GaugeInvariant
 from .spatials import AffineSpace, Spatial, Offset, Momentum
-from .hilbert import Mode
+from .hilbert import Mode, MomentumSpace, HilbertSpace, hilbert
+from .tensors import Tensor, mapping_matrix
+from .fourier import fourier_transform
 from .utils import FrozenDict
 
 
@@ -553,3 +555,108 @@ def _affine_transform_mode(t: AffineGroupElement, m: Mode) -> Mode:
     func = partial(_optional_transform_mode_attr, t)
     apply = {name: func for name in attr_names}
     return m.update(**apply)
+
+
+@AffineGroupElement.register(HilbertSpace)
+def _affine_transform_hilbert(t: AffineGroupElement, h: HilbertSpace) -> Tensor:
+    mode_to_gauged: Dict[Mode, Gauged[Mode, sy.Expr]] = {
+        m: cast(Gauged[Mode, sy.Expr], t(m)) for m in h
+    }
+    gauge_table: Dict[Tuple[Mode, Mode], sy.Expr] = {
+        (m, cast(Mode, gauged.gaugable)): gauged.gauge
+        for m, gauged in mode_to_gauged.items()
+    }
+    mode_mapping: Dict[Mode, Mode] = {m: gm for m, gm in gauge_table.keys()}
+    gh = hilbert(m for m in mode_mapping.values())
+
+    tmat = mapping_matrix(h, gh, mode_mapping)  # (h, gh)
+    return tmat
+
+
+def bandtransform(
+    t: AffineGroupElement,
+    tensor: Tensor,
+    opt: Literal["left", "right", "both"] = "both",
+) -> Tensor:
+    """
+    Apply an affine symmetry action to a momentum-resolved operator tensor.
+
+    The expected tensor shape is `(K, B_left, B_right)` where `K` is a
+    `MomentumSpace` and `B_left`, `B_right` are `HilbertSpace`s. Depending on
+    `opt`, this function applies the symmetry-induced basis transform on the
+    left side, right side, or both sides of the band tensor.
+
+    For each transformed side, a k-dependent matrix is built from:
+    - the affine action on the Hilbert space basis (`t(space)`), and
+    - Fourier transforms that connect Bloch and real-space sectors.
+
+    Momentum handling:
+    - The k action is treated as a relabeling/permutation of sectors.
+    - We align the k-axis of the transform tensors to the canonical `kspace`
+      ordering before multiplication.
+    - The input tensor itself is not pre-remapped in k; remapping is used only
+      to align transform blocks with each momentum sector.
+
+    Parameters
+    ----------
+    `t` : `AffineGroupElement`
+        Affine transformation to apply.
+    `tensor` : `Tensor`
+        Momentum-space tensor with dims
+        `(MomentumSpace, HilbertSpace, HilbertSpace)`.
+    `opt` : `Literal["left", "right", "both"]`, default `"both"`
+        Which side(s) to transform.
+
+    Returns
+    -------
+    `Tensor`
+        The transformed tensor with the same dimension types.
+
+    Raises
+    ------
+    `ValueError`
+        If `opt` is invalid or a Hilbert space is not symmetry-compatible
+        with `t`.
+    """
+    if opt not in ("both", "left", "right"):
+        raise ValueError(f"Invalid option {opt} for bandtransform!")
+
+    kspace: MomentumSpace = cast(MomentumSpace, tensor.dims[0])
+
+    def build_transform(space: HilbertSpace) -> Tensor:
+        bloch_transform: Tensor = cast(Tensor, t(space)).h(-2, -1)  # (B', B)
+        # The transformation will distort the unit-cell of the Hilbert space,
+        # we will use fractional to return it to the original unit-cell.
+        bloch_transform = bloch_transform.replace_dim(
+            0, cast(HilbertSpace, bloch_transform.dims[0]).update(r=Offset.fractional)
+        )  # (B'=B, B)
+        gspace = cast(HilbertSpace, bloch_transform.dims[0])
+        if not space.same_span(gspace):
+            raise ValueError(
+                f"Hilbert space {space} is not symmetric under the transform {t}!"
+            )
+        left_fourier = fourier_transform(kspace, space, gspace)  # (K, B, B'=B)
+        right_fourier = fourier_transform(kspace, space, space)  # (K, B, B)
+        # (K, B, B'=B) @ (B'=B, B) @ (B, B)
+        transform = (
+            left_fourier @ bloch_transform @ right_fourier.h(-2, -1)
+        )  # (K, B, B)
+        return transform
+
+    mapped_kspace = kspace.map(lambda k: cast(Momentum, t(k)).fractional())
+
+    if opt in ("both", "left"):
+        left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
+        left_fourier = left_fourier.replace_dim(0, mapped_kspace).align(
+            0, kspace
+        )  # (K, B, B)
+        tensor = cast(Tensor, (left_fourier @ tensor))  # (K, B, B)
+
+    if opt in ("both", "right"):
+        right_fourier = build_transform(cast(HilbertSpace, tensor.dims[2]))  # (K, B, B)
+        right_fourier = right_fourier.replace_dim(0, mapped_kspace).align(
+            0, kspace
+        )  # (K, B, B)
+        tensor = cast(Tensor, (tensor @ right_fourier.h(-2, -1)))  # (K, B, B)
+
+    return tensor

@@ -1,11 +1,20 @@
 import sympy as sy
+import torch
 from sympy import ImmutableDenseMatrix
+from typing import cast
 
 from pyhilbert.affine_transform import (
     AffineFunction,
     AffineGroupElement,
+    bandtransform,
 )
-from pyhilbert.spatials import AffineSpace, Offset
+from pyhilbert.fourier import fourier_transform
+from pyhilbert.hilbert import HilbertSpace, MomentumSpace
+from pyhilbert.hilbert import Mode, brillouin_zone, hilbert
+from pyhilbert.spatials import AffineSpace, Momentum, Offset
+from pyhilbert.spatials import Lattice
+from pyhilbert.tensors import Tensor
+from pyhilbert.utils import FrozenDict
 
 
 def _space_and_offset(dim: int):
@@ -376,3 +385,101 @@ def test_affine_transform_offset_fixed_point_invariant():
 
     result = t(fixed)
     assert result.rep == fixed.rep
+
+
+def test_bandtransform_both_preserves_c4_symmetric_momentum_tensor_up_to_alignment():
+    x, y = sy.symbols("x y")
+
+    # Square lattice with a 2x2 momentum grid: (0,0), (0,1/2), (1/2,0), (1/2,1/2).
+    lattice = Lattice(basis=ImmutableDenseMatrix.eye(2), shape=(2, 2))
+    k_space = brillouin_zone(lattice.dual)
+
+    # Single-orbital Hilbert space in a square unit cell.
+    r0 = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
+    h_space = hilbert([Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))])
+
+    # C4-symmetric dispersion: e(k) = cos(2*pi*kx) + cos(2*pi*ky).
+    energies = []
+    for k in k_space.elements():
+        kx = float(k.rep[0])
+        ky = float(k.rep[1])
+        e = sy.N(sy.cos(2 * sy.pi * kx) + sy.cos(2 * sy.pi * ky))
+        energies.append(float(e))
+    data = torch.tensor(energies, dtype=torch.complex128).reshape(k_space.dim, 1, 1)
+    tensor_in = Tensor(data=data, dims=(k_space, h_space, h_space))
+
+    # C4 rotation in real space.
+    c4 = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine),
+        basis_function_order=1,
+    )
+
+    tensor_out = bandtransform(c4, tensor_in, opt="both")
+    tensor_out = tensor_out.align(0, k_space).align(1, h_space).align(2, h_space)
+
+    assert torch.allclose(tensor_out.data, tensor_in.data)
+
+
+def test_bandtransform_both_matches_explicit_k_aligned_reference():
+    x, y = sy.symbols("x y")
+
+    lattice = Lattice(basis=ImmutableDenseMatrix.eye(2), shape=(2, 2))
+    k_space = brillouin_zone(lattice.dual)
+
+    # Two orbitals exchanged by C4 around origin.
+    r_x = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2), 0]), space=lattice.affine)
+    r_y = Offset(rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine)
+    m_x = Mode(count=1, attr=FrozenDict({"r": r_x, "orb": "p"}))
+    m_y = Mode(count=1, attr=FrozenDict({"r": r_y, "orb": "p"}))
+    h_space = hilbert([m_x, m_y])
+
+    # k-dependent nontrivial 2x2 tensor so wrong k-block matching is visible.
+    data = torch.zeros((k_space.dim, 2, 2), dtype=torch.complex128)
+    for n, k in enumerate(k_space.elements()):
+        kx = float(k.rep[0])
+        ky = float(k.rep[1])
+        phase_x = torch.exp(torch.tensor(-2j * torch.pi * kx, dtype=torch.complex128))
+        phase_y = torch.exp(torch.tensor(-2j * torch.pi * ky, dtype=torch.complex128))
+        data[n, 0, 0] = 0.3 + 0.1 * n
+        data[n, 1, 1] = -0.2 + 0.05j * (n + 1)
+        data[n, 0, 1] = 1.0 + 0.4 * phase_x + 0.2j * phase_y
+        data[n, 1, 0] = -0.6 + 0.3j * phase_y.conj() + 0.1 * phase_x.conj()
+    tensor_in = Tensor(data=data, dims=(k_space, h_space, h_space))
+
+    c4 = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine),
+        basis_function_order=1,
+    )
+
+    def _build_transform_ref(space: HilbertSpace, kspace: MomentumSpace) -> Tensor:
+        bloch_transform = cast(Tensor, c4(space)).h(-2, -1)  # (B', B)
+        bloch_transform = bloch_transform.replace_dim(
+            0, cast(HilbertSpace, bloch_transform.dims[0]).update(r=Offset.fractional)
+        )
+        gspace = cast(HilbertSpace, bloch_transform.dims[0])
+        left_fourier = fourier_transform(kspace, space, gspace)
+        right_fourier = fourier_transform(kspace, space, space)
+        return cast(Tensor, left_fourier @ bloch_transform @ right_fourier.h(-2, -1))
+
+    mapped_kspace = k_space.map(lambda k: cast(Momentum, c4(k)).fractional())
+    left_ref = (
+        _build_transform_ref(h_space, k_space)
+        .replace_dim(0, mapped_kspace)
+        .align(0, k_space)
+    )
+    right_ref = (
+        _build_transform_ref(h_space, k_space)
+        .replace_dim(0, mapped_kspace)
+        .align(0, k_space)
+    )
+    tensor_ref = cast(Tensor, (left_ref @ tensor_in @ right_ref.h(-2, -1)))
+
+    tensor_out = bandtransform(c4, tensor_in, opt="both")
+    tensor_out = tensor_out.align(0, k_space).align(1, h_space).align(2, h_space)
+    tensor_ref = tensor_ref.align(0, k_space).align(1, h_space).align(2, h_space)
+
+    assert torch.allclose(tensor_out.data, tensor_ref.data)

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, replace, field
-from typing import Any, Tuple, TypeVar, Generic, Union, cast
+from typing import Any, Callable, Tuple, TypeVar, Generic, Union, cast
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
@@ -168,6 +168,42 @@ class StateSpace(Spatial, Generic[TSpatial]):
         raise TypeError(
             f"StateSpace indices must be int, slice, or range, not {type(v)}"
         )
+
+    def same_span(self, other: "StateSpace") -> bool:
+        """
+        Check if this state space has the same span as another, i.e., they have the same set of spatial keys regardless of order.
+
+        Parameters
+        ----------
+        `other` : `StateSpace`
+            The other state space to compare against.
+
+        Returns
+        -------
+        `bool`
+            `True` if both state spaces have the same span, `False` otherwise.
+        """
+        return same_span(self, other)
+
+    def map(self, func: Callable[[TSpatial], TSpatial]) -> "StateSpace[TSpatial]":
+        """
+        Map the spatial elements of this state space using a provided function.
+
+        Parameters
+        ----------
+        `func` : `Callable[[TSpatial], TSpatial]`
+            A function that takes a spatial element and returns a transformed spatial element.
+
+        Returns
+        -------
+        `StateSpace[TSpatial]`
+            A new state space with the transformed spatial elements.
+        """
+        new_structure = OrderedDict()
+        for k, s in self.structure.items():
+            new_k = func(k)
+            new_structure[new_k] = s
+        return replace(self, structure=restructure(new_structure))
 
 
 def restructure(
