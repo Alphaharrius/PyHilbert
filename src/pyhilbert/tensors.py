@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from collections import OrderedDict
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
+from .precision import get_precision_config
 from functools import wraps
 
 from .abstracts import Operable, Plottable
@@ -999,7 +1000,8 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
 def mapping_matrix(
     from_space: StateSpace, to_space: StateSpace, mapping: Dict[Any, Any]
 ) -> Tensor:
-    mat = torch.zeros((from_space.dim, to_space.dim), dtype=torch.complex128)
+    precision = get_precision_config()
+    mat = torch.zeros((from_space.dim, to_space.dim), dtype=precision.torch_complex)
     for fm, tm in mapping.items():
         fslice = from_space.get_slice(fm)
         tslice = to_space.get_slice(tm)

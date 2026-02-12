@@ -5,6 +5,7 @@ from multipledispatch import dispatch
 
 import numpy as np
 import torch
+from .precision import get_precision_config
 
 from .spatials import Momentum, Offset
 from .hilbert import MomentumSpace, HilbertSpace, Mode
@@ -34,11 +35,18 @@ def fourier_transform(K: Tuple[Momentum, ...], R: Tuple[Offset, ...]) -> torch.T
         Complex tensor of shape `(len(K), len(R))` with elements
         `exp(-2π i k·r)`.
     """
+    precision = get_precision_config()
     ten_K = torch.from_numpy(  # (K, d)
-        np.stack([np.array(k.rep, dtype=np.float64).reshape(-1) for k in K], axis=0)
+        np.stack(
+            [np.array(k.rep, dtype=precision.np_float).reshape(-1) for k in K],
+            axis=0,
+        )
     )
     ten_R = torch.from_numpy(  # (d, R)
-        np.stack([np.array(r.rep, dtype=np.float64).reshape(-1) for r in R], axis=1)
+        np.stack(
+            [np.array(r.rep, dtype=precision.np_float).reshape(-1) for r in R],
+            axis=1,
+        )
     )
     exponent = -2j * np.pi * torch.matmul(ten_K, ten_R)  # (K, R)
     return torch.exp(exponent)  # (K, R)
