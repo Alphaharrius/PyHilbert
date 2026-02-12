@@ -8,6 +8,7 @@ from pyhilbert.affine_transform import (
     AffineGroupElement,
     bandtransform,
 )
+from pyhilbert.abstracts import Gauged
 from pyhilbert.fourier import fourier_transform
 from pyhilbert.hilbert import HilbertSpace, MomentumSpace
 from pyhilbert.hilbert import Mode, brillouin_zone, hilbert
@@ -385,6 +386,79 @@ def test_affine_transform_offset_fixed_point_invariant():
 
     result = t(fixed)
     assert result.rep == fixed.rep
+
+
+def test_affine_transform_momentum_c4_ignores_translation_and_wraps_fractional():
+    x, y = sy.symbols("x y")
+    lattice = Lattice(basis=ImmutableDenseMatrix.eye(2), shape=(4, 4))
+    recip = lattice.dual
+
+    # Include non-zero translation; momentum transform should use only linear part.
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([2, -3]), space=lattice.affine),
+        basis_function_order=1,
+    )
+    k = Momentum(rep=ImmutableDenseMatrix([sy.Rational(1, 4), 0]), space=recip)
+
+    out = t(k)
+    assert isinstance(out, Momentum)
+    assert out.space == recip
+    assert out.rep == ImmutableDenseMatrix([0, sy.Rational(1, 4)])
+
+
+def test_affine_transform_mode_transforms_supported_attrs_only():
+    x, y = sy.symbols("x y")
+    lattice = Lattice(basis=ImmutableDenseMatrix.eye(2), shape=(2, 2))
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine),
+        basis_function_order=1,
+    )
+
+    r = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2), 0]), space=lattice.affine)
+    m = Mode(count=1, attr=FrozenDict({"r": r, "orb": "p"}))
+    out = t(m)
+
+    assert isinstance(out, Gauged)
+    assert out.gauge == 1
+    out_mode = cast(Mode, out.gaugable)
+    assert out_mode.count == m.count
+    assert out_mode["orb"] == "p"  # non-transformable attribute preserved
+    assert out_mode["r"] == Offset(
+        rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine
+    )
+
+
+def test_affine_transform_hilbert_c4_mode_mapping():
+    x, y = sy.symbols("x y")
+    lattice = Lattice(basis=ImmutableDenseMatrix.eye(2), shape=(2, 2))
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine),
+        basis_function_order=1,
+    )
+
+    r_x = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2), 0]), space=lattice.affine)
+    r_y = Offset(rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine)
+    m_x = Mode(count=1, attr=FrozenDict({"r": r_x, "orb": "p"}))
+    m_y = Mode(count=1, attr=FrozenDict({"r": r_y, "orb": "p"}))
+    h = hilbert([m_x, m_y])
+
+    tmat = cast(Tensor, t(h))
+    assert tmat.dims[0] == h
+
+    # The transformed Hilbert space is built from transformed modes directly
+    # (no fractional wrap in _affine_transform_hilbert).
+    gh_expected = hilbert(cast(Mode, cast(Gauged, t(m)).gaugable) for m in h)
+    assert tmat.dims[1] == gh_expected
+
+    # mapping_matrix(h, gh_expected, mode_mapping) is identity for this construction.
+    expected = torch.eye(2, dtype=torch.complex128)
+    assert torch.allclose(tmat.data, expected)
 
 
 def test_bandtransform_both_preserves_c4_symmetric_momentum_tensor_up_to_alignment():
