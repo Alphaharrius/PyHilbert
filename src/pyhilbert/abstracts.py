@@ -285,23 +285,19 @@ class HasBase(Generic[BaseType], ABC):
 
 
 @dataclass(frozen=True)
-class Transform(ABC):
-    _register_transform_method: ClassVar[
-        Dict[Tuple[type, type], Tuple[Callable, ...]]
-    ] = {}
+class Functional(ABC):
+    _registered_methods: ClassVar[Dict[Tuple[type, type], Tuple[Callable, ...]]] = {}
     _overwrite_locked_by_subclass: ClassVar[Set[Tuple[type, type]]] = set()
 
     @classmethod
-    # def register_transform_method(cls, obj_type: type, chain: bool = False):
-    def register_transform_method(
+    def register(  # TODO: Rename to register
         cls, obj_type: type, order: Literal["overwrite", "front", "back"] = "overwrite"
     ):
         """
-        Register a function defining the action of the `Transform` on a specific object type.
-
+        Register a function defining the action of the `Functional` on a specific object type.
         Registration is applied to `obj_type` and all currently defined subclasses
         of `obj_type`. For each affected type:
-        - `'overwrite'` replaces any existing transform function.
+        - `'overwrite'` replaces any existing function.
         - `'front'` prepends the new function to the existing function chain.
         - `'back'` appends the new function to the existing function chain.
 
@@ -311,15 +307,15 @@ class Transform(ABC):
         Parameters
         ----------
         `obj_type` : `type`
-            The type of object the transform function applies to.
+            The type of object the function applies to.
         `order` : `Literal["overwrite", "front", "back"]`, optional
-            The order in which to register the transform function relative to existing functions.
+            The order in which to register the function relative to existing functions.
             By default, 'overwrite' which replaces any existing function.
 
         Returns
         -------
         `Callable`
-            A decorator that registers the transform function for the specified object type.
+            A decorator that registers the function for the specified object type.
         """
         if order not in ("overwrite", "front", "back"):
             raise ValueError(
@@ -338,14 +334,14 @@ class Transform(ABC):
                 ):
                     if order == "overwrite":
                         raise ValueError(
-                            f"Cannot overwrite transform for {target_type.__name__} via "
+                            f"Cannot overwrite function for {target_type.__name__} via "
                             f"superclass registration on {obj_type.__name__} because "
                             "the subclass was previously registered with "
                             "order='overwrite'."
                         )
                     continue
 
-                existing = cls._register_transform_method.get(key)
+                existing = cls._registered_methods.get(key)
                 if existing is None:
                     existing_chain: Tuple[Callable, ...] = ()
                 elif isinstance(existing, tuple):
@@ -360,7 +356,7 @@ class Transform(ABC):
                 else:  # order == "back"
                     chain = existing_chain + (func,)
 
-                cls._register_transform_method[key] = chain
+                cls._registered_methods[key] = chain
                 if not is_superclass_propagation and order == "overwrite":
                     cls._overwrite_locked_by_subclass.add(key)
             return func
@@ -368,51 +364,51 @@ class Transform(ABC):
         return decorator
 
     @staticmethod
-    def get_transformable_types(cls) -> Tuple[Type, ...]:
+    def get_applicable_types(cls) -> Tuple[Type, ...]:
         """
-        Get all object types that can be transformed by this Transform.
+        Get all object types that can be applied by this `Functional`.
 
         Returns
         -------
         Tuple[Type, ...]
-            A tuple of all registered object types that this Transform can handle.
+            A tuple of all registered object types that this `Functional` can handle.
         """
         types = set()
-        for obj_type, transform_type in cls._register_transform_method.keys():
-            if transform_type is cls:
+        for obj_type, functional_type in cls._registered_methods.keys():
+            if functional_type is cls:
                 types.add(obj_type)
         return tuple(types)
 
     def allows(self, obj: Any) -> bool:
         """
-        Check if this Transform can transform the given object.
+        Check if this `Functional` can be applied on the given object.
 
         Parameters
         ----------
         obj : Any
-            The object to check for transformability.
+            The object to check for applicability.
 
         Returns
         -------
         bool
-            True if this Transform can transform the object, False otherwise.
+            True if this `Functional` can be applied on the object, False otherwise.
         """
-        transform_class = type(self)
+        functional_class = type(self)
         obj_class = type(obj)
-        key = (obj_class, transform_class)
-        return key in self._register_transform_method
+        key = (obj_class, functional_class)
+        return key in self._registered_methods
 
-    def transform(self, obj: Any, **kwargs) -> Any:
-        transform_class = type(self)
+    def apply(self, obj: Any, **kwargs) -> Any:
+        functional_class = type(self)
         obj_class = type(obj)
-        key = (obj_class, transform_class)
+        key = (obj_class, functional_class)
 
-        chain = self._register_transform_method.get(key)
+        chain = self._registered_methods.get(key)
 
         if chain is None or not chain:
             raise NotImplementedError(
-                f"No transform registered for {obj_class.__name__} "
-                f"with {transform_class.__name__}"
+                f"No function registered for {obj_class.__name__} "
+                f"with {functional_class.__name__}"
             )
 
         out = obj
@@ -421,13 +417,13 @@ class Transform(ABC):
         return out
 
     def __call__(self, obj: Any, **kwargs) -> Any:
-        return self.transform(obj, **kwargs)
+        return self.apply(obj, **kwargs)
 
 
 @dataclass(frozen=True)
 class GaugeBasis(ABC):
     """
-    A marker class for gaugable objects that define a specific transform type.
+    A marker class for gaugable objects.
     """
 
     pass
@@ -436,10 +432,7 @@ class GaugeBasis(ABC):
 @dataclass(frozen=True)
 class GaugeInvariant(GaugeBasis):
     """
-    Marker gaugable whose transform is always the base `Transform`.
-
-    This represents gauge-invariant values that do not require a specialized
-    transform implementation.
+    This represents gauge-invariant object to all transformations.
     """
 
     pass
@@ -449,9 +442,6 @@ class GaugeInvariant(GaugeBasis):
 class Gaugable(ABC):
     """
     Container base class for objects that own a `GaugeBasis` instance.
-
-    Implementations compose a `gauge_basis` value so downstream code can resolve
-    transform compatibility through a consistent attribute.
     """
 
     _gauge_basis: GaugeBasis = field(default_factory=GaugeInvariant, init=False)
@@ -467,7 +457,7 @@ _GaugeType = TypeVar("_GaugeType")
 
 class Gauged(Generic[_GaugableType, _GaugeType], NamedTuple):
     """
-    A simple named tuple to hold a gaugable object and its associated gauge after a transform.
+    A simple named tuple to hold a gaugable object and its associated gauge after a transformation.
 
     This is primarily a convenience wrapper to group together a `Gaugable` object
     and the resulting gauge after applying a `Transform`. It allows for clear

@@ -6,7 +6,7 @@ from functools import lru_cache, partial, reduce
 
 import sympy as sy
 
-from .abstracts import HasBase, Transform, Gaugable, GaugeBasis, Gauged, GaugeInvariant
+from .abstracts import HasBase, Functional, Gaugable, GaugeBasis, Gauged, GaugeInvariant
 from .spatials import AffineSpace, Spatial, Offset, Momentum
 from .hilbert import Mode
 from .utils import FrozenDict
@@ -47,7 +47,7 @@ class AffineFunction(Spatial, Gaugable, GaugeBasis):
 
 
 @dataclass(frozen=True)
-class AffineGroupElement(Transform, HasBase[AffineSpace]):
+class AffineGroupElement(Functional, HasBase[AffineSpace]):
     """
     Affine group element acting on polynomial coordinate functions.
 
@@ -295,7 +295,7 @@ class AffineGroupElement(Transform, HasBase[AffineSpace]):
         return tuple(elements)
 
 
-@AffineGroupElement.register_transform_method(GaugeInvariant)
+@AffineGroupElement.register(GaugeInvariant)
 def _affine_transform_gauge_invariant(
     t: AffineGroupElement, v: GaugeInvariant
 ) -> Gauged[GaugeInvariant, sy.Expr]:
@@ -303,7 +303,7 @@ def _affine_transform_gauge_invariant(
     return Gauged(gaugable=v, gauge=sy.Integer(1))
 
 
-@AffineGroupElement.register_transform_method(AffineFunction)
+@AffineGroupElement.register(AffineFunction)
 def _affine_transform_affine_function(
     t: AffineGroupElement, f: AffineFunction
 ) -> Gauged[AffineFunction, sy.Expr]:
@@ -381,7 +381,7 @@ def _affine_transform_affine_function(
     return Gauged(gauge=phase, gaugable=f)
 
 
-@AffineGroupElement.register_transform_method(Offset)
+@AffineGroupElement.register(Offset)
 def _affine_transform_offset(t: AffineGroupElement, offset: Offset) -> Offset:
     """
     Apply an affine group element to a spatial Offset using homogeneous coordinates.
@@ -426,7 +426,7 @@ def _affine_transform_offset(t: AffineGroupElement, offset: Offset) -> Offset:
     return Offset(rep=sy.ImmutableDenseMatrix(new_rep), space=offset.space)
 
 
-@AffineGroupElement.register_transform_method(Momentum)
+@AffineGroupElement.register(Momentum)
 def _affine_transform_momentum(t: AffineGroupElement, k: Momentum) -> Momentum:
     """
     Apply an affine group element to a Momentum in fractional reciprocal coordinates.
@@ -493,7 +493,7 @@ def _affine_transform_momentum(t: AffineGroupElement, k: Momentum) -> Momentum:
     return Momentum(rep=sy.ImmutableDenseMatrix(new_rep), space=k.base()).fractional()
 
 
-@AffineGroupElement.register_transform_method(Gaugable, order="back")
+@AffineGroupElement.register(Gaugable, order="back")
 def _affine_transform_gaugable(
     t: AffineGroupElement, v: Gaugable
 ) -> Gauged[Gaugable, sy.Expr]:
@@ -503,7 +503,7 @@ def _affine_transform_gaugable(
     ----------
     `t` : `AffineGroupElement`
         Affine symmetry operation applied to the gauge representation of `v`.
-        The operation is evaluated through `t.transform(...)`, and only its
+        The operation is evaluated through `t.apply(...)`, and only its
         gauge phase contribution is used by this method.
     `v` : `Gaugable`
         Object that provides a gauge representation via `.gauge_repr()`. The
@@ -513,11 +513,11 @@ def _affine_transform_gaugable(
     -------
     `Gauged[Gaugable, sy.Expr]`
         A gauged wrapper whose `gaugable` field is the original input `v` and
-        whose `gauge` field is the phase returned by transforming `v`'s gauge
-        representation with `t`.
+        whose `gauge` field is the phase returned by applying `t` to `v`'s gauge
+        representation.
     """
     basis = v.gauge_repr()
-    phase, _ = t.transform(basis)
+    phase, _ = t.apply(basis)
     return Gauged(gaugable=v, gauge=phase)
 
 
@@ -525,10 +525,10 @@ def _optional_transform_mode_attr(t: AffineGroupElement, v: Mode):
     """Transform a Mode attribute if the transform allows it."""
     if not t.allows(v):
         return v
-    return t.transform(v)
+    return t.apply(v)
 
 
-@AffineGroupElement.register_transform_method(Mode, order="front")
+@AffineGroupElement.register(Mode, order="front")
 def _affine_transform_mode(t: AffineGroupElement, m: Mode) -> Mode:
     """Apply an affine transformation to each transformable attribute of a mode.
 
