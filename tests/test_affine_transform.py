@@ -6,6 +6,7 @@ from typing import cast
 from pyhilbert.affine_transform import (
     AffineFunction,
     AffineGroupElement,
+    pointgroup,
     bandtransform,
 )
 from pyhilbert.abstracts import Gauged
@@ -557,3 +558,60 @@ def test_bandtransform_both_matches_explicit_k_aligned_reference():
     tensor_ref = tensor_ref.align(0, k_space).align(1, h_space).align(2, h_space)
 
     assert torch.allclose(tensor_out.data, tensor_ref.data)
+
+
+def test_affine_query_c3_xy_and_inverse_orientation():
+    t = pointgroup("c3-xy:xy-o2")
+    t_inv = pointgroup("c3-xy:yx-o2")
+
+    assert t.axes == sy.symbols("x y")
+    assert t.basis_function_order == 2
+    assert t.irrep * t_inv.irrep == ImmutableDenseMatrix.eye(2)
+
+
+def test_affine_query_c3_xyz_on_yz_plane():
+    t = pointgroup("c3-xyz:yz-o2")
+    x, y, z = sy.symbols("x y z")
+
+    assert t.axes == (x, y, z)
+    assert t.basis_function_order == 2
+    assert t.irrep[0, 0] == 1
+    assert t.irrep[0, 1] == 0
+    assert t.irrep[0, 2] == 0
+
+
+def test_affine_query_cyclic_forbids_1d_rotation():
+    try:
+        pointgroup("c3-x:x-o2")
+        assert False, "Expected ValueError for 1D cyclic rotation."
+    except ValueError:
+        pass
+
+
+def test_affine_query_mirror_2d_fixed_axis():
+    t = pointgroup("m-xy:x-o1")
+    expected = ImmutableDenseMatrix([[1, 0], [0, -1]])
+    assert t.irrep == expected
+
+
+def test_affine_query_c6_2d_and_3d_examples():
+    t2 = pointgroup("c6-xy:xy-o2")
+    assert t2.irrep.shape == (2, 2)
+    assert t2.basis_function_order == 2
+
+    t3 = pointgroup("c6-xyz:yz-o2")
+    assert t3.irrep.shape == (3, 3)
+    assert t3.irrep[0, 0] == 1
+    assert t3.irrep[0, 1] == 0
+    assert t3.irrep[0, 2] == 0
+
+
+def test_affine_query_mirror_1d_2d_3d_examples():
+    t1 = pointgroup("m-x:x-o1")
+    assert t1.irrep == ImmutableDenseMatrix([[-1]])
+
+    t2 = pointgroup("m-xy:y-o1")
+    assert t2.irrep == ImmutableDenseMatrix([[-1, 0], [0, 1]])
+
+    t3 = pointgroup("m-xyz:yz-o1")
+    assert t3.irrep == ImmutableDenseMatrix([[-1, 0, 0], [0, 1, 0], [0, 0, 1]])
