@@ -615,11 +615,20 @@ def bandtransform(
     Raises
     ------
     `ValueError`
-        If `opt` is invalid or a Hilbert space is not symmetry-compatible
-        with `t`.
+        If `opt` is invalid, if `tensor` is not rank-3 with dims
+        `(MomentumSpace, HilbertSpace, HilbertSpace)`, or if a Hilbert space
+        side is not symmetry-compatible with `t`.
     """
     if opt not in ("both", "left", "right"):
         raise ValueError(f"Invalid option {opt} for bandtransform!")
+    if not len(tensor.dims) == 3:
+        raise ValueError("Input tensor must have exactly 3 dimensions.")
+    if not isinstance(tensor.dims[0], MomentumSpace):
+        raise ValueError("First dimension of tensor must be a MomentumSpace.")
+    if not isinstance(tensor.dims[1], HilbertSpace):
+        raise ValueError("Second dimension of tensor must be a HilbertSpace.")
+    if not isinstance(tensor.dims[2], HilbertSpace):
+        raise ValueError("Third dimension of tensor must be a HilbertSpace.")
 
     kspace: MomentumSpace = cast(MomentumSpace, tensor.dims[0])
 
