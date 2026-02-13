@@ -2,9 +2,9 @@ import torch
 import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
-from typing import Optional, List, Union, Dict, Tuple
+from typing import Optional, List, Union, Dict, Tuple, cast
 from .spatials import Lattice, ReciprocalLattice
-from .hilbert import HilbertSpace, generate_k_path
+from .hilbert import HilbertSpace, Mode, generate_k_path
 from .tensors import Tensor
 from .utils import compute_bonds
 from .fourier import fourier_transform
@@ -229,10 +229,12 @@ def plot_heatmap(
         raise ValueError(f"`axes` must have length 2, got {axes}")
 
     normalized_axes = []
-    for ax in axes:
-        ax_norm = ax + rank if ax < 0 else ax
+    for axis in axes:
+        ax_norm = axis + rank if axis < 0 else axis
         if not (0 <= ax_norm < rank):
-            raise ValueError(f"Axis {ax} is out of bounds for tensor with rank {rank}")
+            raise ValueError(
+                f"Axis {axis} is out of bounds for tensor with rank {rank}"
+            )
         normalized_axes.append(ax_norm)
     row_axis, col_axis = normalized_axes
     if row_axis == col_axis:
@@ -245,25 +247,33 @@ def plot_heatmap(
     tensor = tensor.permute(*permute_order)
 
     expected_fixed = rank - 2
+    fixed_indices_resolved: Tuple[int, ...]
     if fixed_indices is None:
         if expected_fixed == 0:
-            fixed_indices = ()
+            fixed_indices_resolved = ()
         else:
             raise ValueError(
                 f"Heatmap for shape {tuple(obj.data.shape)} with axes={axes} requires "
                 f"`fixed_indices` of length {expected_fixed}."
             )
-    elif len(fixed_indices) != expected_fixed:
-        raise ValueError(
-            f"`fixed_indices` length must be {expected_fixed} for shape "
-            f"{tuple(obj.data.shape)} with axes={axes}, got {len(fixed_indices)}."
-        )
+    else:
+        if len(fixed_indices) != expected_fixed:
+            raise ValueError(
+                f"`fixed_indices` length must be {expected_fixed} for shape "
+                f"{tuple(obj.data.shape)} with axes={axes}, got {len(fixed_indices)}."
+            )
+        fixed_indices_resolved = fixed_indices
 
+    indexer: Tuple[Union[int, slice], ...] = (
+        *fixed_indices_resolved,
+        slice(None),
+        slice(None),
+    )
     try:
-        tensor = tensor[(*fixed_indices, slice(None), slice(None))]
+        tensor = tensor[indexer]
     except IndexError as exc:
         raise IndexError(
-            f"`fixed_indices` {fixed_indices} is out of bounds for shape "
+            f"`fixed_indices` {fixed_indices_resolved} is out of bounds for shape "
             f"{tuple(obj.data.shape)} with axes={axes}."
         ) from exc
 
@@ -370,10 +380,12 @@ def plot_spectrum(
         raise ValueError(f"`axes` must have length 2, got {axes}")
 
     normalized_axes = []
-    for ax in axes:
-        ax_norm = ax + rank if ax < 0 else ax
+    for axis in axes:
+        ax_norm = axis + rank if axis < 0 else axis
         if not (0 <= ax_norm < rank):
-            raise ValueError(f"Axis {ax} is out of bounds for tensor with rank {rank}")
+            raise ValueError(
+                f"Axis {axis} is out of bounds for tensor with rank {rank}"
+            )
         normalized_axes.append(ax_norm)
     row_axis, col_axis = normalized_axes
     if row_axis == col_axis:
@@ -386,25 +398,33 @@ def plot_spectrum(
     tensor = tensor.permute(*permute_order)
 
     expected_fixed = rank - 2
+    fixed_indices_resolved: Tuple[int, ...]
     if fixed_indices is None:
         if expected_fixed == 0:
-            fixed_indices = ()
+            fixed_indices_resolved = ()
         else:
             raise ValueError(
                 f"Spectrum for shape {tuple(tensor.shape)} with axes={axes} requires "
                 f"`fixed_indices` of length {expected_fixed}."
             )
-    elif len(fixed_indices) != expected_fixed:
-        raise ValueError(
-            f"`fixed_indices` length must be {expected_fixed} for shape "
-            f"{tuple(tensor.shape)} with axes={axes}, got {len(fixed_indices)}."
-        )
+    else:
+        if len(fixed_indices) != expected_fixed:
+            raise ValueError(
+                f"`fixed_indices` length must be {expected_fixed} for shape "
+                f"{tuple(tensor.shape)} with axes={axes}, got {len(fixed_indices)}."
+            )
+        fixed_indices_resolved = fixed_indices
 
+    indexer: Tuple[Union[int, slice], ...] = (
+        *fixed_indices_resolved,
+        slice(None),
+        slice(None),
+    )
     try:
-        tensor = tensor[(*fixed_indices, slice(None), slice(None))]
+        tensor = tensor[indexer]
     except IndexError as exc:
         raise IndexError(
-            f"`fixed_indices` {fixed_indices} is out of bounds for shape "
+            f"`fixed_indices` {fixed_indices_resolved} is out of bounds for shape "
             f"{tuple(tensor.shape)} with axes={axes}."
         ) from exc
 
@@ -478,7 +498,7 @@ def plot_spectrum(
 @ReciprocalLattice.register_plot_method("bandstructure", backend="plotly")
 def plot_bandstructure(
     obj: Union[Lattice, ReciprocalLattice],
-    hamiltonian: Tensor,
+    hamiltonian: Tensor,  # TODO: Change to Hamiltonian Class
     k_path: List[Union[List[float], Tuple[float, ...]]],
     n_points: int = 100,
     title: str = "Band Structure",
@@ -512,7 +532,10 @@ def plot_bandstructure(
         recip = obj
 
     # 2. Generate k-path
-    k_space, x_vals, tick_vals = generate_k_path(recip, k_path, n_points)
+    k_path_for_generation = cast(
+        List[Union[List[float], Tuple[float, ...], np.ndarray]], k_path
+    )
+    k_space, x_vals, tick_vals = generate_k_path(recip, k_path_for_generation, n_points)
 
     # 3. Identify Bloch Space from Hamiltonian
     region_space = hamiltonian.dims[-1]
@@ -523,14 +546,14 @@ def plot_bandstructure(
     # fractional (unit-cell) coordinate and taking unique modes. This defines the
     # HilbertSpace used for H(k) at each sampled k.
 
-    unique_modes = {}
+    unique_modes: Dict[Mode, int] = {}
     for mode in region_space:
         # Map the real-space position to its unit-cell (fractional) representative.
         frac_offset = mode["r"].fractional()
 
         # Preserve all other mode attributes (e.g. spin/orbital labels) and only
         # replace the position attribute `r`.
-        bloch_mode = mode.update(r=frac_offset)
+        bloch_mode = cast(Mode, mode.update(r=frac_offset))
 
         if bloch_mode not in unique_modes:
             unique_modes[bloch_mode] = mode.count
@@ -539,7 +562,7 @@ def plot_bandstructure(
     # Sort by fractional coordinate rep
     sorted_bloch_modes = sorted(unique_modes.keys(), key=lambda m: tuple(m["r"].rep))
 
-    bloch_structure = OrderedDict()
+    bloch_structure: OrderedDict[Mode, slice] = OrderedDict()
     base = 0
     for m in sorted_bloch_modes:
         c = unique_modes[m]  # count

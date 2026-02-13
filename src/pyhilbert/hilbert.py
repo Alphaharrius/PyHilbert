@@ -11,6 +11,7 @@ from sympy import ImmutableDenseMatrix
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from .abstracts import Updatable
+from .precision import get_precision_config
 from .utils import FrozenDict
 from .spatials import (
     Spatial,
@@ -469,16 +470,18 @@ def generate_k_path(
     if len(k_path) < 2:
         raise ValueError("k_path must have at least 2 points")
 
+    precision = get_precision_config()
+
     # Parse k_path to a numpy array of fractional reciprocal coordinates.
-    k_nodes_frac = []
+    k_nodes_frac_list = []
     for k in k_path:
         if isinstance(k, (list, tuple)):
-            k_nodes_frac.append(np.array(k, dtype=float))
+            k_nodes_frac_list.append(np.array(k, dtype=precision.np_float))
         elif isinstance(k, np.ndarray):
-            k_nodes_frac.append(k.astype(float))
+            k_nodes_frac_list.append(k.astype(precision.np_float))
         else:
             raise TypeError(f"Invalid k-point type: {type(k)}")
-    k_nodes_frac = np.stack(k_nodes_frac)  # (N_nodes, Dim)
+    k_nodes_frac = np.stack(k_nodes_frac_list)  # (N_nodes, Dim)
 
     if k_nodes_frac.shape[1] != recip.dim:
         raise ValueError(
@@ -487,12 +490,13 @@ def generate_k_path(
 
     # Compute segment lengths in Cartesian coordinates.
     # `recip.basis` is a symbolic (sympy) matrix, so we evaluate it numerically.
-    precision = torch.float64  # Use double for precision in path generation
     basis_sym = recip.basis.subs({s: 1.0 for s in recip.basis.free_symbols})
-    basis_mat = torch.tensor(np.array(basis_sym).astype(np.float64), dtype=precision)
+    basis_mat = torch.tensor(
+        np.array(basis_sym).astype(precision.np_float), dtype=precision.torch_float
+    )
 
     # k_cart = k_frac @ basis_mat
-    k_nodes_cart = torch.tensor(k_nodes_frac, dtype=precision) @ basis_mat
+    k_nodes_cart = torch.tensor(k_nodes_frac, dtype=precision.torch_float) @ basis_mat
 
     # Calculate segment lengths
     diffs = k_nodes_cart[1:] - k_nodes_cart[:-1]
@@ -500,17 +504,19 @@ def generate_k_path(
     total_dist = np.sum(dists)
 
     # Distribute points across segments approximately proportional to length.
-    k_points_frac = []
-    flat_k_dist = []
+    k_points_frac_parts = []
+    flat_k_dist_parts = []
     k_node_dist = [0.0]
+    k_points_frac: np.ndarray
+    flat_k_dist: np.ndarray
 
     current_dist = 0.0
 
     # Degenerate path: all nodes coincide in Cartesian space.
     if total_dist == 0:
         # Replicate the single node so callers still get `n_points` samples.
-        k_points_frac = [k_nodes_frac[0]] * n_points
-        flat_k_dist = [0.0] * n_points
+        k_points_frac = np.repeat(k_nodes_frac[0][None, :], n_points, axis=0)
+        flat_k_dist = np.zeros(n_points, dtype=precision.np_float)
         k_node_dist = [0.0] * len(k_path)
     else:
         for i, d in enumerate(dists):
@@ -528,17 +534,17 @@ def generate_k_path(
                 segment_frac = segment_frac[:-1]
                 t = t[:-1]
 
-            k_points_frac.append(segment_frac)
+            k_points_frac_parts.append(segment_frac)
 
             # Cumulative distance values used for the x-axis of band-structure plots.
             segment_dist = current_dist + t * d
-            flat_k_dist.append(segment_dist)
+            flat_k_dist_parts.append(segment_dist)
 
             current_dist += d
             k_node_dist.append(current_dist)
 
-        k_points_frac = np.concatenate(k_points_frac, axis=0)
-        flat_k_dist = np.concatenate(flat_k_dist, axis=0)
+        k_points_frac = np.concatenate(k_points_frac_parts, axis=0)
+        flat_k_dist = np.concatenate(flat_k_dist_parts, axis=0)
 
     # Build a MomentumSpace by wrapping each sampled fractional coordinate into
     # a `Momentum` element. `rep` is stored as a sympy column vector.
