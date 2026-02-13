@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from multipledispatch import dispatch
-from typing import Callable, Dict, ClassVar, Tuple
+from typing import Callable, Dict, ClassVar, Tuple, Type
 
 
 @dataclass(frozen=True)
@@ -184,12 +184,12 @@ class Plottable(ABC):
     An object that can be plottable.
     """
 
-    _plot_methods: ClassVar[Dict[Tuple[str, str], Callable]] = {}
+    _plot_methods: ClassVar[Dict[Tuple[Type["Plottable"], str, str], Callable]] = {}
 
     @classmethod
     def register_plot_method(cls, name: str, backend: str = "plotly"):
         def decorator(func: Callable):
-            cls._plot_methods[(name, backend)] = func
+            cls._plot_methods[(cls, name, backend)] = func
             return func
 
         return decorator
@@ -198,11 +198,21 @@ class Plottable(ABC):
         """
         Dispatch the plot method to the registered function.
         """
-        if (method, backend) not in self._plot_methods:
-            raise ValueError(
-                f"Plot method {method} not found. Available methods: {list(self._plot_methods.keys())}"
-            )
-        return self._plot_methods[(method, backend)](self, *args, **kwargs)
+        obj_type = type(self)
+        for cls in obj_type.__mro__:
+            key = (cls, method, backend)
+            if key in self._plot_methods:
+                return self._plot_methods[key](self, *args, **kwargs)
+
+        available_methods = []
+        for registered_cls, registered_method, registered_backend in self._plot_methods:
+            if issubclass(obj_type, registered_cls):
+                available_methods.append((registered_method, registered_backend))
+
+        raise ValueError(
+            f"Plot method '{method}' with backend '{backend}' not found for "
+            f"{obj_type.__name__}. Available methods: {available_methods}"
+        )
 
 
 class HasDual(ABC):

@@ -2,17 +2,19 @@ import torch
 import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
-from typing import Optional, List, Union, Dict
-from .abstracts import Plottable
-from .spatials import Lattice
+from typing import Optional, List, Union, Dict, Tuple
+from .spatials import Lattice, ReciprocalLattice
+from .hilbert import HilbertSpace, generate_k_path
 from .tensors import Tensor
 from .utils import compute_bonds
+from .fourier import fourier_transform
+from collections import OrderedDict
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
 # --- Registered Plot Methods ---
 
 
-@Plottable.register_plot_method("structure", backend="plotly")
+@Lattice.register_plot_method("structure", backend="plotly")
 def plot_structure(
     obj: Lattice,
     subs: Optional[Dict] = None,
@@ -180,11 +182,13 @@ def plot_structure(
     return fig
 
 
-@Plottable.register_plot_method("heatmap", backend="plotly")
+@Tensor.register_plot_method("heatmap", backend="plotly")
 def plot_heatmap(
     obj: Tensor,
     title: str = "Matrix Visualization",
     show: bool = True,
+    fixed_indices: Optional[Tuple[int, ...]] = None,
+    axes: Tuple[int, int] = (-2, -1),
     **kwargs,
 ) -> go.Figure:
     """
@@ -196,11 +200,16 @@ def plot_heatmap(
     Parameters
     ----------
     obj : Tensor
-        2D Tensor to visualize.
+        Tensor to visualize as a 2D heatmap.
     title : str, default "Matrix Visualization"
         Title of the plot.
     show : bool, default True
         Whether to show the plot immediately.
+    fixed_indices : tuple of int, optional
+        Indices used to fix non-heatmap dimensions. For an N-dimensional tensor,
+        this must provide N-2 indices after selecting `axes`.
+    axes : tuple of int, default (-2, -1)
+        Pair of dimensions used as (row_axis, col_axis) in the heatmap.
     **kwargs
         Additional keyword arguments.
 
@@ -210,11 +219,53 @@ def plot_heatmap(
         The Plotly figure.
     """
     tensor = obj.data.detach().cpu()
-
-    if tensor.ndim != 2:
+    rank = tensor.ndim
+    if rank < 2:
         raise ValueError(
-            f"Heatmap requires a 2D Tensor, got shape {tuple(tensor.shape)}"
+            f"Heatmap requires rank >= 2 tensor, got shape {tuple(tensor.shape)}"
         )
+
+    if len(axes) != 2:
+        raise ValueError(f"`axes` must have length 2, got {axes}")
+
+    normalized_axes = []
+    for ax in axes:
+        ax_norm = ax + rank if ax < 0 else ax
+        if not (0 <= ax_norm < rank):
+            raise ValueError(f"Axis {ax} is out of bounds for tensor with rank {rank}")
+        normalized_axes.append(ax_norm)
+    row_axis, col_axis = normalized_axes
+    if row_axis == col_axis:
+        raise ValueError(f"`axes` must reference two different dimensions, got {axes}")
+
+    permute_order = [i for i in range(rank) if i not in (row_axis, col_axis)] + [
+        row_axis,
+        col_axis,
+    ]
+    tensor = tensor.permute(*permute_order)
+
+    expected_fixed = rank - 2
+    if fixed_indices is None:
+        if expected_fixed == 0:
+            fixed_indices = ()
+        else:
+            raise ValueError(
+                f"Heatmap for shape {tuple(obj.data.shape)} with axes={axes} requires "
+                f"`fixed_indices` of length {expected_fixed}."
+            )
+    elif len(fixed_indices) != expected_fixed:
+        raise ValueError(
+            f"`fixed_indices` length must be {expected_fixed} for shape "
+            f"{tuple(obj.data.shape)} with axes={axes}, got {len(fixed_indices)}."
+        )
+
+    try:
+        tensor = tensor[(*fixed_indices, slice(None), slice(None))]
+    except IndexError as exc:
+        raise IndexError(
+            f"`fixed_indices` {fixed_indices} is out of bounds for shape "
+            f"{tuple(obj.data.shape)} with axes={axes}."
+        ) from exc
 
     is_complex = tensor.is_complex()
 
@@ -274,11 +325,13 @@ def plot_heatmap(
     return fig
 
 
-@Plottable.register_plot_method("spectrum", backend="plotly")
+@Tensor.register_plot_method("spectrum", backend="plotly")
 def plot_spectrum(
-    obj: Union[np.ndarray, torch.Tensor, object],
+    obj: Tensor,
     title: str = "Spectrum Visualization",
     show: bool = True,
+    fixed_indices: Optional[Tuple[int, ...]] = None,
+    axes: Tuple[int, int] = (-2, -1),
     **kwargs,
 ) -> go.Figure:
     """
@@ -286,12 +339,17 @@ def plot_spectrum(
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        2D matrix to analyze.
+    obj : Tensor
+        Matrix/tensor to analyze as a 2D operator.
     title : str, default "Spectrum Visualization"
         Title of the plot.
     show : bool, default True
         Whether to show the plot immediately.
+    fixed_indices : tuple of int, optional
+        Indices used to fix non-matrix dimensions. For an N-dimensional tensor,
+        this must provide N-2 indices after selecting `axes`.
+    axes : tuple of int, default (-2, -1)
+        Pair of dimensions used as (row_axis, col_axis) for spectrum analysis.
     **kwargs
         Additional keyword arguments.
 
@@ -300,16 +358,60 @@ def plot_spectrum(
     plotly.graph_objects.Figure
         The Plotly figure.
     """
-    # 1. Standardize to PyTorch Tensor
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        tensor = obj.data.detach().cpu()
-    elif isinstance(obj, torch.Tensor):
-        tensor = obj.detach().cpu()
-    else:
-        tensor = torch.from_numpy(np.array(obj))
+    tensor = obj.data.detach().cpu()
 
-    if tensor.ndim != 2:
-        raise ValueError(f"Spectrum requires a 2D matrix, got shape {tensor.shape}")
+    rank = tensor.ndim
+    if rank < 2:
+        raise ValueError(
+            f"Spectrum requires rank >= 2 tensor, got shape {tuple(tensor.shape)}"
+        )
+
+    if len(axes) != 2:
+        raise ValueError(f"`axes` must have length 2, got {axes}")
+
+    normalized_axes = []
+    for ax in axes:
+        ax_norm = ax + rank if ax < 0 else ax
+        if not (0 <= ax_norm < rank):
+            raise ValueError(f"Axis {ax} is out of bounds for tensor with rank {rank}")
+        normalized_axes.append(ax_norm)
+    row_axis, col_axis = normalized_axes
+    if row_axis == col_axis:
+        raise ValueError(f"`axes` must reference two different dimensions, got {axes}")
+
+    permute_order = [i for i in range(rank) if i not in (row_axis, col_axis)] + [
+        row_axis,
+        col_axis,
+    ]
+    tensor = tensor.permute(*permute_order)
+
+    expected_fixed = rank - 2
+    if fixed_indices is None:
+        if expected_fixed == 0:
+            fixed_indices = ()
+        else:
+            raise ValueError(
+                f"Spectrum for shape {tuple(tensor.shape)} with axes={axes} requires "
+                f"`fixed_indices` of length {expected_fixed}."
+            )
+    elif len(fixed_indices) != expected_fixed:
+        raise ValueError(
+            f"`fixed_indices` length must be {expected_fixed} for shape "
+            f"{tuple(tensor.shape)} with axes={axes}, got {len(fixed_indices)}."
+        )
+
+    try:
+        tensor = tensor[(*fixed_indices, slice(None), slice(None))]
+    except IndexError as exc:
+        raise IndexError(
+            f"`fixed_indices` {fixed_indices} is out of bounds for shape "
+            f"{tuple(tensor.shape)} with axes={axes}."
+        ) from exc
+
+    if tensor.shape[-2] != tensor.shape[-1]:
+        raise ValueError(
+            f"Spectrum requires a square matrix after slicing, got shape {tuple(tensor.shape)}"
+        )
 
     # 2. Check for Hermiticity (M == M.H)
     is_complex = tensor.is_complex()
@@ -372,102 +474,132 @@ def plot_spectrum(
     return fig
 
 
-@Plottable.register_plot_method("bandstructure", backend="plotly")
+@Lattice.register_plot_method("bandstructure", backend="plotly")
+@ReciprocalLattice.register_plot_method("bandstructure", backend="plotly")
 def plot_bandstructure(
-    obj: Union[np.ndarray, torch.Tensor, object],
-    k_distances: Optional[Union[np.ndarray, torch.Tensor]] = None,
-    k_node_indices: Optional[List[int]] = None,
-    k_node_labels: Optional[List[str]] = None,
+    obj: Union[Lattice, ReciprocalLattice],
+    hamiltonian: Tensor,
+    k_path: List[Union[List[float], Tuple[float, ...]]],
+    n_points: int = 100,
     title: str = "Band Structure",
     show: bool = True,
     **kwargs,
 ) -> go.Figure:
     """
-    Plot electronic band structure using Plotly.
+    Plot the band structure of a real-space Hamiltonian along a k-path.
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        (N_k, N_bands) array of energy eigenvalues.
-    k_distances : array-like, optional
-        (N_k,) array of cumulative distances.
-    k_node_indices : list of int, optional
-        Indices of high-symmetry points.
-    k_node_labels : list of str, optional
-        Labels for high-symmetry points.
-    title : str, default "Band Structure"
-        Title of the plot.
-    show : bool, default True
-        Whether to show the plot immediately.
+    obj : Union[Lattice, ReciprocalLattice]
+        The lattice object (or its reciprocal).
+    hamiltonian : Tensor
+        The real-space Hamiltonian tensor. Must have rank >= 2.
+    k_path : List[List[float]]
+        List of fractional coordinates for high-symmetry points defining the path.
+    n_points : int
+        Approximate number of points along the path.
+    title : str
+        Plot title.
+    show : bool
+        Whether to show the plot.
     **kwargs
-        Additional keyword arguments.
-
-    Returns
-    -------
-    plotly.graph_objects.Figure
-        The Plotly figure.
+        Additional arguments.
     """
-    # Standardize inputs
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        energies = obj.data.detach().cpu().numpy()
-    elif isinstance(obj, torch.Tensor):
-        energies = obj.detach().cpu().numpy()
+    # 1. Resolve ReciprocalLattice
+    if isinstance(obj, Lattice):
+        recip = obj.dual
     else:
-        energies = np.array(obj)
+        recip = obj
 
-    if isinstance(k_distances, torch.Tensor):
-        k_distances = k_distances.detach().cpu().numpy()
+    # 2. Generate k-path
+    k_space, x_vals, tick_vals = generate_k_path(recip, k_path, n_points)
 
-    if energies.ndim != 2:
-        raise ValueError(f"Energies must be 2D (N_k, N_bands), got {energies.shape}")
+    # 3. Identify Bloch Space from Hamiltonian
+    region_space = hamiltonian.dims[-1]
+    if not isinstance(region_space, HilbertSpace):
+        raise ValueError("Hamiltonian last dimension must be HilbertSpace")
 
-    num_k, num_bands = energies.shape
+    # Infer a Bloch/unit-cell basis by mapping each region-space mode position to its
+    # fractional (unit-cell) coordinate and taking unique modes. This defines the
+    # HilbertSpace used for H(k) at each sampled k.
 
-    if k_distances is None:
-        k_distances = np.arange(num_k)
+    unique_modes = {}
+    for mode in region_space:
+        # Map the real-space position to its unit-cell (fractional) representative.
+        frac_offset = mode["r"].fractional()
 
+        # Preserve all other mode attributes (e.g. spin/orbital labels) and only
+        # replace the position attribute `r`.
+        bloch_mode = mode.update(r=frac_offset)
+
+        if bloch_mode not in unique_modes:
+            unique_modes[bloch_mode] = mode.count
+
+    # Sort bloch modes for deterministic order
+    # Sort by fractional coordinate rep
+    sorted_bloch_modes = sorted(unique_modes.keys(), key=lambda m: tuple(m["r"].rep))
+
+    bloch_structure = OrderedDict()
+    base = 0
+    for m in sorted_bloch_modes:
+        c = unique_modes[m]  # count
+        bloch_structure[m] = slice(base, base + c)
+        base += c
+
+    bloch_space = HilbertSpace(structure=bloch_structure)
+
+    # 4. Fourier transform to k-space.
+
+    f = fourier_transform(k_space, bloch_space, region_space)
+
+    f_dag = f.h(-2, -1)
+    h_k = f @ hamiltonian @ f_dag
+
+    # 5. Diagonalize
+    # Convert to torch
+    hk_data = h_k.data  # (K, N_bands, N_bands)
+
+    # Check hermiticity roughly
+    # We assume H is hermitian.
+    eigvals = torch.linalg.eigvalsh(hk_data)  # (K, N_bands)
+    eigvals_np = eigvals.detach().cpu().numpy()
+
+    # 6. Plot
     fig = go.Figure()
 
-    # Plot bands
-    for b in range(num_bands):
+    n_bands = eigvals_np.shape[1]
+
+    for b in range(n_bands):
         fig.add_trace(
             go.Scatter(
-                x=k_distances,
-                y=energies[:, b],
+                x=x_vals,
+                y=eigvals_np[:, b],
                 mode="lines",
-                line=dict(color="black", width=1.5),
                 name=f"Band {b}",
+                line=dict(color="blue"),
                 showlegend=False,
             )
         )
 
-    # Vertical lines and ticks
-    if k_node_indices:
-        tick_vals = []
-        tick_text = []
-        labels = k_node_labels if k_node_labels else [str(i) for i in k_node_indices]
+    # Add vertical lines for high-symmetry points
+    for tick in tick_vals:
+        fig.add_vline(x=tick, line_width=1, line_dash="dash", line_color="gray")
 
-        for idx, label in zip(k_node_indices, labels):
-            if 0 <= idx < len(k_distances):
-                x_val = k_distances[idx]
-                tick_vals.append(x_val)
-                tick_text.append(label)
-
-                # Vertical line
-                fig.add_vline(
-                    x=x_val, line_width=1, line_dash="dash", line_color="grey"
-                )
-
-        if tick_vals:
-            fig.update_xaxes(tickvals=tick_vals, ticktext=tick_text)
+    # Update layout
+    # We can try to set tick labels if user provided them, but we only have points.
 
     fig.update_layout(
         title=title,
         xaxis_title="Wave Vector",
         yaxis_title="Energy",
-        template="simple_white",
+        xaxis=dict(
+            tickmode="array",
+            tickvals=tick_vals,
+            # ticktext=... # We don't have labels passed in k_path list
+        ),
     )
 
     if show:
         fig.show()
+
     return fig

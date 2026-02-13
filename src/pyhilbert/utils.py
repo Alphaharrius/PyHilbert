@@ -6,13 +6,10 @@ from typing import (
     Optional,
     Tuple,
     Dict,
-    Union,
     Iterable,
     Callable,
 )
 import torch
-import numpy as np
-from .precision import get_precision_config
 
 
 class FrozenDict(Mapping):
@@ -136,77 +133,6 @@ def compute_bonds(
             z_lines.extend([p1_np[i, 2], p2_np[i, 2], nan])
 
     return x_lines, y_lines, z_lines
-
-
-def generate_k_path(
-    points: Dict[str, Union[List, np.ndarray, torch.Tensor]],
-    path_labels: List[str],
-    resolution: int = 30,
-) -> tuple:
-    """
-    Generates a k-path through high-symmetry points.
-
-    Args:
-        points: Dictionary mapping labels to coordinates (e.g. {'G': [0,0], 'M': [0.5, 0.5]})
-        path_labels: List of labels defining the path (e.g. ['G', 'M', 'K', 'G'])
-        resolution: Number of points per segment.
-
-    Returns:
-        (k_vecs, k_dist, node_indices)
-        k_vecs: Tensor of k-vectors (N, D)
-        k_dist: Tensor of cumulative distances (N,)
-        node_indices: List of indices for the high-symmetry points.
-    """
-    precision = get_precision_config()
-    k_vecs_list = []
-    node_indices = [0]
-
-    # Convert points to numpy for easier math
-    pts_np = {}
-    for k, v in points.items():
-        if isinstance(v, torch.Tensor):
-            pts_np[k] = v.detach().cpu().numpy().astype(precision.np_float)
-        else:
-            pts_np[k] = np.array(v, dtype=precision.np_float)
-
-    for i in range(len(path_labels) - 1):
-        start_label = path_labels[i]
-        end_label = path_labels[i + 1]
-
-        start_vec = pts_np[start_label]
-        end_vec = pts_np[end_label]
-
-        # Determine number of points
-        # If it's the last segment, include the end point
-        is_last = i == len(path_labels) - 2
-        num = resolution + 1 if is_last else resolution
-
-        t = np.linspace(0, 1, num, endpoint=is_last)
-
-        for ti in t:
-            vec = (1 - ti) * start_vec + ti * end_vec
-            k_vecs_list.append(vec)
-
-        # The next node is at the current total length of list
-        # Note: k_vecs_list length grows by 'resolution' each time (except last)
-        next_idx = len(k_vecs_list) - 1
-        node_indices.append(next_idx)
-
-    k_vecs = torch.tensor(np.array(k_vecs_list), dtype=precision.torch_float)
-
-    # Recalculate distances precisely from the vectors
-    if len(k_vecs) > 0:
-        diffs = torch.norm(k_vecs[1:] - k_vecs[:-1], dim=1)
-        k_dist = torch.cat(
-            [
-                torch.tensor([0.0], dtype=precision.torch_float),
-                torch.cumsum(diffs, dim=0),
-            ]
-        )
-    else:
-        k_dist = torch.tensor([], dtype=precision.torch_float)
-
-    return k_vecs, k_dist, node_indices
 
 
 def matchby(
