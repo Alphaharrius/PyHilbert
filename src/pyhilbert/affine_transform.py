@@ -298,6 +298,37 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
 
         return tuple(elements)
 
+    def irreps(self) -> FrozenDict:
+        """
+        Build a lookup table of basis functions transformed by increasing powers.
+
+        The method repeatedly constructs powers of this affine group element by
+        varying `basis_function_order` from 1 upward and merges each generated
+        `basis` mapping into a single dictionary. Iteration stops as soon as the
+        table reaches the finite group order inferred from `group_elements()`.
+
+        Returns
+        -------
+        `FrozenDict`
+            Mapping from transformed basis functions to their
+            associated irreducible representation values.
+        """
+        group_order = len(self.group_elements())
+        tbl: Dict[sy.Expr, AffineFunction] = {}
+        for n in range(group_order):
+            order_element = AffineGroupElement(
+                irrep=self.irrep,
+                axes=self.axes,
+                offset=self.offset,
+                basis_function_order=n + 1,
+            )
+            tbl = {**order_element.basis, **tbl}
+
+            if len(tbl) == group_order:
+                break
+
+        return FrozenDict(tbl)
+
 
 @AffineGroupElement.register(GaugeInvariant)
 def _affine_transform_gauge_invariant(
@@ -561,17 +592,19 @@ def _affine_transform_mode(t: AffineGroupElement, m: Mode) -> Mode:
 
 @AffineGroupElement.register(HilbertSpace)
 def _affine_transform_hilbert(t: AffineGroupElement, h: HilbertSpace) -> Tensor:
-    mode_to_gauged: Dict[Mode, Gauged[Mode, sy.Expr]] = {
-        m: cast(Gauged[Mode, sy.Expr], t(m)) for m in h
-    }
-    gauge_table: Dict[Tuple[Mode, Mode], sy.Expr] = {
-        (m, cast(Mode, gauged.gaugable)): gauged.gauge
-        for m, gauged in mode_to_gauged.items()
-    }
-    mode_mapping: Dict[Mode, Mode] = {m: gm for m, gm in gauge_table.keys()}
-    gh = hilbert(m for m in mode_mapping.values())
+    mode_mapping: Dict[Mode, Mode] = {}
+    gauge_table: Dict[Tuple[Mode, Mode], complex] = {}
+    for m in h:
+        gauged = cast(Gauged[Mode, sy.Expr], t(m))
+        gm = cast(Mode, gauged.gaugable)
+        gauge = gauged.gauge
+        if gauge.free_symbols:
+            raise ValueError(f"Gauge factor must be numeric, got symbolic {gauge}")
+        mode_mapping[m] = gm
+        gauge_table[(m, gm)] = complex(gauge)
 
-    tmat = mapping_matrix(h, gh, mode_mapping)  # (h, gh)
+    gh = hilbert(mode_mapping.values())
+    tmat = mapping_matrix(h, gh, mode_mapping, factors=gauge_table)  # (h, gh)
     return tmat
 
 

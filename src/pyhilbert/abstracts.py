@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from copy import copy
+from dataclasses import dataclass, field, fields, is_dataclass
 from multipledispatch import dispatch
 from typing import (
     Any,
@@ -9,6 +10,7 @@ from typing import (
     Literal,
     NamedTuple,
     Set,
+    Self,
     Tuple,
     Generic,
     Type,
@@ -185,11 +187,42 @@ class Updatable(ABC, Generic[UpdatableType]):
     """
 
     def update(self, **kwargs) -> UpdatableType:
+        """
+        Return an updated instance of this object.
+
+        This method delegates the construction of the updated object to
+        :meth:`_updated`, then enforces common safety and dataclass consistency
+        rules:
+        1. ``_updated`` must return a new object (not ``self``).
+        2. If both ``self`` and the returned object are dataclasses of the same
+           runtime type, fields with ``init=False`` are copied from ``self`` to
+           the returned object.
+
+        Parameters
+        ----------
+        `**kwargs` : `Any`
+            Keyword arguments forwarded to :meth:`_updated` to define the new
+            state.
+
+        Returns
+        -------
+        `UpdatableType`
+            A new instance representing the updated state.
+
+        Raises
+        ------
+        `RuntimeError`
+            If :meth:`_updated` returns ``self`` instead of a new instance.
+        """
         out = self._updated(**kwargs)
         if out is self:
             raise RuntimeError(
                 f"{type(self).__name__}._updated() must not return self; return a new object."
             )
+        if type(out) is type(self) and is_dataclass(self) and is_dataclass(out):
+            for f in fields(self):
+                if not f.init:
+                    object.__setattr__(out, f.name, getattr(self, f.name))
         return out
 
     @abstractmethod
@@ -449,6 +482,11 @@ class Gaugable(ABC):
     def gauge_repr(self) -> GaugeBasis:
         """Get the gauge basis representation of this gaugable object."""
         return self._gauge_basis
+
+    def with_gauge_repr(self, new_repr: GaugeBasis) -> Self:
+        new_obj = copy(self)
+        object.__setattr__(new_obj, "_gauge_basis", new_repr)
+        return new_obj
 
 
 _GaugableType = TypeVar("_GaugableType", bound=Union[Gaugable, GaugeInvariant])

@@ -462,6 +462,31 @@ def test_affine_transform_hilbert_c4_mode_mapping():
     assert torch.allclose(tmat.data, expected)
 
 
+def test_affine_transform_hilbert_applies_nontrivial_mode_gauge_phase():
+    x = sy.symbols("x")
+    space, offset = _space_and_offset(1)
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[-1]]),
+        axes=(x,),
+        offset=offset,
+        basis_function_order=1,
+    )
+
+    m = Mode(count=1, attr=FrozenDict({"orb": "s"}))
+    gauge_basis = AffineFunction(
+        expr=x,
+        axes=(x,),
+        order=1,
+        rep=ImmutableDenseMatrix([1]),
+    )
+    object.__setattr__(m, "_gauge_basis", gauge_basis)
+    h = hilbert([m])
+
+    tmat = cast(Tensor, t(h))
+    expected = torch.tensor([[-1.0 + 0.0j]], dtype=tmat.data.dtype)
+    assert torch.allclose(tmat.data, expected)
+
+
 def test_bandtransform_both_preserves_c4_symmetric_momentum_tensor_up_to_alignment():
     x, y = sy.symbols("x y")
 
