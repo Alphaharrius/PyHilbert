@@ -4,7 +4,8 @@ from sympy import ImmutableDenseMatrix
 from typing import cast
 
 from pyhilbert.affine_transform import (
-    AffineFunction,
+    AbelianIrrep,
+    AbelianIrrepSet,
     AffineGroupElement,
     pointgroup,
     bandtransform,
@@ -28,15 +29,15 @@ def _space_and_offset(dim: int):
 
 def test_affine_function_dim_and_str():
     x = sy.symbols("x")
-    f = AffineFunction(
+    f = AbelianIrrep(
         expr=x,
         axes=(x,),
         order=1,
         rep=ImmutableDenseMatrix([1]),
     )
     assert f.dim == 1
-    assert "AffineFunction(x)" in str(f)
-    assert "AffineFunction(x)" in repr(f)
+    assert "AbelianIrrep(x)" in str(f)
+    assert "AbelianIrrep(x)" in repr(f)
 
 
 def test_affine_group_full_rep_kronecker_power():
@@ -114,7 +115,7 @@ def test_affine_group_basis_keys_match_eigenvalues():
     basis = t.basis
     assert set(basis.keys()) == {1, -1}
     for val, func in basis.items():
-        assert isinstance(func, AffineFunction)
+        assert isinstance(func, AbelianIrrep)
         assert func.axes == (x, y)
         assert func.order == 1
         assert t.rep @ func.rep == val * func.rep
@@ -129,7 +130,7 @@ def test_affine_transform_eigenfunction_phase():
     t = AffineGroupElement(
         irrep=irrep, axes=(x,), offset=offset, basis_function_order=1
     )
-    f = AffineFunction(expr=x, axes=(x,), order=1, rep=ImmutableDenseMatrix([1]))
+    f = AbelianIrrep(expr=x, axes=(x,), order=1, rep=ImmutableDenseMatrix([1]))
     result = t(f)
     assert result.gauge == -1
 
@@ -141,7 +142,7 @@ def test_affine_transform_non_eigenfunction_raises():
     t = AffineGroupElement(
         irrep=irrep, axes=(x, y), offset=offset, basis_function_order=1
     )
-    f = AffineFunction(
+    f = AbelianIrrep(
         expr=x + y,
         axes=(x, y),
         order=1,
@@ -161,7 +162,7 @@ def test_affine_transform_axes_mismatch_raises():
     t = AffineGroupElement(
         irrep=irrep, axes=(x,), offset=offset, basis_function_order=1
     )
-    f = AffineFunction(expr=y, axes=(y,), order=1, rep=ImmutableDenseMatrix([1]))
+    f = AbelianIrrep(expr=y, axes=(y,), order=1, rep=ImmutableDenseMatrix([1]))
     try:
         t(f)
         assert False, "Expected ValueError for axes mismatch."
@@ -176,7 +177,7 @@ def test_affine_transform_order_mismatch_rebuilds():
     t = AffineGroupElement(
         irrep=irrep, axes=(x,), offset=offset, basis_function_order=1
     )
-    f = AffineFunction(expr=x**2, axes=(x,), order=2, rep=ImmutableDenseMatrix([1]))
+    f = AbelianIrrep(expr=x**2, axes=(x,), order=2, rep=ImmutableDenseMatrix([1]))
     result = t(f)
     assert result.gauge == 4
 
@@ -188,7 +189,7 @@ def test_affine_transform_zero_basis_vector_raises():
     t = AffineGroupElement(
         irrep=irrep, axes=(x,), offset=offset, basis_function_order=1
     )
-    f = AffineFunction(expr=0, axes=(x,), order=1, rep=ImmutableDenseMatrix([0]))
+    f = AbelianIrrep(expr=0, axes=(x,), order=1, rep=ImmutableDenseMatrix([0]))
     try:
         t(f)
         assert False, "Expected ValueError for zero basis vector."
@@ -473,7 +474,7 @@ def test_affine_transform_hilbert_applies_nontrivial_mode_gauge_phase():
     )
 
     m = Mode(count=1, attr=FrozenDict({"orb": "s"}))
-    gauge_basis = AffineFunction(
+    gauge_basis = AbelianIrrep(
         expr=x,
         axes=(x,),
         order=1,
@@ -484,6 +485,31 @@ def test_affine_transform_hilbert_applies_nontrivial_mode_gauge_phase():
 
     tmat = cast(Tensor, t(h))
     expected = torch.tensor([[-1.0 + 0.0j]], dtype=tmat.data.dtype)
+    assert torch.allclose(tmat.data, expected)
+
+
+def test_affine_transform_hilbert_applies_matrix_gauge_block():
+    x, y = sy.symbols("x y")
+    space, offset = _space_and_offset(2)
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[-1, 0], [0, 1]]),
+        axes=(x, y),
+        offset=offset,
+        basis_function_order=1,
+    )
+
+    m = Mode(count=2, attr=FrozenDict({"orb": "p"}))
+    fx = AbelianIrrep(expr=x, axes=(x, y), order=1, rep=ImmutableDenseMatrix([1, 0]))
+    fy = AbelianIrrep(expr=y, axes=(x, y), order=1, rep=ImmutableDenseMatrix([0, 1]))
+    object.__setattr__(m, "_gauge_basis", AbelianIrrepSet(irreps=(fx, fy)))
+
+    h = hilbert([m])
+    tmat = cast(Tensor, t(h))
+
+    expected = torch.diag(
+        torch.tensor([-1.0 + 0.0j, 1.0 + 0.0j], dtype=tmat.data.dtype)
+    )
+    assert tmat.data.shape == (2, 2)
     assert torch.allclose(tmat.data, expected)
 
 

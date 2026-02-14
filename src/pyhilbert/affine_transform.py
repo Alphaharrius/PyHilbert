@@ -6,6 +6,7 @@ from itertools import product
 from functools import lru_cache, partial, reduce
 
 import sympy as sy
+import torch
 
 from .abstracts import HasBase, Functional, Gaugable, GaugeBasis, Gauged, GaugeInvariant
 from .spatials import AffineSpace, Spatial, Offset, Momentum
@@ -16,7 +17,7 @@ from .utils import FrozenDict
 
 
 @dataclass(frozen=True)
-class AffineFunction(Spatial, Gaugable, GaugeBasis):
+class AbelianIrrep(Spatial, Gaugable, GaugeBasis):
     """
     Symbolic affine function expressed in a polynomial basis over given axes.
 
@@ -43,10 +44,42 @@ class AffineFunction(Spatial, Gaugable, GaugeBasis):
         return len(self.axes)
 
     def __str__(self):
-        return f"AffineFunction({str(self.expr)})"
+        return f"AbelianIrrep({str(self.expr)})"
 
     def __repr__(self):
-        return f"AffineFunction({repr(self.expr)})"
+        return f"AbelianIrrep({repr(self.expr)})"
+
+
+@dataclass(frozen=True)
+class AbelianIrrepSet(Gaugable, GaugeBasis):
+    """
+    Immutable collection of :class:`AbelianIrrep` objects that share a common
+    algebraic context.
+
+    This container is used to pass multiple symbolic affine irreducible
+    representations through APIs that operate on gauge bases and gaugeable
+    objects. Keeping them in a dedicated dataclass makes the set hashable,
+    explicit, and compatible with memoization-heavy workflows in this module.
+
+    Use this class when you need to:
+    - represent several affine irreps as a single semantic unit,
+    - preserve deterministic ordering of irreps for basis construction, or
+    - provide a gauge-aware batch input to downstream transformations.
+
+    Parameters
+    ----------
+    `irreps`: `Tuple[AbelianIrrep, ...]`
+        Ordered, immutable tuple of affine irreps. The tuple order defines the
+        canonical iteration order for any downstream basis or mapping logic.
+
+    Notes
+    -----
+    This class intentionally does not coerce or validate element compatibility
+    (e.g. axis set or polynomial order alignment). Upstream construction code
+    should enforce those invariants when required by a specific algorithm.
+    """
+
+    irreps: Tuple[AbelianIrrep, ...]
 
 
 @dataclass(frozen=True)
@@ -183,7 +216,7 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
 
             rep = vec / principle_term
             expr = sy.simplify(rep.dot(self.euclidean_basis))
-            tbl[v] = AffineFunction(
+            tbl[v] = AbelianIrrep(
                 expr=expr, axes=self.axes, order=self.basis_function_order, rep=rep
             )
 
@@ -314,7 +347,7 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
             associated irreducible representation values.
         """
         group_order = len(self.group_elements())
-        tbl: Dict[sy.Expr, AffineFunction] = {}
+        tbl: Dict[sy.Expr, AbelianIrrep] = {}
         for n in range(group_order):
             order_element = AffineGroupElement(
                 irrep=self.irrep,
@@ -338,10 +371,10 @@ def _affine_transform_gauge_invariant(
     return Gauged(gaugable=v, gauge=sy.Integer(1))
 
 
-@AffineGroupElement.register(AffineFunction)
-def _affine_transform_affine_function(
-    t: AffineGroupElement, f: AffineFunction
-) -> Gauged[AffineFunction, sy.Expr]:
+@AffineGroupElement.register(AbelianIrrep)
+def _affine_transform_abelian_irrep(
+    t: AffineGroupElement, f: AbelianIrrep
+) -> Gauged[AbelianIrrep, sy.Expr]:
     """
     Apply an affine group element to a basis function and extract its phase factor.
 
@@ -362,16 +395,16 @@ def _affine_transform_affine_function(
     ----------
     `t` : `AffineGroupElement`
         The affine group element (transform) to apply.
-    `f` : `AffineFunction`
+    `f` : `AbelianIrrep`
         The basis function to be transformed.
 
     Returns
     -------
-    `Gauged[AffineFunction, sy.Expr]`
+    `Gauged[AbelianIrrep, sy.Expr]`
         A named tuple containing:
         - `gauge`: The symbolic phase factor (sy.Expr) such that
           `t.rep @ f.rep == phase * f.rep`.
-        - `gaugable`: The original `AffineFunction` (unchanged).
+        - `gaugable`: The original `AbelianIrrep` (unchanged).
 
     Raises
     ------
@@ -414,6 +447,17 @@ def _affine_transform_affine_function(
         raise ValueError(f"{f} is a trivial basis function: zero")
 
     return Gauged(gauge=phase, gaugable=f)
+
+
+@AffineGroupElement.register(AbelianIrrepSet)
+def _affine_transform_abelian_irrep_set(
+    t: AffineGroupElement, s: AbelianIrrepSet
+) -> Gauged[AbelianIrrepSet, sy.ImmutableDenseMatrix]:
+    irrep_gauges = (
+        cast(Gauged[AbelianIrrep, sy.Expr], t(irrep)).gauge for irrep in s.irreps
+    )
+    gauge: sy.ImmutableDenseMatrix = sy.ImmutableDenseMatrix.diag(*irrep_gauges)
+    return Gauged(gauge=gauge, gaugable=s)
 
 
 @AffineGroupElement.register(Offset)
@@ -531,7 +575,7 @@ def _affine_transform_momentum(t: AffineGroupElement, k: Momentum) -> Momentum:
 @AffineGroupElement.register(Gaugable, order="back")
 def _affine_transform_gaugable(
     t: AffineGroupElement, v: Gaugable
-) -> Gauged[Gaugable, sy.Expr]:
+) -> Gauged[Gaugable, sy.Expr | sy.ImmutableDenseMatrix]:
     """Transform a gaugable object by updating its gauge phase.
 
     Parameters
@@ -546,14 +590,14 @@ def _affine_transform_gaugable(
 
     Returns
     -------
-    `Gauged[Gaugable, sy.Expr]`
+    `Gauged[Gaugable, sy.Expr | sy.ImmutableDenseMatrix]`
         A gauged wrapper whose `gaugable` field is the original input `v` and
-        whose `gauge` field is the phase returned by applying `t` to `v`'s gauge
+        whose `gauge` field is the gauge returned by applying `t` to `v`'s gauge
         representation.
     """
     basis = v.gauge_repr()
-    phase, _ = t.apply(basis)
-    return Gauged(gaugable=v, gauge=phase)
+    gauge, _ = t.apply(basis)
+    return Gauged(gaugable=v, gauge=gauge)
 
 
 def _optional_transform_mode_attr(t: AffineGroupElement, v: Mode):
@@ -592,20 +636,64 @@ def _affine_transform_mode(t: AffineGroupElement, m: Mode) -> Mode:
 
 @AffineGroupElement.register(HilbertSpace)
 def _affine_transform_hilbert(t: AffineGroupElement, h: HilbertSpace) -> Tensor:
+    """
+    Apply an affine transformation to a Hilbert-space basis and build the
+    corresponding basis-change matrix.
+
+    This routine transforms each mode in `h` under `t`, collects:
+    - the transformed mode mapping `m -> g(m)`, and
+    - the associated gauge factor for each mapped pair.
+
+    The result is returned as a `Tensor` from the original basis to the
+    transformed basis via `mapping_matrix`.
+
+    Gauge handling:
+    - Scalar gauges are converted to Python `complex`.
+    - Matrix gauges are assumed diagonal in the mode basis and are converted
+      to a diagonal `torch.Tensor`.
+    - Symbolic (non-numeric) gauges are rejected.
+
+    Parameters
+    ----------
+    `t` : `AffineGroupElement`
+        Affine symmetry element used to transform each mode in `h`. The mode
+        transform is expected to produce a `Gauged[Mode, ...]` object carrying
+        both transformed mode and gauge factor.
+    `h` : `HilbertSpace`
+        Input Hilbert space whose modes define the source basis.
+
+    Returns
+    -------
+    `Tensor`
+        Basis-change tensor representing the action of `t` on `h`, with source
+        dimension `h` and target dimension `gh = hilbert({t(m)})` (up to gauge
+        factors).
+
+    Raises
+    ------
+    `ValueError`
+        If a collected gauge factor remains symbolic (has free symbols), since
+        a numeric mapping matrix is required.
+    """
     mode_mapping: Dict[Mode, Mode] = {}
-    gauge_table: Dict[Tuple[Mode, Mode], complex] = {}
+    gauge_table: Dict[Tuple[Mode, Mode], complex | torch.Tensor] = {}
     for m in h:
-        gauged = cast(Gauged[Mode, sy.Expr], t(m))
+        gauged = cast(Gauged[Mode, sy.Expr | sy.ImmutableDenseMatrix], t(m))
         gm = cast(Mode, gauged.gaugable)
         gauge = gauged.gauge
         if gauge.free_symbols:
             raise ValueError(f"Gauge factor must be numeric, got symbolic {gauge}")
         mode_mapping[m] = gm
-        gauge_table[(m, gm)] = complex(gauge)
+        if isinstance(gauge, sy.ImmutableDenseMatrix):
+            diag_vals = [
+                complex(gauge[i, i]) for i in range(min(gauge.rows, gauge.cols))
+            ]
+            gauge_table[(m, gm)] = torch.diag(torch.tensor(diag_vals))
+        else:
+            gauge_table[(m, gm)] = complex(gauge)
 
     gh = hilbert(mode_mapping.values())
-    tmat = mapping_matrix(h, gh, mode_mapping, factors=gauge_table)  # (h, gh)
-    return tmat
+    return mapping_matrix(h, gh, mode_mapping, factors=gauge_table)  # (h, gh)
 
 
 def bandtransform(

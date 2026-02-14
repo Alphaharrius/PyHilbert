@@ -1001,7 +1001,9 @@ def mapping_matrix(
     from_space: StateSpace,
     to_space: StateSpace,
     mapping: Dict[Any, Any],
-    factors: Optional[Dict[Tuple[Any, Any], int | float | complex]] = None,
+    factors: Optional[
+        Dict[Tuple[Any, Any], int | float | complex | torch.Tensor]
+    ] = None,
 ) -> Tensor:
     """
     Create a sector-wise mapping matrix between two state spaces.
@@ -1021,9 +1023,10 @@ def mapping_matrix(
         Dictionary mapping sector markers in `from_space` to sector markers in
         `to_space`. For each entry, a block is written between the slices
         returned by `from_space.get_slice(...)` and `to_space.get_slice(...)`.
-    `factors` : `Optional[Dict[Tuple[Any, Any], int | float | complex]]`, optional
-        Optional multiplicative factors per mapping entry. Keys are
-        `(from_marker, to_marker)` tuples. Missing keys default to `1`.
+    `factors` : `Optional[Dict[Tuple[Any, Any], int | float | complex | torch.Tensor]]`, optional
+        Optional per-entry factors. Keys are `(from_marker, to_marker)` tuples.
+        Scalar values scale an identity block; tensor values are inserted
+        directly as the block matrix. Missing keys default to `1`.
 
     Returns
     -------
@@ -1047,14 +1050,23 @@ def mapping_matrix(
 
         flen = fslice.stop - fslice.start
         tlen = tslice.stop - tslice.start
+        factor = factors.get((fm, tm), 1)
+        if torch.is_tensor(factor):
+            if tuple(factor.shape) != (flen, tlen):
+                raise ValueError(
+                    f"Cannot insert factor block with shape {tuple(factor.shape)} for sector shape {(flen, tlen)}"
+                )
+            mat[fslice, tslice] = factor.to(dtype=mat.dtype, device=mat.device)
+            continue
+
         if flen != tlen:
             raise ValueError(
                 f"Cannot create mapping matrix between sectors of different sizes: {flen} != {tlen}"
             )
 
-        mat[fslice, tslice] = torch.eye(
-            flen, dtype=mat.dtype, device=mat.device
-        ) * factors.get((fm, tm), 1)
+        mat[fslice, tslice] = (
+            torch.eye(flen, dtype=mat.dtype, device=mat.device) * factor
+        )
 
     return Tensor(data=mat, dims=(from_space, to_space))
 
