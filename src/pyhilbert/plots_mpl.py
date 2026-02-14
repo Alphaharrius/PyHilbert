@@ -1,14 +1,11 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, List, Union, Dict, Any, cast, Tuple
-from collections import OrderedDict
-from .spatials import Lattice, ReciprocalLattice
+from typing import Optional, Union, Dict, Any, cast, Tuple
+from .spatials import Lattice
 from .tensors import Tensor
 from .utils import compute_bonds
-from .hilbert import HilbertSpace, Mode, generate_k_path
-from .fourier import fourier_transform
-
+from .hilbert import HilbertSpace, MomentumSpace, same_span
 # --- Registered Plot Methods (Matplotlib Backend) ---
 
 
@@ -418,108 +415,137 @@ def plot_spectrum_mpl(
     return fig
 
 
-@Lattice.register_plot_method("bandstructure", backend="matplotlib")
-@ReciprocalLattice.register_plot_method("bandstructure", backend="matplotlib")
+@Tensor.register_plot_method("bandstructure", backend="matplotlib")
 def plot_bandstructure_mpl(
-    obj: Union[Lattice, ReciprocalLattice],
-    hamiltonian: Tensor,  # TODO: Change to Hamiltonian Class
-    k_path: List[Union[List[float], Tuple[float, ...]]],
-    n_points: int = 100,
+    obj: Tensor,
     title: str = "Band Structure",
     save_path: Optional[str] = None,
+    subs: Optional[Dict] = None,
     **kwargs,
 ) -> plt.Figure:
     """
-    Plot the band structure of a Hamiltonian along a k-path using Matplotlib.
+    Plot the band structure of a Hamiltonian tensor using Matplotlib.
+    The tensor must have dimensions (MomentumSpace, HilbertSpace, HilbertSpace).
 
     Parameters
     ----------
-    obj : Union[Lattice, ReciprocalLattice]
-        The lattice object (or its reciprocal).
-    hamiltonian : Tensor
-        The real-space Hamiltonian tensor. Must have rank >= 2.
-    k_path : List[List[float]]
-        List of fractional coordinates for high-symmetry points defining the path.
-    n_points : int
-        Approximate number of points along the path.
-    title : str
-        Plot title.
-    save_path : str, optional
-        If provided, saves the figure to this path.
-    **kwargs
-        Additional arguments passed to plt.subplots.
+    subs : dict, optional
+        Dictionary of symbol substitutions for lattice parameters.
     """
-    # 1. Resolve ReciprocalLattice
-    if isinstance(obj, Lattice):
-        recip = obj.dual
-    else:
-        recip = obj
+    # 1. Check Dimensions
+    if obj.rank() != 3:
+        raise ValueError(
+            f"Tensor must be rank 3 (Momentum, Hilbert, Hilbert), got rank {obj.rank()}"
+        )
 
-    # 2. Generate k-path
-    k_path_for_generation = cast(
-        List[Union[List[float], Tuple[float, ...], np.ndarray]], k_path
-    )
-    k_space, x_vals, tick_vals = generate_k_path(recip, k_path_for_generation, n_points)
+    k_space = obj.dims[0]
+    if not isinstance(k_space, MomentumSpace):
+        raise ValueError(f"First dimension must be MomentumSpace, got {type(k_space)}")
 
-    # 3. Identify Bloch Space from Hamiltonian
-    region_space = hamiltonian.dims[-1]
-    if not isinstance(region_space, HilbertSpace):
-        raise ValueError("Hamiltonian last dimension must be HilbertSpace")
+    if not (
+        isinstance(obj.dims[1], HilbertSpace) and isinstance(obj.dims[2], HilbertSpace)
+    ):
+        raise ValueError("Last two dimensions must be HilbertSpace")
 
-    unique_modes: Dict[Mode, int] = {}
-    for mode in region_space:
-        frac_offset = mode["r"].fractional()
-        bloch_mode = cast(Mode, mode.update(r=frac_offset))
+    if not same_span(obj.dims[1], obj.dims[2]):
+        raise ValueError("Last two dimensions must span the same Hilbert space")
 
-        if bloch_mode not in unique_modes:
-            unique_modes[bloch_mode] = mode.count
+    k_points = list(k_space)
 
-    sorted_bloch_modes = sorted(unique_modes.keys(), key=lambda m: tuple(m["r"].rep))
-
-    bloch_structure: OrderedDict[Mode, slice] = OrderedDict()
-    base = 0
-    for m in sorted_bloch_modes:
-        c = unique_modes[m]
-        bloch_structure[m] = slice(base, base + c)
-        base += c
-
-    bloch_space = HilbertSpace(structure=bloch_structure)
-
-    # 4. Fourier Transform
-    f = fourier_transform(k_space, bloch_space, region_space)
-    f_dag = f.h(-2, -1)
-
-    # H(k) = f @ hamiltonian @ f_dag
-    h_k = f @ hamiltonian @ f_dag
-
-    # 5. Diagonalize
-    hk_data = h_k.data
-
-    # Assume Hermitian for now (usual for band structure)
+    # 2. Diagonalize
+    hk_data = obj.data
     eigvals = torch.linalg.eigvalsh(hk_data)  # (K, N_bands)
     eigvals_np = eigvals.detach().cpu().numpy()
-
-    # 6. Plot
-    fig, ax = plt.subplots(figsize=kwargs.get("figsize", (8, 6)))
-
     n_bands = eigvals_np.shape[1]
 
-    for b in range(n_bands):
-        ax.plot(x_vals, eigvals_np[:, b], "b-", linewidth=1.5)
+    # 3. Detect 2D Grid
+    is_2d_grid = False
+    grid_shape = None
+    recip = None
 
-    # High-symmetry lines
-    for tick in tick_vals:
-        ax.axvline(x=tick, color="gray", linestyle="--", linewidth=1)
+    if len(k_points) > 0:
+        recip = k_points[0].space
+        if hasattr(recip, "shape") and len(recip.shape) == 2:
+            if k_space.dim == recip.shape[0] * recip.shape[1]:
+                is_2d_grid = True
+                grid_shape = recip.shape
 
-    ax.set_title(title)
-    ax.set_xlabel("Wave Vector")
-    ax.set_ylabel("Energy")
-    ax.set_xticks(tick_vals)
-    # We can't set labels easily as they are not passed
-    ax.set_xticklabels([])
+    if is_2d_grid and grid_shape and recip is not None:
+        # 2D Surface Plot
+        # Requires 3D projection
+        fig = plt.figure(figsize=kwargs.get("figsize", (10, 8)))
+        ax = fig.add_subplot(111, projection="3d")
 
-    ax.set_xlim(x_vals[0], x_vals[-1])
-    ax.grid(True, alpha=0.3)
+        # Reshape eigenvalues
+        evals_grid = eigvals_np.reshape(grid_shape[0], grid_shape[1], n_bands)
+
+        # Calculate Cartesian Coordinates
+        basis_sym = recip.basis
+        if subs:
+            basis_eval = basis_sym.subs(subs)
+        else:
+            basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
+        basis_mat = np.array(basis_eval).astype(float)
+
+        k_fracs = []
+        for k in k_points:
+            rep = k.rep
+            if subs:
+                rep = rep.subs(subs)
+            k_fracs.append(np.array(rep).astype(float).flatten())
+        k_fracs_arr = np.stack(k_fracs)
+
+        k_cart = k_fracs_arr @ basis_mat
+
+        KX = k_cart[:, 0].reshape(grid_shape[0], grid_shape[1])
+        KY = k_cart[:, 1].reshape(grid_shape[0], grid_shape[1])
+
+        for b in range(n_bands):
+            # Using plot_surface
+            ax.plot_surface(KX, KY, evals_grid[:, :, b], cmap="viridis", alpha=0.8)
+
+        ax.set_title(title)
+        ax.set_xlabel("kx")
+        ax.set_ylabel("ky")
+        # Explicit cast to avoid type checking issues with dynamic ax
+        cast(Any, ax).set_zlabel("Energy")
+
+    else:
+        # 1D Line Plot
+        fig, ax = plt.subplots(figsize=kwargs.get("figsize", (8, 6)))
+
+        x_vals = [0.0]
+        if len(k_points) > 1:
+            recip = k_points[0].space
+            basis_sym = recip.basis
+            if subs:
+                basis_eval = basis_sym.subs(subs)
+            else:
+                basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
+            basis_mat = np.array(basis_eval).astype(float)  # (Dim, Dim)
+
+            k_fracs = []
+            for k in k_points:
+                rep = k.rep
+                if subs:
+                    rep = rep.subs(subs)
+                k_fracs.append(np.array(rep).astype(float).flatten())
+            k_fracs_arr = np.stack(k_fracs)
+
+            k_cart = k_fracs_arr @ basis_mat
+
+            diffs = k_cart[1:] - k_cart[:-1]
+            dists = np.linalg.norm(diffs, axis=1)
+            x_vals = np.concatenate(([0.0], np.cumsum(dists))).tolist()
+
+        for b in range(n_bands):
+            ax.plot(x_vals, eigvals_np[:, b], "b-", linewidth=1.5)
+
+        ax.set_title(title)
+        ax.set_xlabel("Wave Vector Path")
+        ax.set_ylabel("Energy")
+        ax.set_xlim(x_vals[0], x_vals[-1])
+        ax.grid(True, alpha=0.3)
 
     if save_path:
         plt.savefig(save_path, bbox_inches="tight")

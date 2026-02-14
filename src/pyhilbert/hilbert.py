@@ -1,17 +1,13 @@
 import types
 from dataclasses import dataclass, replace, field
-from typing import Any, Tuple, TypeVar, Generic, Union, List
+from typing import Any, Tuple, TypeVar, Generic, Union
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain, islice
-import numpy as np
-import torch
-from sympy import ImmutableDenseMatrix
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from .abstracts import Updatable
-from .precision import get_precision_config
 from .utils import FrozenDict
 from .spatials import (
     Spatial,
@@ -430,137 +426,6 @@ def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
     elements = cartes(lattice)
     structure = OrderedDict((el, slice(n, n + 1)) for n, el in enumerate(elements))
     return MomentumSpace(structure=structure)
-
-
-def generate_k_path(
-    recip: ReciprocalLattice,
-    k_path: List[Union[List[float], Tuple[float, ...], np.ndarray]],
-    n_points: int,
-) -> Tuple[MomentumSpace, List[float], List[float]]:
-    """
-    Generate a 1D sampling of k-points along a piecewise-linear path.
-
-    The input path is given in *fractional reciprocal-lattice coordinates*:
-    each node is a length-`recip.dim` vector of coefficients in the reciprocal
-    basis. Distances along the path (used for the x-axis in band-structure
-    plots) are computed in the corresponding Cartesian embedding using
-    `recip.basis`.
-
-    Parameters
-    ----------
-    recip : ReciprocalLattice
-        Reciprocal lattice that defines the basis in which `k_path` is expressed.
-    k_path : list of array-like
-        Sequence of high-symmetry nodes in fractional reciprocal coordinates.
-        Must contain at least two nodes.
-    n_points : int
-        Approximate number of k-samples along the full path.
-
-    Returns
-    -------
-    k_space : MomentumSpace
-        MomentumSpace containing one `Momentum` element per sampled k-point.
-    flat_k_dist : list[float]
-        Cumulative distance along the path for each sampled k-point (same length
-        as `k_space`).
-    k_node_dist : list[float]
-        Cumulative distance at each input node (length equals `len(k_path)`),
-        useful for tick locations / vertical separators.
-    """
-    if len(k_path) < 2:
-        raise ValueError("k_path must have at least 2 points")
-
-    precision = get_precision_config()
-
-    # Parse k_path to a numpy array of fractional reciprocal coordinates.
-    k_nodes_frac_list = []
-    for k in k_path:
-        if isinstance(k, (list, tuple)):
-            k_nodes_frac_list.append(np.array(k, dtype=precision.np_float))
-        elif isinstance(k, np.ndarray):
-            k_nodes_frac_list.append(k.astype(precision.np_float))
-        else:
-            raise TypeError(f"Invalid k-point type: {type(k)}")
-    k_nodes_frac = np.stack(k_nodes_frac_list)  # (N_nodes, Dim)
-
-    if k_nodes_frac.shape[1] != recip.dim:
-        raise ValueError(
-            f"k-point dimension {k_nodes_frac.shape[1]} does not match lattice dimension {recip.dim}"
-        )
-
-    # Compute segment lengths in Cartesian coordinates.
-    # `recip.basis` is a symbolic (sympy) matrix, so we evaluate it numerically.
-    basis_sym = recip.basis.subs({s: 1.0 for s in recip.basis.free_symbols})
-    basis_mat = torch.tensor(
-        np.array(basis_sym).astype(precision.np_float), dtype=precision.torch_float
-    )
-
-    # k_cart = k_frac @ basis_mat
-    k_nodes_cart = torch.tensor(k_nodes_frac, dtype=precision.torch_float) @ basis_mat
-
-    # Calculate segment lengths
-    diffs = k_nodes_cart[1:] - k_nodes_cart[:-1]
-    dists = torch.norm(diffs, dim=1).numpy()
-    total_dist = np.sum(dists)
-
-    # Distribute points across segments approximately proportional to length.
-    k_points_frac_parts = []
-    flat_k_dist_parts = []
-    k_node_dist = [0.0]
-    k_points_frac: np.ndarray
-    flat_k_dist: np.ndarray
-
-    current_dist = 0.0
-
-    # Degenerate path: all nodes coincide in Cartesian space.
-    if total_dist == 0:
-        # Replicate the single node so callers still get `n_points` samples.
-        k_points_frac = np.repeat(k_nodes_frac[0][None, :], n_points, axis=0)
-        flat_k_dist = np.zeros(n_points, dtype=precision.np_float)
-        k_node_dist = [0.0] * len(k_path)
-    else:
-        for i, d in enumerate(dists):
-            # Target number of samples for this segment (at least two endpoints).
-            n_seg = max(2, int(np.round(n_points * d / total_dist)))
-
-            t = np.linspace(0, 1, n_seg)
-            start = k_nodes_frac[i]
-            end = k_nodes_frac[i + 1]
-
-            segment_frac = start[None, :] + (end - start)[None, :] * t[:, None]
-
-            # Remove the shared endpoint to avoid duplicates between segments
-            if i < len(dists) - 1:
-                segment_frac = segment_frac[:-1]
-                t = t[:-1]
-
-            k_points_frac_parts.append(segment_frac)
-
-            # Cumulative distance values used for the x-axis of band-structure plots.
-            segment_dist = current_dist + t * d
-            flat_k_dist_parts.append(segment_dist)
-
-            current_dist += d
-            k_node_dist.append(current_dist)
-
-        k_points_frac = np.concatenate(k_points_frac_parts, axis=0)
-        flat_k_dist = np.concatenate(flat_k_dist_parts, axis=0)
-
-    # Build a MomentumSpace by wrapping each sampled fractional coordinate into
-    # a `Momentum` element. `rep` is stored as a sympy column vector.
-
-    structure = OrderedDict()
-    for i, k_frac in enumerate(k_points_frac):
-        # Convert to ImmutableDenseMatrix column vector.
-        rep = ImmutableDenseMatrix(k_frac.reshape(-1, 1))
-        # Note: these are floats (not exact rationals). This is fine for plotting
-        # and for numerical transforms downstream.
-        k_obj = Momentum(rep=rep, space=recip)
-        structure[k_obj] = slice(i, i + 1)
-
-    k_space = MomentumSpace(structure=structure)
-
-    return k_space, flat_k_dist.tolist(), k_node_dist
 
 
 @dataclass(frozen=True)

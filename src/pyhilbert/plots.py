@@ -2,13 +2,11 @@ import torch
 import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
-from typing import Optional, List, Union, Dict, Tuple, cast
-from .spatials import Lattice, ReciprocalLattice
-from .hilbert import HilbertSpace, Mode, generate_k_path
+from typing import Optional, Union, Dict, Tuple
+from .spatials import Lattice
+from .hilbert import HilbertSpace, MomentumSpace, same_span
 from .tensors import Tensor
 from .utils import compute_bonds
-from .fourier import fourier_transform
-from collections import OrderedDict
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
 # --- Registered Plot Methods ---
@@ -494,133 +492,160 @@ def plot_spectrum(
     return fig
 
 
-@Lattice.register_plot_method("bandstructure", backend="plotly")
-@ReciprocalLattice.register_plot_method("bandstructure", backend="plotly")
+@Tensor.register_plot_method("bandstructure", backend="plotly")
 def plot_bandstructure(
-    obj: Union[Lattice, ReciprocalLattice],
-    hamiltonian: Tensor,  # TODO: Change to Hamiltonian Class
-    k_path: List[Union[List[float], Tuple[float, ...]]],
-    n_points: int = 100,
+    obj: Tensor,
     title: str = "Band Structure",
     show: bool = True,
+    subs: Optional[Dict] = None,
     **kwargs,
 ) -> go.Figure:
     """
-    Plot the band structure of a real-space Hamiltonian along a k-path.
+    Plot the band structure of a Hamiltonian tensor.
+    The tensor must have dimensions (MomentumSpace, HilbertSpace, HilbertSpace).
 
     Parameters
     ----------
-    obj : Union[Lattice, ReciprocalLattice]
-        The lattice object (or its reciprocal).
-    hamiltonian : Tensor
-        The real-space Hamiltonian tensor. Must have rank >= 2.
-    k_path : List[List[float]]
-        List of fractional coordinates for high-symmetry points defining the path.
-    n_points : int
-        Approximate number of points along the path.
+    obj : Tensor
+        The Hamiltonian H(k).
     title : str
         Plot title.
     show : bool
         Whether to show the plot.
+    subs : dict, optional
+        Dictionary of symbol substitutions for lattice parameters.
     **kwargs
         Additional arguments.
     """
-    # 1. Resolve ReciprocalLattice
-    if isinstance(obj, Lattice):
-        recip = obj.dual
-    else:
-        recip = obj
-
-    # 2. Generate k-path
-    k_path_for_generation = cast(
-        List[Union[List[float], Tuple[float, ...], np.ndarray]], k_path
-    )
-    k_space, x_vals, tick_vals = generate_k_path(recip, k_path_for_generation, n_points)
-
-    # 3. Identify Bloch Space from Hamiltonian
-    region_space = hamiltonian.dims[-1]
-    if not isinstance(region_space, HilbertSpace):
-        raise ValueError("Hamiltonian last dimension must be HilbertSpace")
-
-    # Infer a Bloch/unit-cell basis by mapping each region-space mode position to its
-    # fractional (unit-cell) coordinate and taking unique modes. This defines the
-    # HilbertSpace used for H(k) at each sampled k.
-
-    unique_modes: Dict[Mode, int] = {}
-    for mode in region_space:
-        # Map the real-space position to its unit-cell (fractional) representative.
-        frac_offset = mode["r"].fractional()
-
-        # Preserve all other mode attributes (e.g. spin/orbital labels) and only
-        # replace the position attribute `r`.
-        bloch_mode = cast(Mode, mode.update(r=frac_offset))
-
-        if bloch_mode not in unique_modes:
-            unique_modes[bloch_mode] = mode.count
-
-    # Sort bloch modes for deterministic order
-    # Sort by fractional coordinate rep
-    sorted_bloch_modes = sorted(unique_modes.keys(), key=lambda m: tuple(m["r"].rep))
-
-    bloch_structure: OrderedDict[Mode, slice] = OrderedDict()
-    base = 0
-    for m in sorted_bloch_modes:
-        c = unique_modes[m]  # count
-        bloch_structure[m] = slice(base, base + c)
-        base += c
-
-    bloch_space = HilbertSpace(structure=bloch_structure)
-
-    # 4. Fourier transform to k-space.
-
-    f = fourier_transform(k_space, bloch_space, region_space)
-
-    f_dag = f.h(-2, -1)
-    h_k = f @ hamiltonian @ f_dag
-
-    # 5. Diagonalize
-    # Convert to torch
-    hk_data = h_k.data  # (K, N_bands, N_bands)
-
-    # Check hermiticity roughly
-    # We assume H is hermitian.
-    eigvals = torch.linalg.eigvalsh(hk_data)  # (K, N_bands)
-    eigvals_np = eigvals.detach().cpu().numpy()
-
-    # 6. Plot
-    fig = go.Figure()
-
-    n_bands = eigvals_np.shape[1]
-
-    for b in range(n_bands):
-        fig.add_trace(
-            go.Scatter(
-                x=x_vals,
-                y=eigvals_np[:, b],
-                mode="lines",
-                name=f"Band {b}",
-                line=dict(color="blue"),
-                showlegend=False,
-            )
+    # 1. Check Dimensions
+    if obj.rank() != 3:
+        raise ValueError(
+            f"Tensor must be rank 3 (Momentum, Hilbert, Hilbert), got rank {obj.rank()}"
         )
 
-    # Add vertical lines for high-symmetry points
-    for tick in tick_vals:
-        fig.add_vline(x=tick, line_width=1, line_dash="dash", line_color="gray")
+    k_space = obj.dims[0]
+    if not isinstance(k_space, MomentumSpace):
+        raise ValueError(f"First dimension must be MomentumSpace, got {type(k_space)}")
 
-    # Update layout
-    # We can try to set tick labels if user provided them, but we only have points.
+    if not (
+        isinstance(obj.dims[1], HilbertSpace) and isinstance(obj.dims[2], HilbertSpace)
+    ):
+        raise ValueError("Last two dimensions must be HilbertSpace")
 
-    fig.update_layout(
-        title=title,
-        xaxis_title="Wave Vector",
-        yaxis_title="Energy",
-        xaxis=dict(
-            tickmode="array",
-            tickvals=tick_vals,
-            # ticktext=... # We don't have labels passed in k_path list
-        ),
-    )
+    if not same_span(obj.dims[1], obj.dims[2]):
+        raise ValueError("Last two dimensions must span the same Hilbert space")
+
+    k_points = list(k_space)
+
+    # 2. Diagonalize
+    hk_data = obj.data
+    eigvals = torch.linalg.eigvalsh(hk_data)  # (K, N_bands)
+    eigvals_np = eigvals.detach().cpu().numpy()
+    n_bands = eigvals_np.shape[1]
+
+    # 3. Detect 2D Grid for Surface Plot
+    is_2d_grid = False
+    grid_shape = None
+    recip = None
+
+    if len(k_points) > 0:
+        recip = k_points[0].space
+        if hasattr(recip, "shape") and len(recip.shape) == 2:
+            if k_space.dim == recip.shape[0] * recip.shape[1]:
+                is_2d_grid = True
+                grid_shape = recip.shape
+
+    fig = go.Figure()
+
+    if is_2d_grid and grid_shape and recip is not None:
+        # 2D Surface Plot
+        # Reshape eigenvalues
+        evals_grid = eigvals_np.reshape(grid_shape[0], grid_shape[1], n_bands)
+
+        # Calculate Cartesian Coordinates for Grid
+        # Get basis matrix
+        basis_sym = recip.basis
+        if subs:
+            basis_eval = basis_sym.subs(subs)
+        else:
+            basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
+        basis_mat = np.array(basis_eval).astype(float)
+
+        # Extract fractional coords
+        k_fracs = []
+        for k in k_points:
+            rep = k.rep
+            if subs:
+                rep = rep.subs(subs)
+            k_fracs.append(np.array(rep).astype(float).flatten())
+        k_fracs_arr = np.stack(k_fracs)  # (K, 2)
+
+        # Convert to Cartesian
+        k_cart = k_fracs_arr @ basis_mat  # (K, 2)
+
+        KX = k_cart[:, 0].reshape(grid_shape[0], grid_shape[1])
+        KY = k_cart[:, 1].reshape(grid_shape[0], grid_shape[1])
+
+        for b in range(n_bands):
+            fig.add_trace(
+                go.Surface(
+                    x=KX,
+                    y=KY,
+                    z=evals_grid[:, :, b],
+                    name=f"Band {b}",
+                    showscale=(b == 0),
+                    colorscale="Viridis",
+                    opacity=0.9,
+                )
+            )
+
+        fig.update_layout(
+            title=title,
+            scene=dict(xaxis_title="kx", yaxis_title="ky", zaxis_title="Energy"),
+        )
+
+    else:
+        # 1D Line Plot
+        x_vals = [0.0]
+        if len(k_points) > 1:
+            recip = k_points[0].space
+            basis_sym = recip.basis
+            if subs:
+                basis_eval = basis_sym.subs(subs)
+            else:
+                basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
+            basis_mat = np.array(basis_eval).astype(float)
+
+            k_fracs = []
+            for k in k_points:
+                rep = k.rep
+                if subs:
+                    rep = rep.subs(subs)
+                k_fracs.append(np.array(rep).astype(float).flatten())
+            k_fracs_arr = np.stack(k_fracs)
+
+            k_cart = k_fracs_arr @ basis_mat
+            diffs = k_cart[1:] - k_cart[:-1]
+            dists = np.linalg.norm(diffs, axis=1)
+            x_vals = np.concatenate(([0.0], np.cumsum(dists))).tolist()
+
+        for b in range(n_bands):
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=eigvals_np[:, b],
+                    mode="lines",
+                    name=f"Band {b}",
+                    line=dict(color="blue"),
+                    showlegend=False,
+                )
+            )
+
+        fig.update_layout(
+            title=title,
+            xaxis_title="Wave Vector Path",
+            yaxis_title="Energy",
+        )
 
     if show:
         fig.show()
