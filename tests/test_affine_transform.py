@@ -522,7 +522,15 @@ def test_bandtransform_both_preserves_c4_symmetric_momentum_tensor_up_to_alignme
 
     # Single-orbital Hilbert space in a square unit cell.
     r0 = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
-    h_space = hilbert([Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))])
+    mode = Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"})).with_gauge_repr(
+        AbelianIrrep(
+            expr=x - sy.I * y,
+            axes=(x, y),
+            order=1,
+            rep=ImmutableDenseMatrix([1, -sy.I]),
+        )
+    )
+    h_space = hilbert([mode])
 
     # C4-symmetric dispersion: e(k) = cos(2*pi*kx) + cos(2*pi*ky).
     energies = []
