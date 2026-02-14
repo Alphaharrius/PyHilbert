@@ -4,9 +4,10 @@ import sympy as sy
 from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
 from functools import lru_cache
 from itertools import product
-from typing import Tuple, Any, cast, Dict, Callable, ClassVar, Literal
+from typing import Tuple, cast, Literal
 import numpy as np
-from abc import ABC
+
+from .abstracts import Functional
 from .utils import FrozenDict, matchby
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
@@ -15,42 +16,7 @@ from .fourier import fourier_transform
 
 
 @dataclass(frozen=True)
-class AbstractTransform(ABC):
-    _register_transform_method: ClassVar[Dict[Tuple[type, type], Callable]] = {}
-
-    @classmethod
-    def register_transform_method(cls, obj_type: type):
-        """Register a transform method for a specific object type."""
-
-        def decorator(func: Callable):
-            key = (obj_type, cls)
-            cls._register_transform_method[key] = func
-            return func
-
-        return decorator
-
-    def transform(self, obj: Any, **kwargs) -> Any:
-        transform_class = type(self)
-        obj_class = type(obj)
-        key = (obj_class, transform_class)
-
-        # Use the correct attribute name
-        callable = self._register_transform_method.get(key)
-
-        if callable is None:
-            raise NotImplementedError(
-                f"No transform registered for {obj_class.__name__} "
-                f"with {transform_class.__name__}"
-            )
-
-        return callable(self, obj, **kwargs)
-
-    def __call__(self, obj: Any, **kwargs) -> Any:
-        return self.transform(obj, **kwargs)
-
-
-@dataclass(frozen=True)
-class BasisTransform(AbstractTransform):
+class BasisTransform(Functional):
     M: ImmutableDenseMatrix
 
     def __post_init__(self):
@@ -72,7 +38,7 @@ def _supercell_shifts(
     return tuple(shifts)
 
 
-@BasisTransform.register_transform_method(AffineSpace)
+@BasisTransform.register(AffineSpace)
 def affine_space_transform(t: BasisTransform, space: AffineSpace) -> AffineSpace:
     """
     Transform an AffineSpace by the basis transformation M.
@@ -81,7 +47,7 @@ def affine_space_transform(t: BasisTransform, space: AffineSpace) -> AffineSpace
     return AffineSpace(basis=new_basis)
 
 
-@BasisTransform.register_transform_method(Lattice)
+@BasisTransform.register(Lattice)
 def lattice_transform(t: BasisTransform, lat: Lattice) -> Lattice:
     """
     Generates a Supercell based on the scaling matrix M.
@@ -122,9 +88,9 @@ def lattice_transform(t: BasisTransform, lat: Lattice) -> Lattice:
     )
 
 
-@BasisTransform.register_transform_method(ReciprocalLattice)
+@BasisTransform.register(ReciprocalLattice)
 def reciprocal_lattice_transform(
-    t: AbstractTransform, lat: ReciprocalLattice
+    t: BasisTransform, lat: ReciprocalLattice
 ) -> ReciprocalLattice:
     """
     Generate the reciprocal lattice corresponding to the transformed direct lattice.
@@ -134,8 +100,8 @@ def reciprocal_lattice_transform(
     return transformed_dual_lat.dual
 
 
-@BasisTransform.register_transform_method(Offset)
-def offset_transform(t: AbstractTransform, r: Offset) -> Offset:
+@BasisTransform.register(Offset)
+def offset_transform(t: BasisTransform, r: Offset) -> Offset:
     """
 
     Transform an Offset by the basis transformation M.
@@ -144,8 +110,8 @@ def offset_transform(t: AbstractTransform, r: Offset) -> Offset:
     return r.rebase(new_space)
 
 
-@BasisTransform.register_transform_method(Momentum)
-def momentum_transform(t: AbstractTransform, momentum: Momentum) -> Momentum:
+@BasisTransform.register(Momentum)
+def momentum_transform(t: BasisTransform, momentum: Momentum) -> Momentum:
     """
     Docstring for momentum_transform
 

@@ -11,7 +11,7 @@ from pyhilbert.spatials import (
 )
 from pyhilbert.hilbert import brillouin_zone, hilbert, Mode
 from pyhilbert.tensors import Tensor
-from pyhilbert.transform import bandfold, BasisTransform
+from pyhilbert.basis_transform import bandfold, BasisTransform
 from pyhilbert.utils import FrozenDict
 
 
