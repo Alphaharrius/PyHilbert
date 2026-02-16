@@ -1,10 +1,21 @@
 import torch
 import numpy as np
+import sympy as sy
+from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 from pyhilbert.spatials import Lattice, Offset, Momentum
-from pyhilbert.hilbert import hilbert, Mode, brillouin_zone
+from pyhilbert.state_space import brillouin_zone
+from pyhilbert.hilbert_space import Ket, U1State, hilbert
 from pyhilbert.fourier import fourier_transform
-from pyhilbert.utils import FrozenDict
+
+
+@dataclass(frozen=True)
+class Orb:
+    name: str
+
+
+def _mode(r: Offset, orb: str = "s") -> U1State:
+    return U1State(irrep=sy.Integer(1), kets=(Ket(r), Ket(Orb(orb))))
 
 
 def test_fourier_kernel_1d():
@@ -55,12 +66,12 @@ def test_fourier_tensor_construction():
     r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
     r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine)
 
-    m0 = Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))
-    m1 = Mode(count=1, attr=FrozenDict({"r": r1, "orb": "s"}))
+    m0 = _mode(r0, "s")
+    m1 = _mode(r1, "s")
     region_space = hilbert([m0, m1])
 
     # Bloch space: 1 site at 0 (unit cell)
-    b0 = Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))
+    b0 = _mode(r0, "s")
     bloch_space = hilbert([b0])
 
     # Compute FT Tensor
@@ -99,14 +110,14 @@ def test_fourier_tensor_unitarity():
     region_modes = []
     for i in range(n_cells):
         r = Offset(rep=ImmutableDenseMatrix([i]), space=lat.affine)
-        m = Mode(count=1, attr=FrozenDict({"r": r, "orb": "s"}))
+        m = _mode(r, "s")
         region_modes.append(m)
     region_space = hilbert(region_modes)
     assert region_space.dim == n_cells
 
     # Bloch space: 1 site at 0 (defines the unit cell for Bloch states)
     r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
-    b0 = Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))
+    b0 = _mode(r0, "s")
     bloch_space = hilbert([b0])
     assert bloch_space.dim == 1
 

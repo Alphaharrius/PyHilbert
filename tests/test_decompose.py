@@ -1,16 +1,22 @@
 import torch
+import sympy as sy
 
 from pyhilbert.decompose import eig, eigh, eigvals, qr, svd
-from pyhilbert.hilbert import Mode, FactorSpace, hilbert
+from pyhilbert.state_space import FactorSpace
+from pyhilbert.hilbert_space import Ket, U1State, hilbert
 from pyhilbert.tensors import Tensor
-from pyhilbert.utils import FrozenDict
+
+
+def _space(name: str, n: int):
+    return hilbert(
+        U1State(irrep=sy.Integer(1), kets=(Ket((name, i)),)) for i in range(n)
+    )
 
 
 def test_eigh_reconstructs_hermitian_matrix():
     torch.manual_seed(0)
 
-    mode = Mode(count=3, attr=FrozenDict({"name": "m"}))
-    space = hilbert([mode])
+    space = _space("m", 3)
 
     data = torch.randn(3, 3, dtype=torch.complex64)
     hermitian = data + data.conj().transpose(-2, -1)
@@ -30,8 +36,7 @@ def test_eigh_reconstructs_hermitian_matrix():
 def test_eig_reconstructs_general_matrix():
     torch.manual_seed(0)
 
-    mode = Mode(count=3, attr=FrozenDict({"name": "m"}))
-    space = hilbert([mode])
+    space = _space("m", 3)
 
     data = torch.randn(3, 3, dtype=torch.complex64)
     tensor = Tensor(data=data, dims=(space, space))
@@ -48,8 +53,7 @@ def test_eig_reconstructs_general_matrix():
 
 
 def test_eigvals_band_groups_have_close_values():
-    mode = Mode(count=4, attr=FrozenDict({"name": "m"}))
-    space = hilbert([mode])
+    space = _space("m", 4)
 
     eps = 5e-4
     values = torch.tensor(
@@ -73,10 +77,8 @@ def test_eigvals_band_groups_have_close_values():
 def test_qr_reconstructs_tall_matrix():
     torch.manual_seed(0)
 
-    row_mode = Mode(count=4, attr=FrozenDict({"name": "row"}))
-    col_mode = Mode(count=3, attr=FrozenDict({"name": "col"}))
-    row_space = hilbert([row_mode])
-    col_space = hilbert([col_mode])
+    row_space = _space("row", 4)
+    col_space = _space("col", 3)
 
     data = torch.randn(4, 3, dtype=torch.float64)
     tensor = Tensor(data=data, dims=(row_space, col_space))
@@ -95,10 +97,8 @@ def test_qr_reconstructs_tall_matrix():
 def test_qr_reconstructs_wide_matrix():
     torch.manual_seed(0)
 
-    row_mode = Mode(count=3, attr=FrozenDict({"name": "row"}))
-    col_mode = Mode(count=5, attr=FrozenDict({"name": "col"}))
-    row_space = hilbert([row_mode])
-    col_space = hilbert([col_mode])
+    row_space = _space("row", 3)
+    col_space = _space("col", 5)
 
     data = torch.randn(3, 5, dtype=torch.float64)
     tensor = Tensor(data=data, dims=(row_space, col_space))
@@ -117,10 +117,8 @@ def test_qr_reconstructs_wide_matrix():
 def test_svd_reconstructs_tall_matrix():
     torch.manual_seed(0)
 
-    row_mode = Mode(count=4, attr=FrozenDict({"name": "row"}))
-    col_mode = Mode(count=3, attr=FrozenDict({"name": "col"}))
-    row_space = hilbert([row_mode])
-    col_space = hilbert([col_mode])
+    row_space = _space("row", 4)
+    col_space = _space("col", 3)
 
     data = torch.randn(4, 3, dtype=torch.float64)
     tensor = Tensor(data=data, dims=(row_space, col_space))
@@ -139,10 +137,8 @@ def test_svd_reconstructs_tall_matrix():
 
 
 def test_svd_matrix_values_no_band_grouping():
-    row_mode = Mode(count=3, attr=FrozenDict({"name": "row"}))
-    col_mode = Mode(count=3, attr=FrozenDict({"name": "col"}))
-    row_space = hilbert([row_mode])
-    col_space = hilbert([col_mode])
+    row_space = _space("row", 3)
+    col_space = _space("col", 3)
 
     singular_values = torch.tensor([3.0, 3.0, 1.0], dtype=torch.float64)
     data = torch.diag(singular_values)
@@ -161,10 +157,8 @@ def test_svd_matrix_values_no_band_grouping():
 def test_svd_full_matrices_reconstructs():
     torch.manual_seed(0)
 
-    row_mode = Mode(count=4, attr=FrozenDict({"name": "row"}))
-    col_mode = Mode(count=3, attr=FrozenDict({"name": "col"}))
-    row_space = hilbert([row_mode])
-    col_space = hilbert([col_mode])
+    row_space = _space("row", 4)
+    col_space = _space("col", 3)
 
     data = torch.randn(4, 3, dtype=torch.float64)
     tensor = Tensor(data=data, dims=(row_space, col_space))

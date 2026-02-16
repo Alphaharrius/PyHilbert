@@ -8,7 +8,8 @@ import torch
 from .precision import get_precision_config
 
 from .spatials import Momentum, Offset
-from .hilbert import MomentumSpace, HilbertSpace, Mode
+from .state_space import MomentumSpace
+from .hilbert_space import HilbertSpace, U1State
 from .tensors import Tensor
 from .tensors import mapping_matrix
 from .utils import matchby
@@ -57,8 +58,6 @@ def fourier_transform(
     k_space: MomentumSpace,
     bloch_space: HilbertSpace,
     region_space: HilbertSpace,
-    *,
-    r_name: str = "r",
 ) -> Tensor:
     """
     Build the Fourier transform tensor between `k_space` and `region_space`.
@@ -75,8 +74,6 @@ def fourier_transform(
         Bloch space to map region modes into.
     `region_space` : `HilbertSpace`
         Real-space region defining offsets.
-    `r_name` : `str`, default `"r"`
-        Name of the spatial coordinate in region modes used for the mapping.
 
     Returns
     -------
@@ -85,11 +82,15 @@ def fourier_transform(
         `(k_space, bloch_space, region_space)`.
     """
     K: Tuple[Momentum] = k_space.elements()
-    R: Tuple[Offset] = region_space.collect(r_name)
+    R: Tuple[Offset] = tuple(
+        cast(U1State, el).irrep_of(Offset) for el in region_space.elements()
+    )
     f = fourier_transform(K, R)  # (K, R)
 
-    region_to_bloch: Dict[Mode, Mode] = matchby(
-        region_space, bloch_space, lambda m: cast(Offset, m[r_name]).fractional()
+    region_to_bloch: Dict[U1State, U1State] = matchby(
+        region_space,
+        bloch_space,
+        lambda psi: cast(U1State, psi).irrep_of(Offset).fractional(),
     )
 
     map = mapping_matrix(region_space, bloch_space, region_to_bloch).transpose(

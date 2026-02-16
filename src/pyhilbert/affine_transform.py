@@ -1,25 +1,33 @@
 from dataclasses import dataclass
 import re
-from typing import Dict, Literal, Tuple, cast
+from typing import Any, Dict, Literal, Tuple, cast
 from collections import OrderedDict
 from itertools import product
-from functools import lru_cache, partial, reduce
+from functools import lru_cache, reduce
 
 import sympy as sy
-import torch
 
-from .abstracts import HasBase, Functional, Gaugable, GaugeBasis, Gauged, GaugeInvariant
+from .abstracts import HasBase
 from .spatials import AffineSpace, Spatial, Offset, Momentum
-from .hilbert import Mode, MomentumSpace, HilbertSpace, hilbert
-from .tensors import Tensor, mapping_matrix
+from .state_space import MomentumSpace, same_span
+from .hilbert_space import (
+    Operator,
+    HilbertSpace,
+    Ket,
+    U1State,
+    U1Span,
+    FuncOpr,
+    hilbert,
+)
+from .tensors import Tensor
 from .fourier import fourier_transform
 from .utils import FrozenDict
 
 
 @dataclass(frozen=True)
-class AbelianIrrep(Spatial, Gaugable, GaugeBasis):
+class AbelianBasis(Spatial):
     """
-    Symbolic affine function expressed in a polynomial basis over given axes.
+    Symbolic abelian eigen-basis expressed in a polynomial basis over given axes.
 
     Attributes
     ----------
@@ -44,46 +52,14 @@ class AbelianIrrep(Spatial, Gaugable, GaugeBasis):
         return len(self.axes)
 
     def __str__(self):
-        return f"AbelianIrrep({str(self.expr)})"
+        return f"AbelianBasis({str(self.expr)})"
 
     def __repr__(self):
-        return f"AbelianIrrep({repr(self.expr)})"
+        return f"AbelianBasis({repr(self.expr)})"
 
 
 @dataclass(frozen=True)
-class AbelianIrrepSet(Gaugable, GaugeBasis):
-    """
-    Immutable collection of :class:`AbelianIrrep` objects that share a common
-    algebraic context.
-
-    This container is used to pass multiple symbolic affine irreducible
-    representations through APIs that operate on gauge bases and gaugeable
-    objects. Keeping them in a dedicated dataclass makes the set hashable,
-    explicit, and compatible with memoization-heavy workflows in this module.
-
-    Use this class when you need to:
-    - represent several affine irreps as a single semantic unit,
-    - preserve deterministic ordering of irreps for basis construction, or
-    - provide a gauge-aware batch input to downstream transformations.
-
-    Parameters
-    ----------
-    `irreps`: `Tuple[AbelianIrrep, ...]`
-        Ordered, immutable tuple of affine irreps. The tuple order defines the
-        canonical iteration order for any downstream basis or mapping logic.
-
-    Notes
-    -----
-    This class intentionally does not coerce or validate element compatibility
-    (e.g. axis set or polynomial order alignment). Upstream construction code
-    should enforce those invariants when required by a specific algorithm.
-    """
-
-    irreps: Tuple[AbelianIrrep, ...]
-
-
-@dataclass(frozen=True)
-class AffineGroupElement(Functional, HasBase[AffineSpace]):
+class AffineGroupElement(Operator, HasBase[AffineSpace]):
     """
     Affine group element acting on polynomial coordinate functions.
 
@@ -112,10 +88,29 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
 
     @lru_cache
     def __full_indices(self):
+        """
+        Enumerate all ordered monomial indices for the tensor-product basis.
+
+        Returns
+        -------
+        `Tuple[Tuple[sy.Symbol, ...], ...]`
+            Cartesian product of `axes` repeated `basis_function_order` times.
+            Each inner tuple represents one ordered monomial index before
+            commutative contraction.
+        """
         return tuple(product(*((self.axes,) * self.basis_function_order)))
 
     @lru_cache
     def __commute_indices(self):
+        """
+        Build canonical monomial indices under symbol commutation.
+
+        Returns
+        -------
+        `Tuple[Tuple[sy.Symbol, ...], ...]`
+            Ordered subset of `__full_indices()` where permutations that differ
+            only by factor ordering are collapsed to a single representative.
+        """
         indices = self.__full_indices()
         _, select_rules = AffineGroupElement.__get_contract_select_rules(indices)
         sorted_rules = sorted(select_rules, key=lambda x: x[1])
@@ -124,12 +119,36 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
     @property
     @lru_cache
     def euclidean_basis(self) -> sy.ImmutableDenseMatrix:
+        """
+        Return commuting Euclidean monomials spanning the polynomial basis.
+
+        Returns
+        -------
+        `sy.ImmutableDenseMatrix`
+            Row matrix whose entries are monomials formed from canonical
+            commuting indices of degree `basis_function_order`.
+        """
         indices = self.__commute_indices()
         return sy.ImmutableDenseMatrix([sy.prod(idx) for idx in indices]).T
 
     @staticmethod
     @lru_cache
     def __get_contract_select_rules(indices: Tuple[Tuple[sy.Symbol, ...], ...]):
+        """
+        Compute contraction and selection rules for commutative symmetrization.
+
+        Parameters
+        ----------
+        `indices` : `Tuple[Tuple[sy.Symbol, ...], ...]`
+            Full ordered tensor-product indices.
+
+        Returns
+        -------
+        `Tuple[list[Tuple[int, int]], list[Tuple[int, int]]]`
+            Two index maps:
+            - contract rules mapping each full index position to a commutative class
+            - select rules picking one representative position per class
+        """
         commute_index_table: OrderedDict[Tuple[sy.Symbol, ...], int] = OrderedDict()
         contract_indices = []
         select_indices = []
@@ -150,11 +169,29 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
     @property
     @lru_cache
     def full_rep(self):
+        """
+        Representation on the full ordered tensor-product monomial basis.
+
+        Returns
+        -------
+        `sy.ImmutableDenseMatrix | sy.MatrixBase`
+            Kronecker power `irrep ⊗ ... ⊗ irrep` with
+            `basis_function_order` factors.
+        """
         return reduce(sy.kronecker_product, (self.irrep,) * self.basis_function_order)
 
     @property
     @lru_cache
     def rep(self) -> sy.ImmutableDenseMatrix:
+        """
+        Symmetrized representation on the commuting polynomial basis.
+
+        Returns
+        -------
+        `sy.ImmutableDenseMatrix`
+            Matrix representation after contracting permutation-equivalent
+            tensor-product monomials and selecting canonical representatives.
+        """
         indices = self.__full_indices()
         contract_indices, select_indices = self.__get_contract_select_rules(indices)
 
@@ -205,6 +242,16 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
     @property
     @lru_cache
     def basis(self) -> FrozenDict:
+        """
+        Compute affine eigen-basis functions from `rep` eigenvectors.
+
+        Returns
+        -------
+        `FrozenDict`
+            Mapping from eigenvalue to normalized `AbelianBasis` eigenfunction.
+            Normalization is fixed by dividing by the first non-zero coefficient
+            in each eigenvector.
+        """
         transform = self.rep
         eig = transform.eigenvects()
 
@@ -216,19 +263,37 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
 
             rep = vec / principle_term
             expr = sy.simplify(rep.dot(self.euclidean_basis))
-            tbl[v] = AbelianIrrep(
+            tbl[v] = AbelianBasis(
                 expr=expr, axes=self.axes, order=self.basis_function_order, rep=rep
             )
 
         return FrozenDict(tbl)
 
     def base(self) -> AffineSpace:
-        """Get the acting space of this affine group element."""
+        """
+        Get the affine space where this element acts.
+
+        Returns
+        -------
+        `AffineSpace`
+            Acting space, identical to `offset.space`.
+        """
         return self.offset.space
 
     def rebase(self, new_base: AffineSpace) -> "AffineGroupElement":
         """
-        Change the acting space of this affine group element to a new `AffineSpace`.
+        Re-express this transform in a different affine space basis.
+
+        Parameters
+        ----------
+        `new_base` : `AffineSpace`
+            Target affine space for the transformed representation.
+
+        Returns
+        -------
+        `AffineGroupElement`
+            New element with the same symbolic linear representation and axes,
+            but with `offset` rebased to `new_base`.
         """
         return AffineGroupElement(
             irrep=self.irrep,
@@ -294,10 +359,28 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
     @lru_cache
     def group_elements(self, max_order: int = 128) -> Tuple["AffineGroupElement", ...]:
         """
-        Generate the cyclic group elements produced by this irrep.
+        Generate powers of the linear irrep with a shared translation component.
 
-        Starts from the identity and repeatedly multiplies by this element,
-        stopping once an element repeats or `max_order` is reached.
+        Starts from the identity matrix and repeatedly multiplies by `self.irrep`,
+        stopping once the linear matrix repeats or `max_order` is reached.
+        Each returned `AffineGroupElement` uses:
+        - the current linear power (`I, R, R^2, ...`) as `irrep`,
+        - the same `axes` and `basis_function_order`,
+        - the original `self.offset` unchanged.
+
+        Note that this method does not compose affine translations across powers;
+        cycle detection is performed only on the linear part.
+
+        Parameters
+        ----------
+        `max_order` : `int`
+            Maximum number of powers to generate.
+
+        Returns
+        -------
+        `Tuple[AffineGroupElement, ...]`
+            Sequence of elements whose linear parts are `[I, R, R^2, ...]`,
+            truncated at linear cycle closure or `max_order`.
         """
         if max_order <= 0:
             return tuple()
@@ -343,11 +426,11 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
         Returns
         -------
         `FrozenDict`
-            Mapping from transformed basis functions to their
-            associated irreducible representation values.
+            Mapping from irrep eigenvalues (`sy.Expr`) to corresponding
+            `AbelianBasis` eigenfunctions.
         """
         group_order = len(self.group_elements())
-        tbl: Dict[sy.Expr, AbelianIrrep] = {}
+        tbl: Dict[sy.Expr, AbelianBasis] = {}
         for n in range(group_order):
             order_element = AffineGroupElement(
                 irrep=self.irrep,
@@ -363,18 +446,10 @@ class AffineGroupElement(Functional, HasBase[AffineSpace]):
         return FrozenDict(tbl)
 
 
-@AffineGroupElement.register(GaugeInvariant)
-def _affine_transform_gauge_invariant(
-    t: AffineGroupElement, v: GaugeInvariant
-) -> Gauged[GaugeInvariant, sy.Expr]:
-    """Apply an affine group element to a gauge-invariant object."""
-    return Gauged(gaugable=v, gauge=sy.Integer(1))
-
-
-@AffineGroupElement.register(AbelianIrrep)
-def _affine_transform_abelian_irrep(
-    t: AffineGroupElement, f: AbelianIrrep
-) -> Gauged[AbelianIrrep, sy.Expr]:
+@AffineGroupElement.register(AbelianBasis)
+def _affine_transform_abelian_basis(
+    t: AffineGroupElement, f: AbelianBasis
+) -> Tuple[sy.Expr, AbelianBasis]:
     """
     Apply an affine group element to a basis function and extract its phase factor.
 
@@ -395,16 +470,14 @@ def _affine_transform_abelian_irrep(
     ----------
     `t` : `AffineGroupElement`
         The affine group element (transform) to apply.
-    `f` : `AbelianIrrep`
+    `f` : `AbelianBasis`
         The basis function to be transformed.
 
     Returns
     -------
-    `Gauged[AbelianIrrep, sy.Expr]`
-        A named tuple containing:
-        - `gauge`: The symbolic phase factor (sy.Expr) such that
-          `t.rep @ f.rep == phase * f.rep`.
-        - `gaugable`: The original `AbelianIrrep` (unchanged).
+    `Tuple[sy.Expr, AbelianBasis]`
+        A symbolic phase factor (sy.Expr) such that `t.rep @ f.rep == phase * f.rep`;
+        and the original `AbelianBasis` (unchanged).
 
     Raises
     ------
@@ -446,22 +519,13 @@ def _affine_transform_abelian_irrep(
     if phase is None:
         raise ValueError(f"{f} is a trivial basis function: zero")
 
-    return Gauged(gauge=phase, gaugable=f)
-
-
-@AffineGroupElement.register(AbelianIrrepSet)
-def _affine_transform_abelian_irrep_set(
-    t: AffineGroupElement, s: AbelianIrrepSet
-) -> Gauged[AbelianIrrepSet, sy.ImmutableDenseMatrix]:
-    irrep_gauges = (
-        cast(Gauged[AbelianIrrep, sy.Expr], t(irrep)).gauge for irrep in s.irreps
-    )
-    gauge: sy.ImmutableDenseMatrix = sy.ImmutableDenseMatrix.diag(*irrep_gauges)
-    return Gauged(gauge=gauge, gaugable=s)
+    return phase, f
 
 
 @AffineGroupElement.register(Offset)
-def _affine_transform_offset(t: AffineGroupElement, offset: Offset) -> Offset:
+def _affine_transform_offset(
+    t: AffineGroupElement, offset: Offset
+) -> Tuple[sy.Expr | None, Offset]:
     """
     Apply an affine group element to a spatial Offset using homogeneous coordinates.
 
@@ -482,8 +546,9 @@ def _affine_transform_offset(t: AffineGroupElement, offset: Offset) -> Offset:
 
     Returns
     -------
-    `Offset`
-        A new `Offset` expressed in the same `AffineSpace` as the input `offset`.
+    `Tuple[sy.Expr | None, Offset]`
+        The irrep of this transformation, `None` if the `offset` is not a fix point; and new `Offset`
+        expressed in the same `AffineSpace` as the input `offset`.
 
     Notes
     -----
@@ -502,11 +567,15 @@ def _affine_transform_offset(t: AffineGroupElement, offset: Offset) -> Offset:
     hom = rep.col_join(sy.ones(1, 1))
     new_hom = affine_rep @ hom
     new_rep = new_hom[:-1, :]
-    return Offset(rep=sy.ImmutableDenseMatrix(new_rep), space=offset.space)
+    new_offset = Offset(rep=sy.ImmutableDenseMatrix(new_rep), space=offset.space)
+    irrep = sy.Integer(1) if new_offset == offset else None
+    return irrep, new_offset
 
 
 @AffineGroupElement.register(Momentum)
-def _affine_transform_momentum(t: AffineGroupElement, k: Momentum) -> Momentum:
+def _affine_transform_momentum(
+    t: AffineGroupElement, k: Momentum
+) -> Tuple[sy.Expr | None, Momentum]:
     """
     Apply an affine group element to a Momentum in fractional reciprocal coordinates.
 
@@ -545,8 +614,9 @@ def _affine_transform_momentum(t: AffineGroupElement, k: Momentum) -> Momentum:
 
     Returns
     -------
-    `Momentum`
-        The transformed momentum in the same reciprocal lattice space as `k`,
+    `Tuple[sy.Expr | None, Momentum]`
+        The irrep of this transformation, `None` if `k` is not a fix point;
+        and the transformed momentum in the same reciprocal lattice space as `k`,
         wrapped into the first Brillouin zone via `.fractional()`.
     """
     real_space = k.base().dual.affine
@@ -569,133 +639,155 @@ def _affine_transform_momentum(t: AffineGroupElement, k: Momentum) -> Momentum:
     if not isinstance(rep, sy.ImmutableDenseMatrix):
         rep = sy.ImmutableDenseMatrix(rep)
     new_rep = reciprocal_rep @ rep
-    return Momentum(rep=sy.ImmutableDenseMatrix(new_rep), space=k.base()).fractional()
+    new_k = Momentum(rep=sy.ImmutableDenseMatrix(new_rep), space=k.base()).fractional()
+    irrep = sy.Integer(1) if new_k == k else None
+    return irrep, new_k
 
 
-@AffineGroupElement.register(Gaugable, order="back")
-def _affine_transform_gaugable(
-    t: AffineGroupElement, v: Gaugable
-) -> Gauged[Gaugable, sy.Expr | sy.ImmutableDenseMatrix]:
-    """Transform a gaugable object by updating its gauge phase.
+@AffineGroupElement.register(Ket)
+def _affine_transform_ket(
+    t: AffineGroupElement, ket: Ket[Any]
+) -> Tuple[sy.Expr, Ket[Any]]:
+    """
+    Apply an affine transform to a single ket when its irrep is supported.
+
+    The transform acts only on the ket's irrep payload. If the affine element
+    declares compatibility via `t.allows(ket.irrep)`, we apply `t` to that irrep
+    and return the resulting gauge factor with a ket rebuilt from the transformed
+    irrep. Unsupported ket payload types are treated as gauge-invariant and are
+    returned unchanged with unit gauge.
 
     Parameters
     ----------
     `t` : `AffineGroupElement`
-        Affine symmetry operation applied to the gauge representation of `v`.
-        The operation is evaluated through `t.apply(...)`, and only its
-        gauge phase contribution is used by this method.
-    `v` : `Gaugable`
-        Object that provides a gauge representation via `.gauge_repr()`. The
-        original value is preserved and wrapped in a `Gauged` container.
+        Affine symmetry operation.
+    `ket` : `Ket[Any]`
+        Input ket whose `irrep` payload may or may not be transformable by `t`.
 
     Returns
     -------
-    `Gauged[Gaugable, sy.Expr | sy.ImmutableDenseMatrix]`
-        A gauged wrapper whose `gaugable` field is the original input `v` and
-        whose `gauge` field is the gauge returned by applying `t` to `v`'s gauge
-        representation.
+    `Tuple[sy.Expr | None, Ket[Any]]`
+        Gauge factor and transformed ket. For unsupported payload types, the
+        ket is returned unchanged with unit gauge. For supported payload types,
+        the gauge is whatever is returned by applying `t` to `ket.irrep` (which
+        may be `None` for non-fixed-point objects in current dispatch rules).
     """
-    basis = v.gauge_repr()
-    gauge, _ = t.apply(basis)
-    return Gauged(gaugable=v, gauge=gauge)
+    if t.allows(ket.irrep):
+        gauge, new_irrep = t(ket.irrep)
+        return cast(sy.Expr, gauge), Ket(new_irrep)
+    return sy.Integer(1), ket  # Treat all other types as gauge invariant
 
 
-def _optional_transform_mode_attr(t: AffineGroupElement, v: Mode):
-    """Transform a Mode attribute if the transform allows it."""
-    if not t.allows(v):
-        return v
-    return t.apply(v)
+@AffineGroupElement.register(U1State)
+def _affine_transform_u1_state(
+    t: AffineGroupElement, psi: U1State
+) -> Tuple[sy.Expr | None, U1State]:
+    """
+    Apply an affine transform to a `U1State` by transforming each ket component.
 
+    For each ket in `psi.kets`, this method delegates to `_affine_transform_ket`
+    (through multimethod dispatch `t(ket)`), multiplies all returned gauge factors,
+    and rebuilds the state from transformed kets. The state's irrep label is
+    updated by the same accumulated gauge product when well-defined.
 
-@AffineGroupElement.register(Mode, order="front")
-def _affine_transform_mode(t: AffineGroupElement, m: Mode) -> Mode:
-    """Apply an affine transformation to each transformable attribute of a mode.
+    If any ket transform reports `None` gauge, the overall state gauge is set to
+    `None` (non-eigenstate under this symmetry), but ket transformations are still
+    applied and returned.
 
     Parameters
     ----------
     `t` : `AffineGroupElement`
-        Affine transformation to apply. For each attribute in `m`, this
-        function checks `t.allows(attr)` and applies `t.transform(attr)` only
-        when that attribute is supported by the transform.
-    `m` : `Mode`
-        Input mode whose named attributes are visited and conditionally
-        transformed.
+        Affine symmetry operation.
+    `psi` : `U1State`
+        State to transform.
 
     Returns
     -------
-    `Mode`
-        A mode instance with the same attribute structure as `m`, where each
-        attribute is transformed by `t` if allowed, and left unchanged
-        otherwise.
+    `Tuple[sy.Expr | None, U1State]`
+        Overall gauge (or `None` if not a symmetry eigenstate) and transformed
+        `U1State`.
     """
-    attr_names = m.attr_names()
-    func = partial(_optional_transform_mode_attr, t)
-    apply = {name: func for name in attr_names}
-    return m.update(**apply)
+    overall_gauge: sy.Expr | None = psi.irrep
+    new_irrep: sy.Expr = psi.irrep
+    new_kets: Tuple[Ket[Any], ...] = tuple()
+    for ket in psi.kets:
+        gauge, new_ket = t(ket)
+        if gauge is None:
+            overall_gauge = None
+        elif overall_gauge is not None:
+            overall_gauge *= gauge
+            new_irrep *= gauge
+        new_kets += (new_ket,)
+    return overall_gauge, U1State(new_irrep, new_kets)
+
+
+@AffineGroupElement.register(U1Span)
+def _affine_transform_u1_span(
+    t: AffineGroupElement, v: U1Span
+) -> Tuple[sy.ImmutableDenseMatrix | None, U1Span]:
+    """
+    Apply an affine transform to a span of `U1State`s and extract its matrix irrep.
+
+    Each basis state in `v.span` is transformed independently. The transformed
+    span is then compared against the original span using `same_span`.
+    - If the span is not invariant, returns `(None, transformed_span)`.
+    - If invariant, returns the Gram/overlap matrix `v.gram(new_v)`, which is the
+      representation of the symmetry action in this basis.
+
+    Parameters
+    ----------
+    `t` : `AffineGroupElement`
+        Affine symmetry operation.
+    `v` : `U1Span`
+        Span to transform.
+
+    Returns
+    -------
+    `Tuple[sy.ImmutableDenseMatrix | None, U1Span]`
+        Matrix-valued irrep on the span basis when invariant, otherwise `None`,
+        together with the transformed span.
+    """
+    new_span: Tuple[U1State, ...] = tuple(t @ psi for psi in v.span)
+    new_v = U1Span(new_span)
+    if not same_span(v, new_v):
+        return None, new_v
+    irrep = v.gram(new_v)
+    return irrep, new_v
 
 
 @AffineGroupElement.register(HilbertSpace)
-def _affine_transform_hilbert(t: AffineGroupElement, h: HilbertSpace) -> Tensor:
+def _affine_transform_hilbert(
+    t: AffineGroupElement, h: HilbertSpace
+) -> Tuple[Tensor | None, HilbertSpace]:
     """
-    Apply an affine transformation to a Hilbert-space basis and build the
-    corresponding basis-change matrix.
+    Apply an affine transform to a `HilbertSpace` basis and compute its action.
 
-    This routine transforms each mode in `h` under `t`, collects:
-    - the transformed mode mapping `m -> g(m)`, and
-    - the associated gauge factor for each mapped pair.
-
-    The result is returned as a `Tensor` from the original basis to the
-    transformed basis via `mapping_matrix`.
-
-    Gauge handling:
-    - Scalar gauges are converted to Python `complex`.
-    - Matrix gauges are assumed diagonal in the mode basis and are converted
-      to a diagonal `torch.Tensor`.
-    - Symbolic (non-numeric) gauges are rejected.
+    The transform is applied elementwise to build a new Hilbert space basis.
+    Invariance is checked by `same_span(h, new_h)`:
+    - If the transformed basis leaves the span, returns `(None, new_h)`.
+    - If the span is preserved, returns the basis-action matrix `h.gram(new_h)`.
 
     Parameters
     ----------
     `t` : `AffineGroupElement`
-        Affine symmetry element used to transform each mode in `h`. The mode
-        transform is expected to produce a `Gauged[Mode, ...]` object carrying
-        both transformed mode and gauge factor.
+        Affine symmetry operation.
     `h` : `HilbertSpace`
-        Input Hilbert space whose modes define the source basis.
+        Hilbert-space basis to transform.
 
     Returns
     -------
-    `Tensor`
-        Basis-change tensor representing the action of `t` on `h`, with source
-        dimension `h` and target dimension `gh = hilbert({t(m)})` (up to gauge
-        factors).
-
-    Raises
-    ------
-    `ValueError`
-        If a collected gauge factor remains symbolic (has free symbols), since
-        a numeric mapping matrix is required.
+    `Tuple[Tensor | None, HilbertSpace]`
+        Tensor representation of the symmetry action in the original basis when
+        invariant, otherwise `None`; and the transformed Hilbert space.
     """
-    mode_mapping: Dict[Mode, Mode] = {}
-    gauge_table: Dict[Tuple[Mode, Mode], complex | torch.Tensor] = {}
-    for m in h:
-        gauged = cast(Gauged[Mode, sy.Expr | sy.ImmutableDenseMatrix], t(m))
-        gm = cast(Mode, gauged.gaugable)
-        gauge = gauged.gauge
-        if gauge.free_symbols:
-            raise ValueError(f"Gauge factor must be numeric, got symbolic {gauge}")
-        mode_mapping[m] = gm
-        if isinstance(gauge, sy.ImmutableDenseMatrix):
-            diag_vals = [
-                complex(gauge[i, i]) for i in range(min(gauge.rows, gauge.cols))
-            ]
-            gauge_table[(m, gm)] = torch.diag(torch.tensor(diag_vals))
-        else:
-            gauge_table[(m, gm)] = complex(gauge)
-
-    gh = hilbert(mode_mapping.values())
-    return mapping_matrix(h, gh, mode_mapping, factors=gauge_table)  # (h, gh)
+    new_h = hilbert(t @ el for el in h)
+    if not same_span(h, new_h):
+        return None, new_h
+    gram = h.gram(new_h)
+    return gram, new_h
 
 
+# TODO: Check if this function is valid deeply
 def bandtransform(
     t: AffineGroupElement,
     tensor: Tensor,
@@ -756,18 +848,18 @@ def bandtransform(
     kspace: MomentumSpace = cast(MomentumSpace, tensor.dims[0])
 
     def build_transform(space: HilbertSpace) -> Tensor:
-        bloch_transform: Tensor = cast(Tensor, t(space)).h(-2, -1)  # (B', B)
+        fractional = FuncOpr(Offset, Offset.fractional)
+        new_space = fractional @ (t @ space)
+        bloch_transform: Tensor = cast(Tensor, space.gram(new_space)).h(
+            -2, -1
+        )  # (B', B)
         # The transformation will distort the unit-cell of the Hilbert space,
         # we will use fractional to return it to the original unit-cell.
-        bloch_transform = bloch_transform.replace_dim(
-            0, cast(HilbertSpace, bloch_transform.dims[0]).update(r=Offset.fractional)
-        )  # (B'=B, B)
-        gspace = cast(HilbertSpace, bloch_transform.dims[0])
-        if not space.same_span(gspace):
+        if not space.same_span(new_space):
             raise ValueError(
                 f"Hilbert space {space} is not symmetric under the transform {t}!"
             )
-        left_fourier = fourier_transform(kspace, space, gspace)  # (K, B, B'=B)
+        left_fourier = fourier_transform(kspace, space, new_space)  # (K, B, B'=B)
         right_fourier = fourier_transform(kspace, space, space)  # (K, B, B)
         # (K, B, B'=B) @ (B'=B, B) @ (B, B)
         transform = (
@@ -775,7 +867,7 @@ def bandtransform(
         )  # (K, B, B)
         return transform
 
-    mapped_kspace = kspace.map(lambda k: cast(Momentum, t(k)).fractional())
+    mapped_kspace = kspace.map(lambda k: cast(Momentum, t @ k).fractional())
 
     if opt in ("both", "left"):
         left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)

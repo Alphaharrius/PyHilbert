@@ -1,15 +1,26 @@
 import pytest
 import torch
+from dataclasses import dataclass
 from collections import OrderedDict
-from pyhilbert import hilbert
+from pyhilbert import state_space
 from pyhilbert.tensors import Tensor, matmul
-from pyhilbert.hilbert import HilbertSpace, Mode, BroadcastSpace, MomentumSpace
+from pyhilbert.hilbert_space import HilbertElement, HilbertSpace
+from pyhilbert.state_space import BroadcastSpace, MomentumSpace
 from pyhilbert.utils import FrozenDict
 from pyhilbert.tensors import unsqueeze
 
 
-class MockMode(Mode):
-    pass
+@dataclass(frozen=True)
+class MockMode(HilbertElement):
+    count: int
+    attr: FrozenDict
+
+    @property
+    def dim(self) -> int:
+        return self.count
+
+    def unit(self):
+        return self
 
 
 @pytest.fixture
@@ -517,7 +528,7 @@ class TestTensorAdd:
 
         result = left + right
         perm = torch.tensor(
-            hilbert.flat_permutation_order(
+            state_space.flat_permutation_order(
                 tensor_add_ctx.space_ba, tensor_add_ctx.space_ab
             ),
             dtype=torch.long,
@@ -1165,7 +1176,7 @@ class TestTensorGetitem:
     def test_getitem_hilbert_none_inserts_dim(self, getitem_ctx):
         out = getitem_ctx.tensor_mat[None, getitem_ctx.mode_a, getitem_ctx.mode_b]
         expected_dims = (
-            hilbert.BroadcastSpace(),
+            state_space.BroadcastSpace(),
             HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
             HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
         )
