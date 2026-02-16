@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Self, Tuple, Type, TypeVar, Generic
 from typing import cast
 from typing_extensions import override
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from functools import lru_cache
 
 import numpy as np
@@ -612,6 +612,10 @@ class U1Span(HilbertSpan):
     def dim(self) -> int:
         """Get the length of this single particle state span."""
         return len(self.span)
+
+    def __iter__(self) -> Iterator[U1State]:
+        """Iterate over states in this span preserving insertion order."""
+        return iter(self.span)
 
     @override
     def elements(self) -> Tuple[U1State, ...]:

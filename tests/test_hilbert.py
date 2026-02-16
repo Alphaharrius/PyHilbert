@@ -66,6 +66,19 @@ def test_u1_span_addition_and_deduplication():
     assert span2.dim == 2
 
 
+def test_u1_span_is_iterable():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(basis=basis, shape=(2,))
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine)
+
+    a = _state(r0, "s")
+    b = _state(r1, "p")
+    span = U1Span((a, b))
+
+    assert list(span) == [a, b]
+
+
 def test_hilbert_space_creation_and_operations():
     basis = ImmutableDenseMatrix([[1]])
     lat = Lattice(basis=basis, shape=(3,))
