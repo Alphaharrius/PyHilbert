@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from copy import copy
 from dataclasses import dataclass, field, fields, is_dataclass
-from multipledispatch import dispatch
 from typing import (
     Any,
     Callable,
@@ -17,6 +16,8 @@ from typing import (
     TypeVar,
     Union,
 )
+
+from multipledispatch import dispatch
 
 from .utils import subtypes
 

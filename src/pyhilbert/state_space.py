@@ -1,11 +1,13 @@
 from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Tuple, TypeVar, Generic, Union, cast
+from typing import Callable, Tuple, TypeVar, Generic, Union
+from typing import cast
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain, islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
+
 from .abstracts import Updatable, Gaugable
 from .utils import FrozenDict
 from .spatials import (
@@ -382,81 +384,6 @@ class MomentumSpace(StateSpace[Momentum]):
             [f"{n}: {k}" for n, k in enumerate(self.structure.keys())]
         )
         return header + body
-
-
-@dataclass(frozen=True)
-class HilbertSpace(StateSpace[Mode], Updatable["HilbertSpace"]):
-    __hash__ = StateSpace.__hash__
-
-    def _updated(self, **kwargs) -> "HilbertSpace":
-        updated_structure = {}
-        for m, s in self.structure.items():
-            if not isinstance(m, Mode):
-                raise RuntimeError(
-                    f"Implementation error: found {type(m)} in HilbertSpace structure!"
-                )
-            updated_m = m.update(**kwargs)
-            updated_structure[updated_m] = s
-
-        # Don't need StateSpace.restructure here since the slices are unchanged
-        return HilbertSpace(structure=OrderedDict(updated_structure))
-
-    def collect(self, *key: str) -> Tuple[Any, ...]:
-        """
-        Collect attributes from the `Mode` elements under this `HilbertSpace`
-        and return them as a `Tuple`.
-
-        Parameters
-        ----------
-        *key : str
-            Attribute names to collect from each `Mode`, if multiple keys are provided,
-            the collected attributes will be returned as a `Tuple` of reduced `Mode` with only those attributes.
-
-        Returns
-        -------
-        `Tuple`
-            A tuple of `Mode` elements with the specified attributes if multiple keys are provided,
-            otherwise a tuple of the collected attributes.
-        """
-        if len(key) == 1:
-            return tuple(m[key[0]] for m in self)
-        return tuple(m[key] for m in self)
-
-    def mode_lookup(self, **kwargs) -> Mode:
-        """
-        Find a single mode with matching attributes.
-
-        Parameters
-        ----------
-        **kwargs
-            Attribute names and values to match.
-
-        Returns
-        -------
-        `Mode`
-            The unique `Mode` matching the criteria.
-
-        Raises
-        ------
-        `ValueError`
-            If no mode or multiple modes are found.
-        """
-        found = [m for m in self if all(m.attr.get(k) == v for k, v in kwargs.items())]
-        if not found:
-            raise ValueError(f"No mode found with attributes {kwargs}")
-        if len(found) > 1:
-            raise ValueError(f"Multiple modes found with attributes {kwargs}")
-        return found[0]
-
-
-@dispatch(Iterable)
-def hilbert(itr: Iterable[Mode]) -> HilbertSpace:
-    structure: OrderedDict[Mode, slice] = OrderedDict()
-    base = 0
-    for mode in itr:
-        structure[mode] = slice(base, base + mode.count)
-        base += mode.count
-    return HilbertSpace(structure=structure)
 
 
 @lru_cache

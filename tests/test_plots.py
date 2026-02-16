@@ -4,8 +4,8 @@ import sympy as sy
 
 from pyhilbert.spatials import Lattice
 from pyhilbert.tensors import Tensor
-from pyhilbert.hilbert import hilbert, Mode
-from pyhilbert.utils import FrozenDict, generate_k_path
+from pyhilbert.hilbert_space import Ket, U1State, hilbert
+from pyhilbert.utils import generate_k_path
 
 
 def create_dummy_tensor(data_np):
@@ -15,8 +15,10 @@ def create_dummy_tensor(data_np):
     else:
         data = data_np
 
-    m = Mode(count=data.shape[0], attr=FrozenDict({"label": "dummy"}))
-    hspace = hilbert([m])
+    hspace = hilbert(
+        U1State(irrep=sy.Integer(1), kets=(Ket(("dummy", i)),))
+        for i in range(data.shape[0])
+    )
 
     if data.ndim == 2:
         dims = (hspace, hspace)

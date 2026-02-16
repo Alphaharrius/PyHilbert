@@ -8,7 +8,7 @@ from .precision import get_precision_config
 from functools import wraps
 
 from .abstracts import Operable, Plottable
-from .hilbert import (
+from .state_space import (
     StateSpace,
     BroadcastSpace,
     embedding_order,
