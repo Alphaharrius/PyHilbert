@@ -253,11 +253,21 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     Returns
     -------
     `Tuple[int, ...]`
-        Sector indices mapping each key in `dest` to its position in `src`
-        (`-1` if missing).
+        Sector indices mapping each key in `dest` to its position in `src`.
+
+    Raises
+    ------
+    `ValueError`
+        If a destination sector key is missing from the source state space.
     """
     order_table = {k: n for n, k in enumerate(src.structure.keys())}
-    return tuple(order_table.get(k, -1) for k in dest.structure.keys())
+    missing = [k for k in dest.structure.keys() if k not in order_table]
+    if missing:
+        raise ValueError(
+            "Cannot build permutation order: destination contains keys not present "
+            f"in source: {missing}"
+        )
+    return tuple(order_table[k] for k in dest.structure.keys())
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined

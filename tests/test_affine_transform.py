@@ -730,6 +730,49 @@ def test_bandtransform_both_matches_explicit_k_aligned_reference():
     assert torch.allclose(tensor_out.data, tensor_ref.data)
 
 
+def test_bandtransform_both_c4_fourfold_roundtrip_complex_tensor():
+    x, y = sy.symbols("x y")
+    lattice = Lattice(basis=ImmutableDenseMatrix.eye(2), shape=(2, 2))
+    k_space = brillouin_zone(lattice.dual)
+
+    r_x = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2), 0]), space=lattice.affine)
+    r_y = Offset(rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine)
+    p_minus = AbelianBasis(
+        expr=x - sy.I * y,
+        axes=(x, y),
+        order=1,
+        rep=ImmutableDenseMatrix([1, -sy.I]),
+    )
+    h_space = hilbert([_state(r_x, p_minus), _state(r_y, p_minus)])
+
+    c4 = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine),
+        basis_function_order=1,
+    )
+
+    data = torch.zeros((k_space.dim, 2, 2), dtype=torch.complex128)
+    for n, k in enumerate(k_space.elements()):
+        kx = float(k.rep[0])
+        ky = float(k.rep[1])
+        phase = torch.exp(
+            torch.tensor(2j * torch.pi * (kx - 2 * ky), dtype=torch.complex128)
+        )
+        data[n, 0, 0] = 0.11 + 0.09 * n
+        data[n, 1, 1] = -0.21 + 0.06j * (n + 1)
+        data[n, 0, 1] = 0.8 - 0.45j + 0.35 * phase
+        data[n, 1, 0] = -0.5 + 0.2j - 0.15 * phase.conj()
+    tensor_in = Tensor(data=data, dims=(k_space, h_space, h_space))
+
+    out = tensor_in
+    for _ in range(4):
+        out = bandtransform(c4, out, opt="both")
+
+    out = out.align(0, k_space).align(1, h_space).align(2, h_space)
+    assert torch.allclose(out.data, tensor_in.data)
+
+
 def test_affine_query_c3_xy_and_inverse_orientation():
     t = pointgroup("c3-xy:xy-o2")
     t_inv = pointgroup("c3-xy:yx-o2")

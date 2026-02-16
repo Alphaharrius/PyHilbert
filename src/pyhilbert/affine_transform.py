@@ -855,7 +855,6 @@ def bandtransform(
         )  # (B', B)
         # The transformation will distort the unit-cell of the Hilbert space,
         # we will use fractional to return it to the original unit-cell.
-        bloch_transform = bloch_transform.replace_dim(0, new_space)  # (B'=B, B)
         if not space.same_span(new_space):
             raise ValueError(
                 f"Hilbert space {space} is not symmetric under the transform {t}!"

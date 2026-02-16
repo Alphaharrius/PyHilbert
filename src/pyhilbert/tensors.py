@@ -938,7 +938,12 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     if not same_span(current_dim, target_dim):
         raise ValueError(f"StateSpace at {dim} cannot be aligned to target StateSpace!")
 
-    target_order = flat_permutation_order(current_dim, target_dim)
+    try:
+        target_order = flat_permutation_order(current_dim, target_dim)
+    except ValueError as e:
+        raise ValueError(
+            f"StateSpace at {dim} cannot be aligned to target StateSpace!"
+        ) from e
     aligned_data = torch.index_select(
         tensor.data,
         dim,
