@@ -422,6 +422,7 @@ def plot_bandstructure_mpl(
     save_path: Optional[str] = None,
     subs: Optional[Dict] = None,
     ax: Optional[Any] = None,
+    data_aspect: bool = True,
     **kwargs,
 ) -> plt.Figure:
     """
@@ -435,6 +436,8 @@ def plot_bandstructure_mpl(
     ax : matplotlib.axes.Axes, optional
         Existing axes to plot on. If provided, the plot is added to this axes and
         the corresponding figure is returned via `ax.get_figure()`.
+    data_aspect : bool, default True
+        If True, keep the real physical kx:ky axis ratio in 3D surface mode.
     """
     # 1. Check Dimensions
     if obj.rank() != 3:
@@ -531,6 +534,18 @@ def plot_bandstructure_mpl(
         ax.set_ylabel("ky (1/A)")
         # Explicit cast to avoid type checking issues with dynamic ax
         cast(Any, ax).set_zlabel("Energy (eV)")
+        if data_aspect:
+            x_span = float(np.ptp(KX))
+            y_span = float(np.ptp(KY))
+            z_span = float(np.ptp(evals_grid))
+            # Keep real kx:ky scaling (plotly's aspectmode='data' equivalent).
+            cast(Any, ax).set_box_aspect(
+                (
+                    x_span if x_span > 0.0 else 1.0,
+                    y_span if y_span > 0.0 else 1.0,
+                    z_span if z_span > 0.0 else 1.0,
+                )
+            )
 
     else:
         # 1D Line Plot
