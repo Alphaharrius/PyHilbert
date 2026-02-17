@@ -4,7 +4,6 @@ import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
 from typing import Optional, Union, Dict, Tuple
 from .spatials import Lattice
-from .hilbert import HilbertSpace, MomentumSpace, same_span
 from .tensors import Tensor
 from .utils import compute_bonds
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
@@ -498,93 +497,79 @@ def plot_bandstructure(
     title: str = "Band Structure",
     show: bool = True,
     subs: Optional[Dict] = None,
+    fig: Optional[go.Figure] = None,
     **kwargs,
 ) -> go.Figure:
     """
-    Plot the band structure of a Hamiltonian tensor.
-    The tensor must have dimensions (MomentumSpace, HilbertSpace, HilbertSpace).
+    Plot the band structure using Real Physical Reciprocal Coordinates.
 
     Parameters
     ----------
     obj : Tensor
-        The Hamiltonian H(k).
-    title : str
-        Plot title.
-    show : bool
-        Whether to show the plot.
+        Tensor to visualize as a band structure.
+    title : str, default "Band Structure"
+        Title of the plot.
+    show : bool, default True
+        Whether to show the plot immediately.
     subs : dict, optional
         Dictionary of symbol substitutions for lattice parameters.
+    fig : plotly.graph_objects.Figure, optional
+        Existing figure to add traces to.
     **kwargs
-        Additional arguments.
+        Additional keyword arguments.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        The Plotly figure.
     """
-    # 1. Check Dimensions
     if obj.rank() != 3:
-        raise ValueError(
-            f"Tensor must be rank 3 (Momentum, Hilbert, Hilbert), got rank {obj.rank()}"
-        )
-
+        raise ValueError(f"Tensor must be rank 3, got {obj.rank()}")
     k_space = obj.dims[0]
-    if not isinstance(k_space, MomentumSpace):
-        raise ValueError(f"First dimension must be MomentumSpace, got {type(k_space)}")
-
-    if not (
-        isinstance(obj.dims[1], HilbertSpace) and isinstance(obj.dims[2], HilbertSpace)
-    ):
-        raise ValueError("Last two dimensions must be HilbertSpace")
-
-    if not same_span(obj.dims[1], obj.dims[2]):
-        raise ValueError("Last two dimensions must span the same Hilbert space")
-
     k_points = list(k_space)
 
     # 2. Diagonalize
-    hk_data = obj.data
-    eigvals = torch.linalg.eigvalsh(hk_data)  # (K, N_bands)
+    eigvals = torch.linalg.eigvalsh(obj.data)  # (K, N_bands)
     eigvals_np = eigvals.detach().cpu().numpy()
     n_bands = eigvals_np.shape[1]
 
-    # 3. Detect 2D Grid for Surface Plot
+    grid_shape = getattr(k_space, "shape", None)
+    if grid_shape is None and "shape" in kwargs:
+        grid_shape = kwargs["shape"]
+
     is_2d_grid = False
-    grid_shape = None
-    recip = None
+    if grid_shape is not None and len(grid_shape) == 2:
+        if grid_shape[0] * grid_shape[1] == len(k_points):
+            is_2d_grid = True
+
+    if fig is None:
+        fig = go.Figure()
 
     if len(k_points) > 0:
         recip = k_points[0].space
-        if hasattr(recip, "shape") and len(recip.shape) == 2:
-            if k_space.dim == recip.shape[0] * recip.shape[1]:
-                is_2d_grid = True
-                grid_shape = recip.shape
-
-    fig = go.Figure()
-
-    if is_2d_grid and grid_shape and recip is not None:
-        # 2D Surface Plot
-        # Reshape eigenvalues
-        evals_grid = eigvals_np.reshape(grid_shape[0], grid_shape[1], n_bands)
-
-        # Calculate Cartesian Coordinates for Grid
-        # Get basis matrix
         basis_sym = recip.basis
+
         if subs:
             basis_eval = basis_sym.subs(subs)
         else:
             basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
-        basis_mat = np.array(basis_eval).astype(float)
 
-        # Extract fractional coords
-        k_fracs = []
-        for k in k_points:
-            rep = k.rep
-            if subs:
-                rep = rep.subs(subs)
-            k_fracs.append(np.array(rep).astype(float).flatten())
-        k_fracs_arr = np.stack(k_fracs)  # (K, 2)
+        basis_mat = np.array(basis_eval.evalf()).astype(float)
 
-        # Convert to Cartesian
-        k_cart = k_fracs_arr @ basis_mat  # (K, 2)
+        k_fracs = [np.array(k.rep).astype(float).flatten() for k in k_points]
+        k_fracs_arr = np.stack(k_fracs)  # Shape: (K, 2)
 
-        KX = k_cart[:, 0].reshape(grid_shape[0], grid_shape[1])
-        KY = k_cart[:, 1].reshape(grid_shape[0], grid_shape[1])
+        k_cart = k_fracs_arr @ basis_mat
+    else:
+        k_cart = np.array([])
+
+    if is_2d_grid and grid_shape is not None:
+        # === 3D Surface Plot ===
+        nx, ny = grid_shape
+
+        KX = k_cart[:, 0].reshape(nx, ny)
+        KY = k_cart[:, 1].reshape(nx, ny)
+        evals_grid = eigvals_np.reshape(nx, ny, n_bands)
 
         for b in range(n_bands):
             fig.add_trace(
@@ -596,56 +581,34 @@ def plot_bandstructure(
                     showscale=(b == 0),
                     colorscale="Viridis",
                     opacity=0.9,
+                    hovertemplate="kx: %{x:.2f}<br>ky: %{y:.2f}<br>E: %{z:.3f}<extra></extra>",
                 )
             )
 
-        fig.update_layout(
-            title=title,
-            scene=dict(xaxis_title="kx", yaxis_title="ky", zaxis_title="Energy"),
-        )
-
     else:
-        # 1D Line Plot
-        x_vals = [0.0]
+        # === 1D Line Plot ===
+        x_vals = np.array([0.0])
         if len(k_points) > 1:
-            recip = k_points[0].space
-            basis_sym = recip.basis
-            if subs:
-                basis_eval = basis_sym.subs(subs)
-            else:
-                basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
-            basis_mat = np.array(basis_eval).astype(float)
-
-            k_fracs = []
-            for k in k_points:
-                rep = k.rep
-                if subs:
-                    rep = rep.subs(subs)
-                k_fracs.append(np.array(rep).astype(float).flatten())
-            k_fracs_arr = np.stack(k_fracs)
-
-            k_cart = k_fracs_arr @ basis_mat
             diffs = k_cart[1:] - k_cart[:-1]
             dists = np.linalg.norm(diffs, axis=1)
-            x_vals = np.concatenate(([0.0], np.cumsum(dists))).tolist()
+            x_vals = np.concatenate(([0.0], np.cumsum(dists)))
 
         for b in range(n_bands):
             fig.add_trace(
-                go.Scatter(
-                    x=x_vals,
-                    y=eigvals_np[:, b],
-                    mode="lines",
-                    name=f"Band {b}",
-                    line=dict(color="blue"),
-                    showlegend=False,
-                )
+                go.Scatter(x=x_vals, y=eigvals_np[:, b], mode="lines", name=f"Band {b}")
             )
 
-        fig.update_layout(
-            title=title,
-            xaxis_title="Wave Vector Path",
-            yaxis_title="Energy",
+    fig.update_layout(
+        title=title,
+        scene=dict(
+            xaxis_title="kx (1/Å)",
+            yaxis_title="ky (1/Å)",
+            zaxis_title="Energy (eV)",
+            aspectmode="data",
         )
+        if is_2d_grid
+        else None,
+    )
 
     if show:
         fig.show()

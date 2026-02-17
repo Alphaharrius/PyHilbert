@@ -421,6 +421,7 @@ def plot_bandstructure_mpl(
     title: str = "Band Structure",
     save_path: Optional[str] = None,
     subs: Optional[Dict] = None,
+    ax: Optional[Any] = None,
     **kwargs,
 ) -> plt.Figure:
     """
@@ -431,6 +432,9 @@ def plot_bandstructure_mpl(
     ----------
     subs : dict, optional
         Dictionary of symbol substitutions for lattice parameters.
+    ax : matplotlib.axes.Axes, optional
+        Existing axes to plot on. If provided, the plot is added to this axes and
+        the corresponding figure is returned via `ax.get_figure()`.
     """
     # 1. Check Dimensions
     if obj.rank() != 3:
@@ -458,34 +462,26 @@ def plot_bandstructure_mpl(
     eigvals_np = eigvals.detach().cpu().numpy()
     n_bands = eigvals_np.shape[1]
 
-    # 3. Detect 2D Grid
-    is_2d_grid = False
-    grid_shape = None
-    recip = None
+    # 3. Detect 2D grid shape (aligned with plotly backend logic)
+    grid_shape = getattr(k_space, "shape", None)
+    if grid_shape is None and "shape" in kwargs:
+        grid_shape = kwargs["shape"]
 
+    is_2d_grid = (
+        grid_shape is not None
+        and len(grid_shape) == 2
+        and grid_shape[0] * grid_shape[1] == len(k_points)
+    )
+
+    # 4. Build Cartesian reciprocal coordinates once for both modes.
     if len(k_points) > 0:
         recip = k_points[0].space
-        if hasattr(recip, "shape") and len(recip.shape) == 2:
-            if k_space.dim == recip.shape[0] * recip.shape[1]:
-                is_2d_grid = True
-                grid_shape = recip.shape
-
-    if is_2d_grid and grid_shape and recip is not None:
-        # 2D Surface Plot
-        # Requires 3D projection
-        fig = plt.figure(figsize=kwargs.get("figsize", (10, 8)))
-        ax = fig.add_subplot(111, projection="3d")
-
-        # Reshape eigenvalues
-        evals_grid = eigvals_np.reshape(grid_shape[0], grid_shape[1], n_bands)
-
-        # Calculate Cartesian Coordinates
         basis_sym = recip.basis
         if subs:
             basis_eval = basis_sym.subs(subs)
         else:
             basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
-        basis_mat = np.array(basis_eval).astype(float)
+        basis_mat = np.array(basis_eval.evalf()).astype(float)
 
         k_fracs = []
         for k in k_points:
@@ -494,60 +490,77 @@ def plot_bandstructure_mpl(
                 rep = rep.subs(subs)
             k_fracs.append(np.array(rep).astype(float).flatten())
         k_fracs_arr = np.stack(k_fracs)
-
         k_cart = k_fracs_arr @ basis_mat
+    else:
+        k_cart = np.array([])
+
+    if is_2d_grid and grid_shape is not None and len(k_cart) > 0:
+        # 2D Surface Plot
+        # Requires 3D projection
+        if ax is None:
+            fig = plt.figure(figsize=kwargs.get("figsize", (10, 8)))
+            ax = fig.add_subplot(111, projection="3d")
+        else:
+            fig = ax.get_figure()
+            if not hasattr(ax, "zaxis"):
+                raise ValueError(
+                    "A 3D axes is required for 2D grid bandstructure surface."
+                )
+
+        # Reshape eigenvalues
+        evals_grid = eigvals_np.reshape(grid_shape[0], grid_shape[1], n_bands)
 
         KX = k_cart[:, 0].reshape(grid_shape[0], grid_shape[1])
         KY = k_cart[:, 1].reshape(grid_shape[0], grid_shape[1])
 
+        cmap = kwargs.get("cmap", "viridis")
+        surface_alpha = kwargs.get("surface_alpha", 0.85)
         for b in range(n_bands):
-            # Using plot_surface
-            ax.plot_surface(KX, KY, evals_grid[:, :, b], cmap="viridis", alpha=0.8)
+            ax.plot_surface(
+                KX,
+                KY,
+                evals_grid[:, :, b],
+                cmap=cmap,
+                alpha=surface_alpha,
+                linewidth=0,
+                antialiased=True,
+            )
 
         ax.set_title(title)
-        ax.set_xlabel("kx")
-        ax.set_ylabel("ky")
+        ax.set_xlabel("kx (1/A)")
+        ax.set_ylabel("ky (1/A)")
         # Explicit cast to avoid type checking issues with dynamic ax
-        cast(Any, ax).set_zlabel("Energy")
+        cast(Any, ax).set_zlabel("Energy (eV)")
 
     else:
         # 1D Line Plot
-        fig, ax = plt.subplots(figsize=kwargs.get("figsize", (8, 6)))
+        if ax is None:
+            fig, ax = plt.subplots(figsize=kwargs.get("figsize", (8, 6)))
+        else:
+            fig = ax.get_figure()
 
-        x_vals = [0.0]
-        if len(k_points) > 1:
-            recip = k_points[0].space
-            basis_sym = recip.basis
-            if subs:
-                basis_eval = basis_sym.subs(subs)
-            else:
-                basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
-            basis_mat = np.array(basis_eval).astype(float)  # (Dim, Dim)
-
-            k_fracs = []
-            for k in k_points:
-                rep = k.rep
-                if subs:
-                    rep = rep.subs(subs)
-                k_fracs.append(np.array(rep).astype(float).flatten())
-            k_fracs_arr = np.stack(k_fracs)
-
-            k_cart = k_fracs_arr @ basis_mat
-
+        x_vals = np.array([0.0])
+        if len(k_points) > 1 and len(k_cart) > 0:
             diffs = k_cart[1:] - k_cart[:-1]
             dists = np.linalg.norm(diffs, axis=1)
-            x_vals = np.concatenate(([0.0], np.cumsum(dists))).tolist()
+            x_vals = np.concatenate(([0.0], np.cumsum(dists)))
 
+        line_width = kwargs.get("line_width", 1.5)
         for b in range(n_bands):
-            ax.plot(x_vals, eigvals_np[:, b], "b-", linewidth=1.5)
+            ax.plot(x_vals, eigvals_np[:, b], linewidth=line_width, label=f"Band {b}")
 
         ax.set_title(title)
-        ax.set_xlabel("Wave Vector Path")
-        ax.set_ylabel("Energy")
-        ax.set_xlim(x_vals[0], x_vals[-1])
-        ax.grid(True, alpha=0.3)
+        ax.set_xlabel("k-path (1/A)")
+        ax.set_ylabel("Energy (eV)")
+        if len(x_vals) > 1 and x_vals[-1] > x_vals[0]:
+            ax.set_xlim(float(x_vals[0]), float(x_vals[-1]))
+        else:
+            ax.set_xlim(-0.5, 0.5)
+        ax.grid(True, alpha=kwargs.get("grid_alpha", 0.3))
+        if kwargs.get("legend", False):
+            ax.legend(loc=kwargs.get("legend_loc", "best"))
 
     if save_path:
-        plt.savefig(save_path, bbox_inches="tight")
+        fig.savefig(save_path, bbox_inches="tight")
 
     return fig
