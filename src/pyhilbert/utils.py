@@ -15,7 +15,6 @@ from typing import (
 import torch
 
 
-
 class FrozenDict(Mapping):
     __slots__ = ("__items", "__hash")
 
