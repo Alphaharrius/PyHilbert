@@ -13,9 +13,7 @@ from typing import (
     cast,
 )
 import torch
-import numpy as np
 
-from .precision import get_precision_config
 
 
 class FrozenDict(Mapping):
