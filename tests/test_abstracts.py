@@ -9,7 +9,7 @@ class MockOperable(Operable):
 
 
 @dataclass(frozen=True)
-class MockUpdatable(Updatable):
+class MockUpdatable(Updatable["MockUpdatable"]):
     val: int = 0
 
     def _updated(self, **kwargs) -> "Updatable":
@@ -18,7 +18,7 @@ class MockUpdatable(Updatable):
 
 
 @dataclass(frozen=True)
-class BadUpdatable(Updatable):
+class BadUpdatable(Updatable["BadUpdatable"]):
     def _updated(self, **kwargs):
         return self
 

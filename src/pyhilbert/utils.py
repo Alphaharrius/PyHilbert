@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from abc import ABCMeta
 from typing import (
     Iterator,
     Any,
@@ -8,8 +9,13 @@ from typing import (
     Dict,
     Iterable,
     Callable,
+    Type,
+    cast,
 )
 import torch
+import numpy as np
+
+from .precision import get_precision_config
 
 
 class FrozenDict(Mapping):
@@ -170,3 +176,27 @@ def matchby(
         mapping[sm] = dest_base[sb]
 
     return mapping
+
+
+def subtypes(cls: Type) -> Tuple[ABCMeta, ...]:
+    """
+    Return all transitive subclasses of a class.
+
+    Parameters
+    ----------
+    `cls` : `Type`
+        The class to inspect.
+
+    Returns
+    -------
+    `Tuple[ABCMeta, ...]`
+        A tuple containing all direct and indirect subclasses of `cls`.
+    """
+    out = set()
+    stack = list(cls.__subclasses__())
+    while stack:
+        sub = stack.pop()
+        if sub not in out:
+            out.add(sub)
+            stack.extend(sub.__subclasses__())
+    return cast(Tuple[ABCMeta, ...], tuple(out))

@@ -1,7 +1,24 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from copy import copy
+from dataclasses import dataclass, field, fields, is_dataclass
 from multipledispatch import dispatch
-from typing import Callable, Dict, ClassVar, Tuple, Type
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    ClassVar,
+    Literal,
+    NamedTuple,
+    Set,
+    Self,
+    Tuple,
+    Generic,
+    Type,
+    TypeVar,
+    Union,
+)
+
+from .utils import subtypes
 
 
 @dataclass(frozen=True)
@@ -161,21 +178,55 @@ def operator_or(a, b):
     )
 
 
-class Updatable(ABC):
+UpdatableType = TypeVar("UpdatableType", bound="Updatable")
+
+
+class Updatable(ABC, Generic[UpdatableType]):
     """
     An object that can be updated to a new state.
     """
 
-    def update(self, **kwargs) -> "Updatable":
+    def update(self, **kwargs) -> UpdatableType:
+        """
+        Return an updated instance of this object.
+
+        This method delegates the construction of the updated object to
+        :meth:`_updated`, then enforces common safety and dataclass consistency
+        rules:
+        1. ``_updated`` must return a new object (not ``self``).
+        2. If both ``self`` and the returned object are dataclasses of the same
+           runtime type, fields with ``init=False`` are copied from ``self`` to
+           the returned object.
+
+        Parameters
+        ----------
+        `**kwargs` : `Any`
+            Keyword arguments forwarded to :meth:`_updated` to define the new
+            state.
+
+        Returns
+        -------
+        `UpdatableType`
+            A new instance representing the updated state.
+
+        Raises
+        ------
+        `RuntimeError`
+            If :meth:`_updated` returns ``self`` instead of a new instance.
+        """
         out = self._updated(**kwargs)
         if out is self:
             raise RuntimeError(
                 f"{type(self).__name__}._updated() must not return self; return a new object."
             )
+        if type(out) is type(self) and is_dataclass(self) and is_dataclass(out):
+            for f in fields(self):
+                if not f.init:
+                    object.__setattr__(out, f.name, getattr(self, f.name))
         return out
 
     @abstractmethod
-    def _updated(self, **kwargs) -> "Updatable":
+    def _updated(self, **kwargs) -> UpdatableType:
         pass
 
 
@@ -239,3 +290,247 @@ class HasDual(ABC):
     @abstractmethod
     def dual(self):
         raise NotImplementedError()
+
+
+BaseType = TypeVar("BaseType")
+
+
+class HasBase(Generic[BaseType], ABC):
+    """
+    An object that is expressed in a specific base (basis/coordinate system).
+
+    "Base" here means the same thing you would mean for a vector: a basis (or
+    basis-like structure) that defines how the object's representation is
+    written. Examples include a vector's basis, a lattice/affine space's basis,
+    a function expanded in a basis of functions, or an operator expressed in a
+    particular coordinate frame.
+
+    The key idea is that the *mathematical object* is the same, but its
+    *representation* depends on the base. Implementations should therefore
+    provide `rebase(...)` to return a new equivalent object expressed in a new
+    base, without mutating the original.
+    """
+
+    @abstractmethod
+    def base(self) -> BaseType:
+        """
+        Return the base (basis/coordinate system) this object is currently expressed in.
+
+        This should be a lightweight, stable descriptor of the representation context
+        (e.g., a basis matrix, lattice, coordinate frame, or function basis). The
+        returned base is used by `rebase(...)` to construct an equivalent object in a
+        new base, so implementations should not mutate internal state and should
+        prefer returning an immutable or effectively immutable object.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def rebase(self, new_base: BaseType) -> "HasBase[BaseType]":
+        """
+        Return an equivalent object expressed in ``new_base``.
+
+        Implementations must preserve the underlying mathematical object while
+        changing only its representation. This method should be pure: do not
+        mutate ``self`` or ``new_base``. Prefer returning a new instance, even if
+        the base is unchanged; if you choose to return ``self`` for identical
+        bases, document that behavior and ensure immutability.
+
+        ``new_base`` is expected to be compatible with the object. If it is not,
+        raise a clear error (typically ``ValueError``). Do not silently coerce
+        incompatible bases.
+        """
+        raise NotImplementedError()
+
+
+@dataclass(frozen=True)
+class Functional(ABC):
+    _registered_methods: ClassVar[Dict[Tuple[type, type], Tuple[Callable, ...]]] = {}
+    _overwrite_locked_by_subclass: ClassVar[Set[Tuple[type, type]]] = set()
+
+    @classmethod
+    def register(  # TODO: Rename to register
+        cls, obj_type: type, order: Literal["overwrite", "front", "back"] = "overwrite"
+    ):
+        """
+        Register a function defining the action of the `Functional` on a specific object type.
+        Registration is applied to `obj_type` and all currently defined subclasses
+        of `obj_type`. For each affected type:
+        - `'overwrite'` replaces any existing function.
+        - `'front'` prepends the new function to the existing function chain.
+        - `'back'` appends the new function to the existing function chain.
+
+        At call time, chained functions are executed in front-to-end order, where each
+        function receives the output of the previous function as its `obj` input.
+
+        Parameters
+        ----------
+        `obj_type` : `type`
+            The type of object the function applies to.
+        `order` : `Literal["overwrite", "front", "back"]`, optional
+            The order in which to register the function relative to existing functions.
+            By default, 'overwrite' which replaces any existing function.
+
+        Returns
+        -------
+        `Callable`
+            A decorator that registers the function for the specified object type.
+        """
+        if order not in ("overwrite", "front", "back"):
+            raise ValueError(
+                f"Invalid registration order: {order}. "
+                "Expected one of 'overwrite', 'front', 'back'."
+            )
+
+        def decorator(func: Callable):
+            chain: Tuple[Callable, ...] = tuple()
+            for target_type in (obj_type, *subtypes(obj_type)):
+                key = (target_type, cls)
+                is_superclass_propagation = target_type is not obj_type
+                if (
+                    is_superclass_propagation
+                    and key in cls._overwrite_locked_by_subclass
+                ):
+                    if order == "overwrite":
+                        raise ValueError(
+                            f"Cannot overwrite function for {target_type.__name__} via "
+                            f"superclass registration on {obj_type.__name__} because "
+                            "the subclass was previously registered with "
+                            "order='overwrite'."
+                        )
+                    continue
+
+                existing = cls._registered_methods.get(key)
+                if existing is None:
+                    existing_chain: Tuple[Callable, ...] = ()
+                elif isinstance(existing, tuple):
+                    existing_chain = existing
+                else:
+                    existing_chain = (existing,)
+
+                if order == "overwrite" or not existing_chain:
+                    chain = (func,)
+                elif order == "front":
+                    chain = (func,) + existing_chain
+                else:  # order == "back"
+                    chain = existing_chain + (func,)
+
+                cls._registered_methods[key] = chain
+                if not is_superclass_propagation and order == "overwrite":
+                    cls._overwrite_locked_by_subclass.add(key)
+            return func
+
+        return decorator
+
+    @staticmethod
+    def get_applicable_types(cls) -> Tuple[Type, ...]:
+        """
+        Get all object types that can be applied by this `Functional`.
+
+        Returns
+        -------
+        Tuple[Type, ...]
+            A tuple of all registered object types that this `Functional` can handle.
+        """
+        types = set()
+        for obj_type, functional_type in cls._registered_methods.keys():
+            if functional_type is cls:
+                types.add(obj_type)
+        return tuple(types)
+
+    def allows(self, obj: Any) -> bool:
+        """
+        Check if this `Functional` can be applied on the given object.
+
+        Parameters
+        ----------
+        obj : Any
+            The object to check for applicability.
+
+        Returns
+        -------
+        bool
+            True if this `Functional` can be applied on the object, False otherwise.
+        """
+        functional_class = type(self)
+        obj_class = type(obj)
+        key = (obj_class, functional_class)
+        return key in self._registered_methods
+
+    def apply(self, obj: Any, **kwargs) -> Any:
+        functional_class = type(self)
+        obj_class = type(obj)
+        key = (obj_class, functional_class)
+
+        chain = self._registered_methods.get(key)
+
+        if chain is None or not chain:
+            raise NotImplementedError(
+                f"No function registered for {obj_class.__name__} "
+                f"with {functional_class.__name__}"
+            )
+
+        out = obj
+        for func in chain:
+            out = func(self, out, **kwargs)
+        return out
+
+    def __call__(self, obj: Any, **kwargs) -> Any:
+        return self.apply(obj, **kwargs)
+
+
+@dataclass(frozen=True)
+class GaugeBasis(ABC):
+    """
+    A marker class for gaugable objects.
+    """
+
+    pass
+
+
+@dataclass(frozen=True)
+class GaugeInvariant(GaugeBasis):
+    """
+    This represents gauge-invariant object to all transformations.
+    """
+
+    pass
+
+
+@dataclass(frozen=True)
+class Gaugable(ABC):
+    """
+    Container base class for objects that own a `GaugeBasis` instance.
+    """
+
+    _gauge_basis: GaugeBasis = field(default_factory=GaugeInvariant, init=False)
+
+    def gauge_repr(self) -> GaugeBasis:
+        """Get the gauge basis representation of this gaugable object."""
+        return self._gauge_basis
+
+    def with_gauge_repr(self, new_repr: GaugeBasis) -> Self:
+        new_obj = copy(self)
+        object.__setattr__(new_obj, "_gauge_basis", new_repr)
+        return new_obj
+
+
+_GaugableType = TypeVar("_GaugableType", bound=Union[Gaugable, GaugeInvariant])
+_GaugeType = TypeVar("_GaugeType")
+
+
+class Gauged(Generic[_GaugableType, _GaugeType], NamedTuple):
+    """
+    A simple named tuple to hold a gaugable object and its associated gauge after a transformation.
+
+    This is primarily a convenience wrapper to group together a `Gaugable` object
+    and the resulting gauge after applying a `Transform`. It allows for clear
+    and type-safe handling of gaugable objects along with their gauges in
+    various operations.
+
+    For example, if the gauge is `U(1)` then the gauge is a complex number.
+    """
+
+    gauge: _GaugeType
+    """ The gauge associated with the gaugable object. """
+    gaugable: _GaugableType
+    """ The gaugable object being transformed. """
