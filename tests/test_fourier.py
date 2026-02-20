@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from sympy import ImmutableDenseMatrix
+from sympy import ImmutableDenseMatrix, Rational
 from pyhilbert.spatials import Lattice, Offset, Momentum
 from pyhilbert.hilbert import hilbert, Mode, brillouin_zone
 from pyhilbert.fourier import fourier_transform
@@ -14,7 +14,7 @@ def test_fourier_kernel_1d():
     recip = lat.dual
 
     # Define K points: 0, 0.25, 0.5, 0.75 (fractional in reciprocal basis)
-    k_reps = [0, 0.25, 0.5, 0.75]
+    k_reps = [0, Rational(1, 4), Rational(1, 2), Rational(3, 4)]
     K = tuple(Momentum(rep=ImmutableDenseMatrix([k]), space=recip) for k in k_reps)
 
     # Define R offsets: 0, 1, 2, 3 (fractional/integer in lattice basis)
@@ -28,7 +28,7 @@ def test_fourier_kernel_1d():
     expected = torch.zeros((4, 4), dtype=torch.complex128)
     for i, k in enumerate(k_reps):
         for j, r in enumerate(r_reps):
-            phase = -2j * np.pi * k * r
+            phase = -2j * np.pi * float(k) * float(r)
             expected[i, j] = np.exp(phase)
 
     assert torch.allclose(ft, expected)

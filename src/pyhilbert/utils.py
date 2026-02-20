@@ -12,6 +12,7 @@ from typing import (
     Type,
     cast,
 )
+from sympy import ImmutableDenseMatrix, Float
 import torch
 
 
@@ -197,3 +198,18 @@ def subtypes(cls: Type) -> Tuple[ABCMeta, ...]:
             out.add(sub)
             stack.extend(sub.__subclasses__())
     return cast(Tuple[ABCMeta, ...], tuple(out))
+
+
+def validate_matrix(mat: ImmutableDenseMatrix, name: str = "matrix") -> None:
+    """
+    Validates that all entries in the matrix are exact SymPy expressions (no Floats).
+    Raises TypeError with index information if an invalid entry is found.
+    """
+    for i in range(mat.rows):
+        for j in range(mat.cols):
+            val = mat[i, j]
+            if getattr(val, "has", lambda x: False)(Float):
+                raise TypeError(
+                    f"Invalid entry in {name} at ({i}, {j}): {val} (type {type(val)}). "
+                    "Entries must be exact (no floating-point numbers allowed)."
+                )

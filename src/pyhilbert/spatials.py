@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from .precision import get_precision_config
 from sympy import ImmutableDenseMatrix, sympify
-from .utils import FrozenDict
+from .utils import FrozenDict, validate_matrix
 from .abstracts import Operable, HasDual, HasBase, Plottable
 
 
@@ -25,7 +25,8 @@ class Spatial(Operable, Plottable, ABC):
 class AffineSpace(Spatial):
     basis: ImmutableDenseMatrix
 
-    # TODO __post_init__ to validate basis is rational / int
+    def __post_init__(self):
+        validate_matrix(self.basis, "AffineSpace.basis")
 
     @property
     def dim(self) -> int:
@@ -171,6 +172,7 @@ class Offset(Spatial, HasBase[AffineSpace]):
     def __post_init__(self):
         if self.rep.shape != (self.space.dim, 1):
             raise ValueError("Invalid Shape")
+        validate_matrix(self.rep, "Offset.rep")
 
     @property
     def dim(self) -> int:

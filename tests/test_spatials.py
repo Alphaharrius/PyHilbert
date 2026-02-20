@@ -42,7 +42,7 @@ def test_lattice_creation_and_dual():
 
 def test_lattice_with_unit_cell():
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
-    unit_cell_input = {"a": (0, 0), "b": (0.5, 0.5)}
+    unit_cell_input = {"a": (0, 0), "b": (sy.Rational(1, 2), sy.Rational(1, 2))}
     lattice = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell_input)
 
     assert isinstance(lattice.unit_cell, FrozenDict)
@@ -50,7 +50,9 @@ def test_lattice_with_unit_cell():
     assert isinstance(lattice.unit_cell["a"], Offset)
     assert lattice.unit_cell["a"].rep == ImmutableDenseMatrix([0, 0])
     assert isinstance(lattice.unit_cell["b"], Offset)
-    assert lattice.unit_cell["b"].rep == ImmutableDenseMatrix([0.5, 0.5])
+    assert lattice.unit_cell["b"].rep == ImmutableDenseMatrix(
+        [sy.Rational(1, 2), sy.Rational(1, 2)]
+    )
 
     # ReciprocalLattice should not accept unit_cell
     with pytest.raises(TypeError):
@@ -105,7 +107,7 @@ def test_coords():
     assert coords.shape == (4, 2)
 
     # Explicit unit cell
-    unit_cell = {"a": (0.1, 0.1)}
+    unit_cell = {"a": (sy.Rational(1, 10), sy.Rational(1, 10))}
     lattice_offset = Lattice(basis=basis, shape=(2, 2), unit_cell=unit_cell)
     coords_offset = lattice_offset.coords()
     assert coords_offset.shape == (4, 2)

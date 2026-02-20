@@ -100,13 +100,13 @@ def test_bandstructure_plot():
     # 1. Define Lattice (2D Square)
     # Basis: [[a, 0], [0, a]]
     a = sy.Symbol("a")
-    basis = sy.ImmutableDenseMatrix([[a, 0.0], [0.0, a]])
+    basis = sy.ImmutableDenseMatrix([[a, 0], [0, a]])
     # Small shape for test speed
     lat = Lattice(basis=basis, shape=(4, 4))
 
     # 2. Define Unit Cell (Bloch Space)
     # Single s-orbital at origin (0,0)
-    r_0 = Offset(rep=sy.ImmutableDenseMatrix([[0.0], [0.0]]), space=lat.affine)
+    r_0 = Offset(rep=sy.ImmutableDenseMatrix([[0], [0]]), space=lat.affine)
     mode_s = Mode.from_attr(count=1, r=r_0, label="s")
     bloch_space = hilbert([mode_s])
 

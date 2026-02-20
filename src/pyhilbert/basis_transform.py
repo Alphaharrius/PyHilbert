@@ -8,7 +8,7 @@ from typing import Tuple, cast, Literal
 import numpy as np
 
 from .abstracts import Functional
-from .utils import FrozenDict, matchby
+from .utils import FrozenDict, matchby, validate_matrix
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
 from .tensors import Tensor, mapping_matrix
@@ -22,6 +22,7 @@ class BasisTransform(Functional):
     def __post_init__(self):
         if self.M.det() == 0:
             raise ValueError("M must have non-zero determinant")
+        validate_matrix(self.M, "BasisTransform.M")
 
 
 @lru_cache
