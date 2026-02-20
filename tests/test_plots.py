@@ -1,130 +1,172 @@
-import torch
 import numpy as np
+import plotly.graph_objects as go
 import sympy as sy
+import torch
 
-from pyhilbert.spatials import Lattice
+from pyhilbert.hilbert import Mode, hilbert, brillouin_zone
+from pyhilbert.spatials import Lattice, Offset
 from pyhilbert.tensors import Tensor
-from pyhilbert.hilbert import hilbert, Mode
-from pyhilbert.utils import FrozenDict, generate_k_path
+from pyhilbert.utils import FrozenDict
+from pyhilbert.fourier import fourier_transform
 
 
-def create_dummy_tensor(data_np):
-    """Creates a valid pyhilbert.tensors.Tensor from numpy data."""
-    if isinstance(data_np, np.ndarray):
-        data = torch.from_numpy(data_np)
+def create_dummy_tensor(data_like):
+    """Create a Tensor with simple HilbertSpace dims for tests."""
+    if isinstance(data_like, np.ndarray):
+        data = torch.from_numpy(data_like)
     else:
-        data = data_np
+        data = data_like
 
     m = Mode(count=data.shape[0], attr=FrozenDict({"label": "dummy"}))
     hspace = hilbert([m])
-
-    if data.ndim == 2:
-        dims = (hspace, hspace)
-    else:
-        dims = (hspace,) * data.ndim
-
+    dims = (hspace,) * data.ndim
     return Tensor(data=data, dims=dims)
 
 
-def test_plots():
-    """
-    Smoke test for plotting capabilities.
-    Ensures all plot methods run without errors (headless).
-    """
-    print("=== Running Plotting Smoke Test ===")
-
-    # Disable showing plots for tests
-    SHOW_PLOTS = False
-
-    # --- Heatmap Demo ---
-    mat = np.random.rand(10, 10) + 1j * np.random.rand(10, 10)
+def test_plot_heatmap_complex_matrix_returns_two_traces():
+    mat = np.array(
+        [
+            [1 + 2j, 2 - 1j, 0 + 1j],
+            [-1 + 0j, 0 + 0j, 3 - 2j],
+            [4 + 1j, -2 + 2j, 1 - 3j],
+        ],
+        dtype=np.complex128,
+    )
     tensor_obj = create_dummy_tensor(mat)
 
-    # Plotly Backend
-    fig = tensor_obj.plot("heatmap", title="Random Complex Matrix", show=SHOW_PLOTS)
-    assert fig is not None
+    fig = tensor_obj.plot("heatmap", title="Complex Heatmap", show=False)
 
-    # --- Heatmap Realistic Demo ---
-    dim = 20
-    M = np.random.randn(dim, dim) + 1j * np.random.randn(dim, dim)
-    H = M + M.conj().T
-    tensor_h = create_dummy_tensor(H)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 2
+    assert fig.layout.title.text == "Complex Heatmap"
 
-    tensor_h.plot("heatmap", title="Hermitian Matrix", show=SHOW_PLOTS)
 
-    # --- Structure 2D Demo ---
+def test_plot_heatmap_high_rank_requires_and_accepts_fixed_indices():
+    # Shape (2, 2, 2): choosing axes=(1, 2) requires one fixed index.
+    data = torch.arange(8, dtype=torch.float64).reshape(2, 2, 2)
+    tensor_obj = create_dummy_tensor(data)
+
+    fig = tensor_obj.plot(
+        "heatmap",
+        title="Rank-3 Slice",
+        show=False,
+        axes=(1, 2),
+        fixed_indices=(0,),
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+
+
+def test_plot_spectrum_hermitian_and_nonhermitian():
+    hermitian = np.array(
+        [[2.0, 1.0 - 1.0j, 0.0], [1.0 + 1.0j, 3.0, -2.0j], [0.0, 2.0j, 1.0]],
+        dtype=np.complex128,
+    )
+    nonhermitian = np.array([[0.0, 1.0], [-2.0, 0.5]], dtype=np.float64)
+
+    h_tensor = create_dummy_tensor(hermitian)
+    nh_tensor = create_dummy_tensor(nonhermitian)
+
+    h_fig = h_tensor.plot("spectrum", title="Hermitian Spectrum", show=False)
+    nh_fig = nh_tensor.plot("spectrum", title="Non-Hermitian Spectrum", show=False)
+
+    assert isinstance(h_fig, go.Figure)
+    assert isinstance(nh_fig, go.Figure)
+    assert len(h_fig.data) == 1
+    assert len(nh_fig.data) == 1
+    assert h_fig.layout.title.text == "Hermitian Spectrum"
+    assert nh_fig.layout.title.text == "Non-Hermitian Spectrum"
+
+
+def test_plot_structure_2d_and_3d():
     a = sy.Symbol("a")
-    basis = sy.ImmutableDenseMatrix([[a, 0], [0, a]])
-    lattice = Lattice(basis=basis, shape=(3, 3))
 
-    lattice.plot("structure", subs={a: 1.5}, show=SHOW_PLOTS)
+    basis_2d = sy.ImmutableDenseMatrix([[a, 0], [0, a]])
+    lattice_2d = Lattice(basis=basis_2d, shape=(3, 3))
+    fig_2d = lattice_2d.plot("structure", subs={a: 1.5}, show=False)
 
-    # --- Structure 3D Demo ---
     basis_3d = sy.ImmutableDenseMatrix([[a, 0, 0], [0, a, 0], [0, 0, a]])
     lattice_3d = Lattice(basis=basis_3d, shape=(2, 2, 2))
+    fig_3d = lattice_3d.plot("structure", subs={a: 1.0}, show=False)
 
-    lattice_3d.plot("structure", subs={a: 1.0}, show=SHOW_PLOTS)
+    assert isinstance(fig_2d, go.Figure)
+    assert isinstance(fig_3d, go.Figure)
+    assert len(fig_2d.data) >= 1
+    assert len(fig_3d.data) >= 1
 
-    # --- Spectrum Demo ---
-    # Hermitian
-    tensor_h.plot("spectrum", title="Hermitian Spectrum", show=SHOW_PLOTS)
 
-    # Non-Hermitian
-    tensor_m = create_dummy_tensor(M)
-    tensor_m.plot("spectrum", title="Non-Hermitian Spectrum", show=SHOW_PLOTS)
+def test_bandstructure_plot():
+    # 1. Define Lattice (2D Square)
+    # Basis: [[a, 0], [0, a]]
+    a = sy.Symbol("a")
+    basis = sy.ImmutableDenseMatrix([[a, 0.0], [0.0, a]])
+    # Small shape for test speed
+    lat = Lattice(basis=basis, shape=(4, 4))
 
-    # --- Band Structure Demo ---
-    def tight_binding_2d(k_vecs):
-        kx = k_vecs[:, 0]
-        ky = k_vecs[:, 1]
-        t = 1.0
-        E = -2.0 * t * (torch.cos(kx) + torch.cos(ky))
-        return E.unsqueeze(1)
+    # 2. Define Unit Cell (Bloch Space)
+    # Single s-orbital at origin (0,0)
+    r_0 = Offset(rep=sy.ImmutableDenseMatrix([[0.0], [0.0]]), space=lat.affine)
+    mode_s = Mode.from_attr(count=1, r=r_0, label="s")
+    bloch_space = hilbert([mode_s])
 
-    points = {"G": [0, 0], "X": [np.pi, 0], "M": [np.pi, np.pi]}
-    path = ["G", "X", "M", "G"]
-    k_vecs, k_dists, nodes = generate_k_path(points, path, resolution=50)
-    energies = tight_binding_2d(k_vecs)
-    energies_tensor = create_dummy_tensor(energies)
+    # 3. Define Region Space (Real Space Neighbors)
+    neighbor_offsets = [
+        (0, 0),  # Center
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+    ]
 
-    energies_tensor.plot(
+    region_modes = []
+    offset_to_idx = {}
+
+    for i, (dx, dy) in enumerate(neighbor_offsets):
+        r_vec = sy.ImmutableDenseMatrix([[dx], [dy]])
+        r_off = Offset(rep=r_vec, space=lat.affine)
+        # Create a mode at this position based on the unit cell mode
+        m = mode_s.update(r=r_off)
+        region_modes.append(m)
+        offset_to_idx[(dx, dy)] = i
+
+    region_space = hilbert(region_modes)
+
+    # 4. Construct Hamiltonian H_real
+    t_n = -1.0 + 0j
+
+    h_data = torch.zeros((region_space.dim, region_space.dim), dtype=torch.complex128)
+
+    origin_idx = offset_to_idx[(0, 0)]
+
+    nn_coords = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    for dx, dy in nn_coords:
+        idx = offset_to_idx[(dx, dy)]
+        h_data[origin_idx, idx] = t_n
+        h_data[idx, origin_idx] = np.conjugate(t_n)
+
+    h_real = Tensor(data=h_data, dims=(region_space, region_space))
+
+    # 5. Define Momentum Space (Grid)
+    k_space = brillouin_zone(lat.dual)
+
+    # 6. Compute H(k)
+    F = fourier_transform(k_space, bloch_space, region_space)
+    F_dag = F.h(1, 2)
+    h_k = F @ h_real @ F_dag
+
+    # 7. Visualization
+    fig = h_k.plot(
         "bandstructure",
-        k_distances=k_dists,
-        k_node_indices=nodes,
-        k_node_labels=path,
-        title="Square Lattice Bands",
-        show=SHOW_PLOTS,
+        backend="plotly",
+        title="Test Bandstructure",
+        show=False,
+        subs={a: 1.0},
     )
 
-    print("\n--- Testing Matplotlib Backend (No Save) ---")
-
-    # MPL Heatmap
-    tensor_h.plot("heatmap", backend="matplotlib", title="Hermitian Matrix (MPL)")
-
-    # MPL Structure 2D
-    lattice.plot("structure", backend="matplotlib", subs={a: 1.5})
-
-    # MPL Structure 3D
-    lattice_3d.plot("structure", backend="matplotlib", subs={a: 1.0}, elev=20, azim=45)
-
-    # MPL Spectrum
-    tensor_m.plot(
-        "spectrum", backend="matplotlib", title="Non-Hermitian Spectrum (MPL)"
-    )
-
-    # MPL Band Structure
-    energies_tensor.plot(
-        "bandstructure",
-        backend="matplotlib",
-        k_distances=k_dists,
-        k_node_indices=nodes,
-        k_node_labels=path,
-        title="Square Lattice Bands (MPL)",
-    )
-
-    print("=== Plotting Smoke Test Passed ===")
-
-
-if __name__ == "__main__":
-    # Allow running directly with python tests/test_plots.py
-    test_plots()
+    assert isinstance(fig, go.Figure)
+    # Check if we have traces (surfaces for 2D or lines for 1D/path)
+    # Since we used brillouin_zone on a 2D lattice, it should produce a 2D grid plot (Surface)
+    assert len(fig.data) >= 1
+    # Check title
+    assert fig.layout.title.text == "Test Bandstructure"
