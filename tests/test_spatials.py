@@ -50,7 +50,9 @@ def test_lattice_with_unit_cell():
     assert isinstance(lattice.unit_cell["a"], Offset)
     assert lattice.unit_cell["a"].rep == ImmutableDenseMatrix([0, 0])
     assert isinstance(lattice.unit_cell["b"], Offset)
-    assert lattice.unit_cell["b"].rep == ImmutableDenseMatrix([sy.Rational(1, 2), sy.Rational(1, 2)])
+    assert lattice.unit_cell["b"].rep == ImmutableDenseMatrix(
+        [sy.Rational(1, 2), sy.Rational(1, 2)]
+    )
 
     # ReciprocalLattice should not accept unit_cell
     with pytest.raises(TypeError):
