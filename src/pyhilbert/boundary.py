@@ -3,55 +3,55 @@ from dataclasses import dataclass
 from typing import Optional
 
 class BoundaryCondition(ABC):
-    @property
-    @abstractmethod
-    def size(self) -> Optional[int]:
-        """Returns the number of sites along this dimension, or None if infinite."""
-        pass
-    
+    """
+    Abstract base class for boundary conditions in lattice systems.
+
+    Subclasses must define how to "wrap" an index that falls outside the allowed region
+    and provide their extent (size) along their dimension. "size" may sometimes be None,
+    e.g., for infinite boundaries.
+    """
+    size: int
+
     @abstractmethod
     def wrap(self, index: int) -> int:
         """
-        Wraps an index back into the valid unit cell according to the boundary.
-        Should raise an exception (e.g., `OutOfBoundsError`) if the index crosses
-        an impassable boundary.
+        Wrap an index into the valid region of this boundary.
+        For periodic boundaries, this means modulo arithmetic.
+        For open boundaries, this may raise an exception when out of bounds.
         """
         pass
 
 @dataclass(frozen=True)
 class PeriodicBoundary(BoundaryCondition):
-    length: int
+    """
+    Periodic boundary: wraps indices using modulo arithmetic.
 
-    @property
-    def size(self) -> int:
-        return self.length
+    Attributes
+    ----------
+    size : int
+        Number of unit cells along this dimension (periodicity).
+    """
+    def wrap(self, index: int) -> Optional[int]:
+        """
+        Wrap the index within [0, size-1] using modulo operation.
 
-    def wrap(self, index: int) -> int:
-        return index % self.length
+        Parameters
+        ----------
+        index : int
+            The index to be wrapped.
+
+        Returns
+        -------
+        int
+            The wrapped index.
+        """
+        return index % self.size
 
 @dataclass(frozen=True)
 class OpenBoundary(BoundaryCondition):
-    length: int
-
-    @property
-    def size(self) -> int:
-        return self.length
-
+    """
+    Open boundary: allows only indices within [0, size-1].
+    Indices falling outside may cause an error or require custom handling.
+    """
     def wrap(self, index: int) -> int:
-        if 0 <= index < self.length:
-            return index
-        raise IndexError(f"Index {index} out of bounds for OpenBoundary of length {self.length}")
-
-@dataclass(frozen=True)
-class InfiniteBoundary(BoundaryCondition):
-    @property
-    def size(self) -> Optional[int]:
-        return None
-
-    def wrap(self, index: int) -> int:
-        return index # No boundaries, all indices are valid
-
-@dataclass(frozen=True)
-class TwistedBoundary(PeriodicBoundary):
-    # E.g., for magnetic fluxes or specialized Hamiltonians
-    phase: float 
+        pass # TODO: Implement later
