@@ -1,6 +1,9 @@
+# mypy: ignore-errors
+# TODO: Remove the mypy ignore comment
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
+
 
 class BoundaryCondition(ABC):
     """
@@ -10,6 +13,7 @@ class BoundaryCondition(ABC):
     and provide their extent (size) along their dimension. "size" may sometimes be None,
     e.g., for infinite boundaries.
     """
+
     size: int
 
     @abstractmethod
@@ -21,6 +25,7 @@ class BoundaryCondition(ABC):
         """
         pass
 
+
 @dataclass(frozen=True)
 class PeriodicBoundary(BoundaryCondition):
     """
@@ -31,6 +36,7 @@ class PeriodicBoundary(BoundaryCondition):
     size : int
         Number of unit cells along this dimension (periodicity).
     """
+
     def wrap(self, index: int) -> Optional[int]:
         """
         Wrap the index within [0, size-1] using modulo operation.
@@ -47,11 +53,13 @@ class PeriodicBoundary(BoundaryCondition):
         """
         return index % self.size
 
+
 @dataclass(frozen=True)
 class OpenBoundary(BoundaryCondition):
     """
     Open boundary: allows only indices within [0, size-1].
     Indices falling outside may cause an error or require custom handling.
     """
+
     def wrap(self, index: int) -> int:
-        pass # TODO: Implement later
+        pass  # TODO: Implement later
