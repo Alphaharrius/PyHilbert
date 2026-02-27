@@ -4,7 +4,7 @@ import sympy as sy
 
 from pyhilbert.spatials import Lattice
 from pyhilbert.tensors import Tensor
-from pyhilbert.hilbert_space import Ket, U1State, hilbert
+from pyhilbert.hilbert_space import Ket, U1Basis, hilbert
 from pyhilbert.utils import generate_k_path
 
 
@@ -16,7 +16,7 @@ def create_dummy_tensor(data_np):
         data = data_np
 
     hspace = hilbert(
-        U1State(irrep=sy.Integer(1), kets=(Ket(("dummy", i)),))
+        U1Basis(irrep=sy.Integer(1), kets=(Ket(("dummy", i)),))
         for i in range(data.shape[0])
     )
 

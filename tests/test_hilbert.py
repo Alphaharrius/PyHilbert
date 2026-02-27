@@ -3,7 +3,7 @@ import sympy as sy
 from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 
-from pyhilbert.hilbert_space import Ket, U1State, U1Span, HilbertSpace, hilbert
+from pyhilbert.hilbert_space import Ket, U1Basis, U1Span, HilbertSpace, hilbert
 from pyhilbert.state_space import MomentumSpace, brillouin_zone
 from pyhilbert.spatials import Lattice, Offset
 
@@ -13,8 +13,8 @@ class Orb:
     name: str
 
 
-def _state(r: Offset, orb: str = "s", irrep: sy.Expr = sy.Integer(1)) -> U1State:
-    return U1State(irrep=irrep, kets=(Ket(r), Ket(Orb(orb))))
+def _state(r: Offset, orb: str = "s", irrep: sy.Expr = sy.Integer(1)) -> U1Basis:
+    return U1Basis(irrep=irrep, kets=(Ket(r), Ket(Orb(orb))))
 
 
 def test_u1_state_basic_properties_and_overlap():
@@ -46,7 +46,7 @@ def test_u1_state_irrep_access_and_replace():
 
 def test_u1_state_rejects_non_unity_type_multiplicity():
     with pytest.raises(ValueError, match="unity multiplicity"):
-        U1State(irrep=sy.Integer(1), kets=(Ket("a"), Ket("b")))
+        U1Basis(irrep=sy.Integer(1), kets=(Ket("a"), Ket("b")))
 
 
 def test_u1_span_addition_and_deduplication():

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 from pyhilbert.spatials import Lattice, Offset, Momentum
 from pyhilbert.state_space import brillouin_zone
-from pyhilbert.hilbert_space import Ket, U1State, hilbert
+from pyhilbert.hilbert_space import Ket, U1Basis, hilbert
 from pyhilbert.fourier import fourier_transform
 
 
@@ -14,8 +14,8 @@ class Orb:
     name: str
 
 
-def _mode(r: Offset, orb: str = "s") -> U1State:
-    return U1State(irrep=sy.Integer(1), kets=(Ket(r), Ket(Orb(orb))))
+def _mode(r: Offset, orb: str = "s") -> U1Basis:
+    return U1Basis(irrep=sy.Integer(1), kets=(Ket(r), Ket(Orb(orb))))
 
 
 def test_fourier_kernel_1d():

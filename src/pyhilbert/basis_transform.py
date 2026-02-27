@@ -11,7 +11,7 @@ from .abstracts import Functional
 from .utils import FrozenDict, matchby
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .state_space import MomentumSpace, brillouin_zone
-from .hilbert_space import HilbertSpace, U1State, hilbert
+from .hilbert_space import HilbertSpace, U1Basis, hilbert
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 
@@ -177,7 +177,7 @@ def bandfold(
             f"but got {type(target_space)}"
         )
     rebased_hilbert = hilbert(
-        cast(U1State, target_space.lookup({Offset: r.fractional()})).replace(r)
+        cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
         for r in enlarge_unit_cell
     )
     # # Transform both sides

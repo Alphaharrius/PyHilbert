@@ -1,11 +1,11 @@
 import torch
 import sympy as sy
 from pyhilbert.tensors import Tensor
-from pyhilbert.hilbert_space import Ket, U1State, hilbert
+from pyhilbert.hilbert_space import Ket, U1Basis, hilbert
 
 
-def _state(tag: str, idx: int) -> U1State:
-    return U1State(irrep=sy.Integer(1), kets=(Ket((tag, idx)),))
+def _state(tag: str, idx: int) -> U1Basis:
+    return U1Basis(irrep=sy.Integer(1), kets=(Ket((tag, idx)),))
 
 
 class TestTensorAutograd:

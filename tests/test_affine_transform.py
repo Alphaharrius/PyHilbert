@@ -13,7 +13,7 @@ from pyhilbert.affine_transform import (
 )
 from pyhilbert.fourier import fourier_transform
 from pyhilbert.state_space import MomentumSpace, brillouin_zone
-from pyhilbert.hilbert_space import HilbertSpace, Ket, U1State, FuncOpr, hilbert
+from pyhilbert.hilbert_space import HilbertSpace, Ket, U1Basis, FuncOpr, hilbert
 from pyhilbert.spatials import AffineSpace, Momentum, Offset
 from pyhilbert.spatials import Lattice
 from pyhilbert.tensors import Tensor
@@ -24,8 +24,8 @@ class Orb:
     name: str
 
 
-def _state(*irreps, irrep: sy.Expr = sy.Integer(1)) -> U1State:
-    return U1State(irrep=irrep, kets=tuple(Ket(x) for x in irreps))
+def _state(*irreps, irrep: sy.Expr = sy.Integer(1)) -> U1Basis:
+    return U1Basis(irrep=irrep, kets=tuple(Ket(x) for x in irreps))
 
 
 def _space_and_offset(dim: int):
@@ -564,7 +564,7 @@ def test_affine_transform_hilbert_c4_u1state_mapping():
     tmat = cast(Tensor, tmat)
     assert tmat.dims[0] == h
 
-    gh_expected = hilbert(cast(U1State, _transformed(t, m)) for m in h)
+    gh_expected = hilbert(cast(U1Basis, _transformed(t, m)) for m in h)
     assert gh == gh_expected
     assert tmat.dims[1] == gh_expected
 

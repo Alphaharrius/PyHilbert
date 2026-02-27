@@ -14,7 +14,7 @@ from .hilbert_space import (
     Operator,
     HilbertSpace,
     Ket,
-    U1State,
+    U1Basis,
     U1Span,
     FuncOpr,
     hilbert,
@@ -678,12 +678,12 @@ def _affine_transform_ket(
     return sy.Integer(1), ket  # Treat all other types as gauge invariant
 
 
-@AffineGroupElement.register(U1State)
+@AffineGroupElement.register(U1Basis)
 def _affine_transform_u1_state(
-    t: AffineGroupElement, psi: U1State
-) -> Tuple[sy.Expr | None, U1State]:
+    t: AffineGroupElement, psi: U1Basis
+) -> Tuple[sy.Expr | None, U1Basis]:
     """
-    Apply an affine transform to a `U1State` by transforming each ket component.
+    Apply an affine transform to a `U1Basis` by transforming each ket component.
 
     For each ket in `psi.kets`, this method delegates to `_affine_transform_ket`
     (through multimethod dispatch `t(ket)`), multiplies all returned gauge factors,
@@ -698,14 +698,14 @@ def _affine_transform_u1_state(
     ----------
     `t` : `AffineGroupElement`
         Affine symmetry operation.
-    `psi` : `U1State`
+    `psi` : `U1Basis`
         State to transform.
 
     Returns
     -------
-    `Tuple[sy.Expr | None, U1State]`
+    `Tuple[sy.Expr | None, U1Basis]`
         Overall gauge (or `None` if not a symmetry eigenstate) and transformed
-        `U1State`.
+        `U1Basis`.
     """
     overall_gauge: sy.Expr | None = psi.irrep
     new_irrep: sy.Expr = psi.irrep
@@ -718,7 +718,7 @@ def _affine_transform_u1_state(
             overall_gauge *= gauge
             new_irrep *= gauge
         new_kets += (new_ket,)
-    return overall_gauge, U1State(new_irrep, new_kets)
+    return overall_gauge, U1Basis(new_irrep, new_kets)
 
 
 @AffineGroupElement.register(U1Span)
@@ -726,7 +726,7 @@ def _affine_transform_u1_span(
     t: AffineGroupElement, v: U1Span
 ) -> Tuple[sy.ImmutableDenseMatrix | None, U1Span]:
     """
-    Apply an affine transform to a span of `U1State`s and extract its matrix irrep.
+    Apply an affine transform to a span of `U1Basis`s and extract its matrix irrep.
 
     Each basis state in `v.span` is transformed independently. The transformed
     span is then compared against the original span using `same_span`.
@@ -747,7 +747,7 @@ def _affine_transform_u1_span(
         Matrix-valued irrep on the span basis when invariant, otherwise `None`,
         together with the transformed span.
     """
-    new_span: Tuple[U1State, ...] = tuple(t @ psi for psi in v.span)
+    new_span: Tuple[U1Basis, ...] = tuple(t @ psi for psi in v.span)
     new_v = U1Span(new_span)
     if not same_span(v, new_v):
         return None, new_v

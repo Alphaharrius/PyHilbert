@@ -9,7 +9,7 @@ from .precision import get_precision_config
 
 from .spatials import Momentum, Offset
 from .state_space import MomentumSpace
-from .hilbert_space import HilbertSpace, U1State
+from .hilbert_space import HilbertSpace, U1Basis
 from .tensors import Tensor
 from .tensors import mapping_matrix
 from .utils import matchby
@@ -83,14 +83,14 @@ def fourier_transform(
     """
     K: Tuple[Momentum] = k_space.elements()
     R: Tuple[Offset] = tuple(
-        cast(U1State, el).irrep_of(Offset) for el in region_space.elements()
+        cast(U1Basis, el).irrep_of(Offset) for el in region_space.elements()
     )
     f = fourier_transform(K, R)  # (K, R)
 
-    region_to_bloch: Dict[U1State, U1State] = matchby(
+    region_to_bloch: Dict[U1Basis, U1Basis] = matchby(
         region_space,
         bloch_space,
-        lambda psi: cast(U1State, psi).irrep_of(Offset).fractional(),
+        lambda psi: cast(U1Basis, psi).irrep_of(Offset).fractional(),
     )
 
     map = mapping_matrix(region_space, bloch_space, region_to_bloch).transpose(
