@@ -504,7 +504,6 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
               original flattened elements to a regrouped space with structure
               `(ungrouped elements) + (generated spans)`.
         """
-        # TODO: Sort the generated U1Span so that the group function has compatibility with Tensor operations
         elements = self.elements()
         all_span = U1Span(elements)
 
