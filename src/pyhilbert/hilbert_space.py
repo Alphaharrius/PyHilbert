@@ -1,7 +1,18 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from copy import copy
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Self, Tuple, Type, TypeVar, Generic
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Self,
+    Tuple,
+    Type,
+    TypeVar,
+    Generic,
+    Union,
+    NamedTuple,
+)
 from typing import cast
 from typing_extensions import override
 from collections import OrderedDict
@@ -13,374 +24,16 @@ import torch
 import sympy as sy
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
-from .abstracts import Operable, Functional
+from .utils import FrozenDict
+from .abstracts import Operable, Functional, Span, HasUnit
 from .spatials import Spatial
 from .state_space import StateSpace, restructure
 from .tensors import Tensor
 from .precision import get_precision_config
 
 
-class HilbertElement(Spatial, ABC):
-    """Defines an element in the `HilbertSpace`."""
-
-    @abstractmethod
-    def unit(self) -> "HilbertElement":
-        """Return the unit basis of this element."""
-        pass
-
-
-@dispatch(HilbertElement, HilbertElement)
-def same_span(a: HilbertElement, b: HilbertElement) -> bool:
-    return a.unit() == b.unit()
-
-
-_ObservableType = TypeVar("_ObservableType")
-_OperatedType = TypeVar("_OperatedType", bound=HilbertElement)
-
-
-class Operator(Generic[_ObservableType], Functional, Operable, ABC):
-    """
-    A composable operator that acts on observable-compatible objects.
-
-    `Operator` combines two core behaviors:
-
-    1. `Functional` dispatch and chaining
-       Implementations are registered via `Functional.register` for pairs of
-       `(input_type, operator_subclass)`. At runtime, :meth:`apply` resolves the
-       function chain for the concrete input object and executes each function in
-       order.
-
-    2. `Operable` matrix-application syntax
-       Because `Operator` is `Operable`, it participates in the overloaded `@`
-       operator. This module defines `operator_matmul(Operator, HilbertElement)`,
-       so `op @ value` applies the operator and returns only the transformed
-       value component.
-
-    Conceptually, an operator application returns two outputs:
-
-    - an observation/measurement-like payload (`_ObservableType`)
-    - the transformed object (same runtime type as the input)
-
-    The observation payload allows operator execution to report auxiliary
-    information while still producing an updated value.
-
-    Type Parameters
-    ---------------
-    `_ObservableType`
-        The type of the first element returned by an operator application
-        (e.g. expectation value, coefficient, metadata, or any domain-specific
-        observable artifact).
-
-    Implementation Guidelines
-    -------------------------
-    - The registered callable chain for an operator must produce a
-      2-tuple `(observable, transformed_value)`.
-    - The transformed value must have the same runtime type as the input object.
-      This invariant is validated by :meth:`apply` using assertions.
-    - Closure validation in :meth:`apply` has two branches:
-      - for `HilbertElement` inputs, closure is span-based
-        (`same_span(input, transformed_value)`).
-      - for non-`HilbertElement` inputs, closure is value-based
-        (`input == transformed_value`).
-      In either branch, if closure fails, the observable must be `None`.
-    - If no registration exists for `(type(input), type(operator))`,
-      :class:`NotImplementedError` is raised by `Functional.apply`.
-
-    Usage Pattern
-    -------------
-    1. Define an `Operator` subclass.
-    2. Register behavior with `@YourOperatorSubclass.register(InputType)`.
-    3. Apply by either:
-       - `obs, out = op(input_obj)` to receive both outputs, or
-       - `out = op @ input_obj` to receive only the transformed value.
-    """
-
-    @override
-    def apply(  # type: ignore[override]
-        self, v: _OperatedType, **kwargs
-    ) -> Tuple[_ObservableType, _OperatedType]:
-        result = super().apply(v, **kwargs)
-        assert isinstance(result, tuple), (
-            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, Any]!"
-        )
-        o, ov = result
-        assert isinstance(ov, type(v)), (
-            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, {type(v).__name__}]!"
-        )
-        if isinstance(v, HilbertElement) and isinstance(ov, HilbertElement):
-            needs_none = not same_span(v, ov)
-        else:
-            needs_none = v != ov
-        if needs_none:
-            assert o is None, (
-                f"Un-closed operator action should have undefined irrep (None), got {o}!"
-            )
-
-        return o, ov
-
-    def eigen_opr(self) -> Self:
-        """
-        Return an eigenstate-validating copy of this operator.
-
-        This helper creates a shallow copy of the operator and wraps its
-        :meth:`apply` method with a post-condition check: the transformed output
-        must be equal to the input value. If the value changes, the wrapped
-        operator raises :class:`ValueError`.
-
-        Use this when downstream logic assumes that the input is already an
-        eigenstate of the operator and should therefore remain unchanged by the
-        operator action.
-
-        Returns
-        -------
-        Self
-            A copy of the current operator whose application enforces
-            the same closure condition as :meth:`apply`.
-
-        Raises
-        ------
-        ValueError
-            Raised at call time if the wrapped operator is applied to a value
-            that is not closure-preserving under :meth:`apply` semantics.
-
-        Examples
-        --------
-        A common use case is validating basis assumptions in algorithms that
-        require eigen-aligned states:
-
-        - Build `checked = op.eigen_opr()`.
-        - Apply `checked(state)` before a specialized computation.
-        - Fail fast with `ValueError` if `state` is not an eigenstate.
-        """
-        op = copy(self)
-        apply = op.apply
-
-        def eigen_apply(
-            v: _OperatedType, **kwargs
-        ) -> Tuple[_ObservableType, _OperatedType]:
-            """
-            Apply the copied operator and enforce closure-preserving output.
-
-            This wrapper delegates to the copied operator's original
-            :meth:`apply` implementation, then validates that the transformed
-            output remains closed with the input under the same semantics used by
-            :meth:`Operator.apply`:
-
-            - If both input and output are `HilbertElement`, closure is checked
-              by span membership with `same_span(v, ov)`.
-            - Otherwise, closure is checked by strict value equality `ov == v`.
-
-            Parameters
-            ----------
-            `v` : `_OperatedType`
-                Input object to transform.
-            `**kwargs`
-                Keyword arguments forwarded to the wrapped :meth:`apply` call.
-
-            Returns
-            -------
-            `Tuple[_ObservableType, _OperatedType]`
-                The observable payload and transformed output from the wrapped
-                operator call, when closure is preserved.
-
-            Raises
-            ------
-            `ValueError`
-                If the transformed output is not closure-preserving with respect
-                to `v` under the branch-specific rule above.
-            """
-            o, ov = apply(v, **kwargs)
-            if isinstance(v, HilbertElement) and isinstance(ov, HilbertElement):
-                is_closed = same_span(v, ov)
-            else:
-                is_closed = ov == v
-            if not is_closed:
-                raise ValueError(
-                    f"{type(op).__name__} expected a closure-preserving state, but output "
-                    "{ov!r} is not closed with input {v!r}."
-                )
-            return o, ov
-
-        object.__setattr__(op, "apply", eigen_apply)
-        return op
-
-
-@dispatch(Operator, Operable)
-def operator_matmul(o: Operator, v: Operable):
-    _, v = o(v)
-    return v
-
-
-class HilbertSpan(HilbertElement, ABC):
-    """
-    Abstract base type for finite collections of Hilbert-space elements.
-
-    `HilbertSpan` defines the shared interface for container-like Hilbert
-    objects (for example, symbolic sums of basis states). Concrete subclasses
-    choose storage and ordering, while exposing their members through
-    `elements()`.
-
-    Notes
-    -----
-    This class is purely an interface and does not prescribe linear-algebra
-    simplification, normalization, or coefficient handling.
-    """
-
-    @abstractmethod
-    def elements(self) -> Tuple[HilbertElement, ...]:
-        """
-        Return the elements contained in this span.
-
-        Returns
-        -------
-        `Tuple[HilbertElement, ...]`
-            Immutable tuple of Hilbert elements represented by this span.
-        """
-        pass
-
-    @abstractmethod
-    def gram(self, another: Self) -> Any:
-        """
-        Return the gram matrix of this span to `another` with the current span
-        at the row space and `another` as the col space.
-
-        Parameters
-        ----------
-        `another` : `HilbertSpan`
-            The another span.
-
-        Returns
-        -------
-        `Any`
-            Matrix like object representing the gram matrix between two spans.
-        """
-        pass
-
-
-@dataclass(frozen=True)
-class HilbertSpace(StateSpace[HilbertElement], HilbertSpan):
-    __hash__ = StateSpace.__hash__
-
-    def lookup(self, query: Dict[Type[Any], Any]) -> HilbertElement:
-        """
-        Return the unique element that exactly matches all typed-irrep query entries.
-
-        Parameters
-        ----------
-        `query` : `Dict[Type[Any], Any]`
-            Mapping from irrep runtime type to expected irrep value.
-            A candidate element matches only if, for every `(T, value)` pair,
-            it contains an irrep of exact type `T` and `irrep == value`.
-
-        Returns
-        -------
-        `HilbertElement`
-            The unique matching element.
-
-        Raises
-        ------
-        `ValueError`
-            If no element matches, if multiple elements match, or if `query` is empty.
-        """
-        if not query:
-            raise ValueError("lookup query cannot be empty.")
-
-        matches: list[HilbertElement] = []
-        for el in self.elements():
-            if not isinstance(el, U1State):
-                continue
-
-            is_match = True
-            for T, expected in query.items():
-                try:
-                    actual = el.irrep_of(T)
-                except ValueError:
-                    is_match = False
-                    break
-                if actual != expected:
-                    is_match = False
-                    break
-            if is_match:
-                matches.append(el)
-
-        if not matches:
-            raise ValueError(f"No state found for query={query}.")
-        if len(matches) > 1:
-            raise ValueError(
-                f"Multiple states found for query={query}; expected a unique match."
-            )
-        return matches[0]
-
-    @lru_cache
-    def flatten(self) -> "HilbertSpace":
-        """
-        Return a new instance of `HilbertSpace` with all `HilbertSpan` flattened to its elements
-        respecting the original ordering.
-
-        Returns
-        -------
-        `HilbertSpace`
-            A new instance of `HilbertSpace` with all `HilbertSpan` flattened.
-        """
-        flattened_elements: OrderedDict[HilbertElement, slice] = OrderedDict()
-        for el in self.structure.keys():
-            if issubclass(type(el), HilbertSpan):
-                for m in cast(HilbertSpan, el).elements():
-                    flattened_elements[m] = slice(0, m.dim)
-                continue
-            flattened_elements[el] = slice(0, el.dim)
-        return HilbertSpace(restructure(flattened_elements))
-
-    def elements(self) -> Tuple[HilbertElement, ...]:
-        """Get the flattened elements of this `HilbertSpace`."""
-        return cast(Tuple[HilbertElement, ...], tuple(self.flatten().structure.keys()))
-
-    @override
-    def unit(self) -> "HilbertSpace":
-        return hilbert(el.unit() for el in self)
-
-    @override
-    def gram(self, another: "HilbertSpace") -> Tensor:
-        span = U1Span(cast(Tuple[U1State, ...], self.elements()))
-        new_span = U1Span(cast(Tuple[U1State, ...], another.elements()))
-        irrep = span.gram(new_span)
-        precision = get_precision_config()
-        data = torch.from_numpy(
-            np.asarray(irrep.tolist(), dtype=precision.np_complex)
-        ).to(dtype=precision.torch_complex)
-        return Tensor(data=data, dims=(self, another))
-
-
-def hilbert(itr: Iterable[HilbertElement]) -> HilbertSpace:
-    structure: OrderedDict[HilbertElement, slice] = OrderedDict()
-    base = 0
-    for el in itr:
-        structure[el] = slice(base, base + el.dim)
-        base += el.dim
-    return HilbertSpace(structure=structure)
-
-
-@dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]
-def same_span(a: HilbertSpace, b: HilbertSpace) -> bool:
-    return set(m.unit() for m in a.structure.keys()) == set(
-        m.unit() for m in b.structure.keys()
-    )
-
-
 _IrrepType = TypeVar("_IrrepType")
 """Defines a irreducible representation type."""
-
-
-@dataclass(frozen=True)
-class FuncOpr(Generic[_IrrepType], Operator[sy.Integer]):
-    T: Type[_IrrepType]
-    func: Callable
-
-
-class State(Generic[_IrrepType], HilbertElement, ABC):
-    @abstractmethod
-    def ket(self, ket: Self) -> _IrrepType:
-        pass
 
 
 @dataclass(frozen=True)  # eq=False, Skipping Operable.__eq__
@@ -397,7 +50,7 @@ class Ket(Generic[_IrrepType], Operable):
 
 
 @dataclass(frozen=True)
-class U1State(State[sy.Expr]):
+class U1State(Spatial, HasUnit):
     """
     Immutable single-particle basis state built from typed irreps.
 
@@ -432,7 +85,7 @@ class U1State(State[sy.Expr]):
     - `replace(irrep)` substitutes the unique ket whose irrep has the same
       concrete runtime type as `irrep`.
     - `@` dispatch overloads combine kets/states into a new `U1State`.
-    - `+` dispatch overloads build an `U1Span` of distinct `U1State` values.
+    - `|` dispatch overloads build a `U1Span` of distinct `U1State` values.
 
     Raises
     ------
@@ -534,7 +187,6 @@ class U1State(State[sy.Expr]):
                 return cast(_IrrepType, irrep)
         raise ValueError(f"U1State {self} has no irrep of type {T.__name__}.")
 
-    @override
     def ket(self, psi: "U1State") -> sy.Expr:
         if not self.kets == psi.kets:
             return sy.Integer(0)
@@ -560,23 +212,8 @@ class U1State(State[sy.Expr]):
         return replace(self, irrep=sy.Integer(1))
 
 
-@dispatch(U1State, U1State)  # type: ignore[no-redef]
-def same_span(a: U1State, b: U1State) -> bool:
-    """Check if the unit basis of two `U1State` are the same."""
-    return a.unit() == b.unit()
-
-
-@FuncOpr.register(U1State)
-def _func_opr_u1_state(f: FuncOpr, psi: U1State) -> Tuple[sy.Integer | None, U1State]:
-    irrep = psi.irrep_of(f.T)
-    new_irrep = f.func(irrep)
-    func_irrep = sy.Integer(1) if irrep == new_irrep else None
-    new_psi = psi.replace(new_irrep)
-    return func_irrep, new_psi
-
-
 @dataclass(frozen=True)
-class U1Span(HilbertSpan):
+class U1Span(Span[U1State, sy.ImmutableDenseMatrix], Spatial, HasUnit):
     """
     Finite span of distinct single-particle basis states.
 
@@ -606,19 +243,20 @@ class U1Span(HilbertSpan):
     currently tracked by this symbolic span.
     """
 
-    span: Tuple[U1State, ...]
+    span: Tuple["U1State", ...]
+    """Ordered tuple of `U1State` elements contained in this span."""
 
     @property
     def dim(self) -> int:
         """Get the length of this single particle state span."""
         return len(self.span)
 
-    def __iter__(self) -> Iterator[U1State]:
+    def __iter__(self) -> Iterator["U1State"]:
         """Iterate over states in this span preserving insertion order."""
         return iter(self.span)
 
     @override
-    def elements(self) -> Tuple[U1State, ...]:
+    def elements(self) -> Tuple["U1State", ...]:
         return self.span
 
     @override
@@ -628,7 +266,7 @@ class U1Span(HilbertSpan):
 
     @override
     def gram(self, ket: "U1Span") -> sy.ImmutableDenseMatrix:
-        tbl: Dict[U1State, Tuple[int, U1State]] = {
+        tbl: Dict["U1State", Tuple[int, "U1State"]] = {
             psi.unit(): (n, psi) for n, psi in enumerate(ket.span)
         }
         out = sy.zeros(self.dim, ket.dim)
@@ -639,6 +277,428 @@ class U1Span(HilbertSpan):
             m, kpsi = tbl[unit]
             out[n, m] = psi.ket(kpsi)
         return sy.ImmutableDenseMatrix(out)
+
+
+_ObservableType = TypeVar("_ObservableType")
+
+
+class Operator(Generic[_ObservableType], Functional, Operable, ABC):
+    """
+    A composable operator that acts on observable-compatible objects.
+
+    `Operator` combines two core behaviors:
+
+    1. `Functional` dispatch and chaining
+       Implementations are registered via `Functional.register` for pairs of
+       `(input_type, operator_subclass)`. At runtime, :meth:`apply` resolves the
+       function chain for the concrete input object and executes each function in
+       order.
+
+    2. `Operable` matrix-application syntax
+       Because `Operator` is `Operable`, it participates in the overloaded `@`
+       operator. This module defines `operator_matmul(Operator, U1State)`,
+       so `op @ value` applies the operator and returns only the transformed
+       value component.
+
+    Conceptually, an operator application returns two outputs:
+
+    - an observation/measurement-like payload (`_ObservableType`)
+    - the transformed object (same runtime type as the input)
+
+    The observation payload allows operator execution to report auxiliary
+    information while still producing an updated value.
+
+    Type Parameters
+    ---------------
+    `_ObservableType`
+        The type of the first element returned by an operator application
+        (e.g. expectation value, coefficient, metadata, or any domain-specific
+        observable artifact).
+
+    Implementation Guidelines
+    -------------------------
+    - The registered callable chain for an operator must produce a
+      2-tuple `(observable, transformed_value)`.
+    - The transformed value must have the same runtime type as the input object.
+      This invariant is validated by :meth:`apply` using assertions.
+    - Closure validation in :meth:`apply` has two branches:
+      - for `U1State` inputs, closure is span-based
+        (`same_span(input, transformed_value)`).
+      - for non-`U1State` inputs, closure is value-based
+        (`input == transformed_value`).
+      In either branch, if closure fails, the observable must be `None`.
+    - If no registration exists for `(type(input), type(operator))`,
+      :class:`NotImplementedError` is raised by `Functional.apply`.
+
+    Usage Pattern
+    -------------
+    1. Define an `Operator` subclass.
+    2. Register behavior with `@YourOperatorSubclass.register(InputType)`.
+    3. Apply by either:
+       - `obs, out = op(input_obj)` to receive both outputs, or
+       - `out = op @ input_obj` to receive only the transformed value.
+    """
+
+    @override
+    def apply(  # type: ignore[override]
+        self, v: U1State, **kwargs
+    ) -> Tuple[_ObservableType, U1State]:
+        result = super().apply(v, **kwargs)
+        assert isinstance(result, tuple), (
+            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, Any]!"
+        )
+        o, ov = result
+        assert isinstance(ov, type(v)), (
+            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, {type(v).__name__}]!"
+        )
+        if type(v) is type(ov):
+            try:
+                needs_none = not same_span(v, ov)  # type: ignore[arg-type]
+            except Exception:
+                needs_none = v != ov
+        else:
+            needs_none = v != ov
+        if needs_none:
+            assert o is None, (
+                f"Un-closed operator action should have undefined irrep (None), got {o}!"
+            )
+
+        return o, ov
+
+    def eigen_opr(self) -> Self:
+        """
+        Return an eigenstate-validating copy of this operator.
+
+        This helper creates a shallow copy of the operator and wraps its
+        :meth:`apply` method with a post-condition check: the transformed output
+        must be equal to the input value. If the value changes, the wrapped
+        operator raises :class:`ValueError`.
+
+        Use this when downstream logic assumes that the input is already an
+        eigenstate of the operator and should therefore remain unchanged by the
+        operator action.
+
+        Returns
+        -------
+        Self
+            A copy of the current operator whose application enforces
+            the same closure condition as :meth:`apply`.
+
+        Raises
+        ------
+        ValueError
+            Raised at call time if the wrapped operator is applied to a value
+            that is not closure-preserving under :meth:`apply` semantics.
+
+        Examples
+        --------
+        A common use case is validating basis assumptions in algorithms that
+        require eigen-aligned states:
+
+        - Build `checked = op.eigen_opr()`.
+        - Apply `checked(state)` before a specialized computation.
+        - Fail fast with `ValueError` if `state` is not an eigenstate.
+        """
+        op = copy(self)
+        apply = op.apply
+
+        def eigen_apply(v: U1State, **kwargs) -> Tuple[_ObservableType, U1State]:
+            """
+            Apply the copied operator and enforce closure-preserving output.
+
+            This wrapper delegates to the copied operator's original
+            :meth:`apply` implementation, then validates that the transformed
+            output remains closed with the input under the same semantics used by
+            :meth:`Operator.apply`:
+
+            - If both input and output are `U1State`, closure is checked
+              by span membership with `same_span(v, ov)`.
+            - Otherwise, closure is checked by strict value equality `ov == v`.
+
+            Parameters
+            ----------
+            `v` : `U1State`
+                Input object to transform.
+            `**kwargs`
+                Keyword arguments forwarded to the wrapped :meth:`apply` call.
+
+            Returns
+            -------
+            `Tuple[_ObservableType, U1State]`
+                The observable payload and transformed output from the wrapped
+                operator call, when closure is preserved.
+
+            Raises
+            ------
+            `ValueError`
+                If the transformed output is not closure-preserving with respect
+                to `v` under the branch-specific rule above.
+            """
+            o, ov = apply(v, **kwargs)
+            if isinstance(v, U1State) and isinstance(ov, U1State):
+                is_closed = same_span(v, ov)
+            else:
+                is_closed = ov == v
+            if not is_closed:
+                raise ValueError(
+                    f"{type(op).__name__} expected a closure-preserving state, but output "
+                    "{ov!r} is not closed with input {v!r}."
+                )
+            return o, ov
+
+        object.__setattr__(op, "apply", eigen_apply)
+        return op
+
+
+@dispatch(Operator, Operable)
+def operator_matmul(o: Operator, v: Operable):
+    _, v = o(v)
+    return v
+
+
+U1Elements = Union[U1State, U1Span]
+"""Union of valid element types in a `HilbertSpace`."""
+
+
+@dataclass(frozen=True)
+class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
+    """
+    Composite local Hilbert space built from states and state spans.
+
+    `HilbertSpace` is the symbolic basis container used by tensor-network style
+    operators in this module. It extends `StateSpace` by allowing each sector
+    key to be either a single `U1State` or a grouped `U1Span`. The inherited
+    `structure` mapping stores each sector together with its contiguous slice in
+    the flattened basis.
+
+    The class provides helpers for common basis-management workflows:
+    - `flatten()` expands all `U1Span` sectors into explicit `U1State` sectors
+      while preserving first-seen order and returns a normalized structure.
+    - `elements()` returns the flattened basis states as `Tuple[U1State, ...]`.
+    - `lookup(query)` retrieves a unique basis state by exact typed-irrep match.
+    - `group(**groups)` partitions flattened elements into labeled `U1Span`
+      sectors and returns both the grouped spans and the basis-change mapping.
+
+    As a `Span`, `HilbertSpace` supports overlap/mapping computations through
+    `gram`, which builds a `Tensor` map between two spaces using flattened
+    `U1State` overlap (`U1Span.gram`). As a `HasUnit`, `unit()` keeps basis
+    structure while replacing each element by its unit-normalized counterpart.
+
+    Parameters
+    ----------
+    `structure` : `OrderedDict[U1Elements, slice]`
+        Ordered sector mapping inherited from `StateSpace`, where each key is a
+        `U1State` or `U1Span` and each value is the sector slice in flattened
+        coordinates.
+
+    Notes
+    -----
+    - `dim` is inherited from `StateSpace` and equals the total flattened basis
+      size implied by the last slice stop.
+    - `flatten()` is `@lru_cache`-backed, so repeated flattening of the same
+      immutable instance is O(1) after the first call.
+    - `group()` requires disjoint selectors; overlapping grouped spans raise
+      `ValueError`.
+    """
+
+    __hash__ = StateSpace.__hash__
+
+    def lookup(self, query: Dict[Type[Any], Any]) -> U1State:
+        """
+        Return the unique element that exactly matches all typed-irrep query entries.
+
+        Parameters
+        ----------
+        `query` : `Dict[Type[Any], Any]`
+            Mapping from irrep runtime type to expected irrep value.
+            A candidate element matches only if, for every `(T, value)` pair,
+            it contains an irrep of exact type `T` and `irrep == value`.
+
+        Returns
+        -------
+        `U1State`
+            The unique matching element.
+
+        Raises
+        ------
+        `ValueError`
+            If no element matches, if multiple elements match, or if `query` is empty.
+        """
+        if not query:
+            raise ValueError("lookup query cannot be empty.")
+
+        matches: list[U1State] = []
+        for el in self.elements():
+            if not isinstance(el, U1State):
+                continue
+
+            is_match = True
+            for T, expected in query.items():
+                try:
+                    actual = el.irrep_of(T)
+                except ValueError:
+                    is_match = False
+                    break
+                if actual != expected:
+                    is_match = False
+                    break
+            if is_match:
+                matches.append(el)
+
+        if not matches:
+            raise ValueError(f"No state found for query={query}.")
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple states found for query={query}; expected a unique match."
+            )
+        return matches[0]
+
+    @lru_cache
+    def flatten(self) -> "HilbertSpace":
+        """
+        Return a new instance of `HilbertSpace` with all `HilbertSpan` flattened to its elements
+        respecting the original ordering.
+
+        Returns
+        -------
+        `HilbertSpace`
+            A new instance of `HilbertSpace` with all `HilbertSpan` flattened.
+        """
+        flattened_elements: OrderedDict[U1Elements, slice] = OrderedDict()
+        for el in self.structure.keys():
+            if issubclass(type(el), U1Span):
+                for m in cast(U1Span, el).elements():
+                    flattened_elements[m] = slice(0, m.dim)
+                continue
+            flattened_elements[el] = slice(0, el.dim)
+        return HilbertSpace(restructure(flattened_elements))
+
+    def elements(self) -> Tuple[U1State, ...]:
+        """Get the flattened elements of this `HilbertSpace`."""
+        return cast(Tuple[U1State, ...], tuple(self.flatten().structure.keys()))
+
+    class GroupResult(NamedTuple):
+        spans: FrozenDict[str, U1Span]
+        mapping: Tensor
+
+    def group(
+        self, **groups: Union[Callable[[U1State], bool], Any]
+    ) -> "HilbertSpace.GroupResult":
+        """
+        Group flattened basis elements into labeled spans.
+
+        Parameters
+        ----------
+        `**groups` : `Union[Callable[[U1State], bool], Any]`
+            Label-to-selector mapping. A selector may be:
+            - `Callable[[U1State], bool]`: include states where predicate is `True`.
+            - an irrep object: converted to a predicate selecting states where
+              `state.irrep_of(type(selector)) == selector`.
+
+        Returns
+        -------
+        `HilbertSpace.GroupResult`
+            - `spans`: frozen mapping from labels to generated `U1Span`.
+            - `mapping`: tensor with dims `(self, new_hilbert_space)` mapping
+              original flattened elements to a regrouped space with structure
+              `(ungrouped elements) + (generated spans)`.
+        """
+        elements = self.elements()
+        all_span = U1Span(elements)
+
+        spans_by_label: OrderedDict[str, U1Span] = OrderedDict()
+        grouped_union = U1Span(())
+
+        for label, selector in groups.items():
+            if callable(selector):
+                pred = cast(Callable[[U1State], bool], selector)
+                selected = tuple(el for el in elements if pred(el))
+            else:
+                target = selector
+                target_type = type(target)
+                selected_list: list[U1State] = []
+                for el in elements:
+                    try:
+                        if el.irrep_of(target_type) == target:
+                            selected_list.append(el)
+                    except ValueError:
+                        continue
+                selected = tuple(selected_list)
+            span = U1Span(selected)
+            overlap = grouped_union & span
+            if overlap.dim > 0:
+                raise ValueError(
+                    f"grouped spans overlap: state {overlap.span[0]!r} appears in multiple groups (including {label!r})."
+                )
+
+            grouped_union = grouped_union | span
+            spans_by_label[label] = span
+
+        ungrouped = (all_span - grouped_union).span
+
+        new_structure: OrderedDict[U1Elements, slice] = OrderedDict()
+        for el in ungrouped:
+            new_structure[el] = slice(0, el.dim)
+        for span in spans_by_label.values():
+            new_structure[span] = slice(0, span.dim)
+        new_hilbert = HilbertSpace(restructure(new_structure))
+
+        return HilbertSpace.GroupResult(
+            spans=FrozenDict(spans_by_label),
+            mapping=self.gram(new_hilbert),
+        )
+
+    @override
+    def unit(self) -> "HilbertSpace":
+        return hilbert(el.unit() for el in self)
+
+    @override
+    def gram(self, another: "HilbertSpace") -> Tensor:
+        span = U1Span(cast(Tuple[U1State, ...], self.elements()))
+        new_span = U1Span(cast(Tuple[U1State, ...], another.elements()))
+        irrep = span.gram(new_span)
+        precision = get_precision_config()
+        data = torch.from_numpy(
+            np.asarray(irrep.tolist(), dtype=precision.np_complex)
+        ).to(dtype=precision.torch_complex)
+        return Tensor(data=data, dims=(self, another))
+
+
+def hilbert(itr: Iterable[U1Elements]) -> HilbertSpace:
+    structure: OrderedDict[U1Elements, slice] = OrderedDict()
+    base = 0
+    for el in itr:
+        structure[el] = slice(base, base + el.dim)
+        base += el.dim
+    return HilbertSpace(structure=structure)
+
+
+@dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]
+def same_span(a: HilbertSpace, b: HilbertSpace) -> bool:
+    return set(m.unit() for m in a.structure.keys()) == set(
+        m.unit() for m in b.structure.keys()
+    )
+
+
+@dataclass(frozen=True)
+class FuncOpr(Generic[_IrrepType], Operator[sy.Integer]):
+    T: Type[_IrrepType]
+    func: Callable
+
+
+@dispatch(U1State, U1State)  # type: ignore[no-redef]
+def same_span(a: U1State, b: U1State) -> bool:
+    """Check if the unit basis of two `U1State` are the same."""
+    return a.unit() == b.unit()
+
+
+@FuncOpr.register(U1State)
+def _func_opr_u1_state(f: FuncOpr, psi: U1State) -> Tuple[sy.Integer | None, U1State]:
+    irrep = psi.irrep_of(f.T)
+    new_irrep = f.func(irrep)
+    func_irrep = sy.Integer(1) if irrep == new_irrep else None
+    new_psi = psi.replace(new_irrep)
+    return func_irrep, new_psi
 
 
 @FuncOpr.register(U1Span)
@@ -660,6 +720,16 @@ def _func_opr_hilbert(
 @dispatch(U1Span, U1Span)  # type: ignore[no-redef]
 def same_span(a: U1Span, b: U1Span) -> bool:
     return set(a.unit().span) == set(b.unit().span)
+
+
+@dispatch(Ket, Ket)
+def operator_eq(a: Ket, b: Ket) -> bool:
+    return a.irrep == b.irrep
+
+
+@dispatch(U1State, U1State)  # type: ignore[no-redef]
+def operator_eq(a: U1State, b: U1State) -> bool:
+    return a.irrep == b.irrep and a.kets == b.kets
 
 
 @dispatch(Ket, Ket)  # type: ignore[no-redef]
@@ -687,21 +757,42 @@ def operator_matmul(a: U1State, b: U1State) -> U1State:
 
 
 @dispatch(U1State, U1State)
-def operator_add(a: U1State, b: U1State) -> U1Span:
+def operator_or(a: U1State, b: U1State) -> U1Span:
     if a == b:
         return U1Span((a,))
     return U1Span((a, b))
 
 
 @dispatch(U1Span, U1State)  # type: ignore[no-redef]
-def operator_add(span: U1Span, state: U1State) -> U1Span:
+def operator_or(span: U1Span, state: U1State) -> U1Span:
     if state in span.span:
         return span
     return U1Span(span.span + (state,))
 
 
 @dispatch(U1State, U1Span)  # type: ignore[no-redef]
-def operator_add(state: U1State, span: U1Span) -> U1Span:
+def operator_or(state: U1State, span: U1Span) -> U1Span:
     if state in span.span:
         return span
     return U1Span((state,) + span.span)
+
+
+@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
+def operator_or(a: U1Span, b: U1Span) -> U1Span:
+    existing = set(a.span)
+    new_states = tuple(s for s in b.span if s not in existing)
+    return U1Span(a.span + new_states)
+
+
+@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
+def operator_sub(a: U1Span, b: U1Span) -> U1Span:
+    b_elements = set(b.span)
+    new_states = tuple(s for s in a.span if s not in b_elements)
+    return U1Span(new_states)
+
+
+@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
+def operator_and(a: U1Span, b: U1Span) -> U1Span:
+    b_elements = set(b.span)
+    new_states = tuple(s for s in a.span if s in b_elements)
+    return U1Span(new_states)

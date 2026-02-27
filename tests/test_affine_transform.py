@@ -475,8 +475,8 @@ def test_affine_transform_u1state_propagates_none_gauge_when_any_ket_nonclosed()
 def test_u1span_gram_tracks_basis_order():
     a = _state(Orb("a"))
     b = _state(Orb("b"))
-    span_ab = a + b
-    span_ba = b + a
+    span_ab = a | b
+    span_ba = b | a
 
     gram = span_ab.gram(span_ba)
     expected = ImmutableDenseMatrix([[0, 1], [1, 0]])

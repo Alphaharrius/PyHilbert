@@ -1076,6 +1076,9 @@ def mapping_matrix(
     return Tensor(data=mat, dims=(from_space, to_space))
 
 
+# TODO: Add hilbert_mapping(a: HilbertSpace, b: HilbertSpace) that map between two HilbertSpace, supports internal spans by flattening them.
+
+
 def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
     """
     Create an identity tensor based on the last two dimensions.

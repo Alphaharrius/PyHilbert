@@ -58,11 +58,11 @@ def test_u1_span_addition_and_deduplication():
     a = _state(r0, "s")
     b = _state(r1, "s")
 
-    span = a + a
+    span = a | a
     assert isinstance(span, U1Span)
     assert span.dim == 1
 
-    span2 = span + b
+    span2 = span | b
     assert span2.dim == 2
 
 
@@ -105,6 +105,52 @@ def test_hilbert_space_creation_and_operations():
 
     diff = hs1 - hs2
     assert list(diff.structure.keys()) == [s0]
+
+
+def test_hilbert_space_group_with_kwargs_selector_and_mapping():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(basis=basis, shape=(4,))
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine)
+    r2 = Offset(rep=ImmutableDenseMatrix([2]), space=lat.affine)
+    r3 = Offset(rep=ImmutableDenseMatrix([3]), space=lat.affine)
+
+    s0 = _state(r0, "s")
+    p1 = _state(r1, "p")
+    s2 = _state(r2, "s")
+    d3 = _state(r3, "d")
+    hs = hilbert([s0, p1, s2, d3])
+
+    grouped = hs.group(
+        s_band=lambda el: el.irrep_of(Orb) == Orb("s"),
+        p_band=Orb("p"),
+    )
+    assert grouped.spans["s_band"].span == (s0, s2)
+    assert grouped.spans["p_band"].span == (p1,)
+
+    mapping = grouped.mapping
+    assert mapping.data.shape == (4, 4)
+    assert tuple(mapping.dims[0].elements()) == hs.elements()
+
+    grouped_space = mapping.dims[1]
+    assert isinstance(grouped_space, HilbertSpace)
+    grouped_keys = tuple(grouped_space.structure.keys())
+    assert grouped_keys[0] == d3
+    assert grouped_keys[1] == grouped.spans["s_band"]
+    assert grouped_keys[2] == grouped.spans["p_band"]
+
+
+def test_hilbert_space_group_raises_on_overlap():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(basis=basis, shape=(2,))
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine)
+    s0 = _state(r0, "s")
+    s1 = _state(r1, "s")
+    hs = hilbert([s0, s1])
+
+    with pytest.raises(ValueError, match="overlap"):
+        hs.group(all_s=Orb("s"), first_only=lambda el: el.irrep_of(Offset) == r0)
 
 
 def test_statespace_getitem_variants():

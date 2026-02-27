@@ -1,20 +1,17 @@
 from abc import ABC, abstractmethod
-from copy import copy
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import (
     Any,
     Callable,
     Dict,
     ClassVar,
     Literal,
-    NamedTuple,
     Set,
     Self,
     Tuple,
     Generic,
     Type,
     TypeVar,
-    Union,
 )
 
 from multipledispatch import dispatch
@@ -454,59 +451,63 @@ class Functional(ABC):
         return self.apply(obj, **kwargs)
 
 
-@dataclass(frozen=True)
-class GaugeBasis(ABC):
+_ElementType = TypeVar("_ElementType")
+_MappingType = TypeVar("_MappingType")
+
+
+class Span(ABC, Generic[_ElementType, _MappingType]):
     """
-    A marker class for gaugable objects.
-    """
+    An object representing the span of a set of elements.
 
-    pass
+    The specific meaning of "span" depends on the context. For example, in a
+    vector space, the span of a set of vectors is the set of all linear
+    combinations of those vectors. In a topological space, the span of a set
+    of points might be the smallest closed set containing those points.
 
+    Implementations should define what it means to be an element and how to
+    determine if an object is contained within the span.
 
-@dataclass(frozen=True)
-class GaugeInvariant(GaugeBasis):
-    """
-    This represents gauge-invariant object to all transformations.
-    """
-
-    pass
-
-
-@dataclass(frozen=True)
-class Gaugable(ABC):
-    """
-    Container base class for objects that own a `GaugeBasis` instance.
+    The `_ElementType` type variable represents the type of elements that define the span,
+    while the `_MappingType` is the type of the mapping between spans of this type.
     """
 
-    _gauge_basis: GaugeBasis = field(default_factory=GaugeInvariant, init=False)
+    @abstractmethod
+    def elements(self) -> Tuple[_ElementType, ...]:
+        """
+        Return the elements contained in this span.
 
-    def gauge_repr(self) -> GaugeBasis:
-        """Get the gauge basis representation of this gaugable object."""
-        return self._gauge_basis
+        Returns
+        -------
+        `Tuple[_ElementType, ...]`
+            Immutable tuple of elements represented by this span.
+        """
+        pass
 
-    def with_gauge_repr(self, new_repr: GaugeBasis) -> Self:
-        new_obj = copy(self)
-        object.__setattr__(new_obj, "_gauge_basis", new_repr)
-        return new_obj
+    @abstractmethod
+    def gram(self, another: Self) -> _MappingType:
+        """
+        Return the gram matrix of this span to `another` with the current span
+        at the row space and `another` as the col space.
+
+        Parameters
+        ----------
+        `another` : `Self`
+            The another span.
+
+        Returns
+        -------
+        `_MappingType`
+            The mapping between this span and `another`, typically represented as a matrix.
+        """
+        pass
 
 
-_GaugableType = TypeVar("_GaugableType", bound=Union[Gaugable, GaugeInvariant])
-_GaugeType = TypeVar("_GaugeType")
-
-
-class Gauged(Generic[_GaugableType, _GaugeType], NamedTuple):
+class HasUnit(ABC):
     """
-    A simple named tuple to hold a gaugable object and its associated gauge after a transformation.
-
-    This is primarily a convenience wrapper to group together a `Gaugable` object
-    and the resulting gauge after applying a `Transform`. It allows for clear
-    and type-safe handling of gaugable objects along with their gauges in
-    various operations.
-
-    For example, if the gauge is `U(1)` then the gauge is a complex number.
+    An object that has a unit representation.
     """
 
-    gauge: _GaugeType
-    """ The gauge associated with the gaugable object. """
-    gaugable: _GaugableType
-    """ The gaugable object being transformed. """
+    @abstractmethod
+    def unit(self) -> Self:
+        """Return the unit representation of this object."""
+        raise NotImplementedError()

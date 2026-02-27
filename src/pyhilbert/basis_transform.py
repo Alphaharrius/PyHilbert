@@ -4,7 +4,7 @@ import sympy as sy
 from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
 from functools import lru_cache
 from itertools import product
-from typing import Tuple, cast, Literal
+from typing import List, Tuple, cast, Literal
 import numpy as np
 
 from .abstracts import Functional
@@ -64,7 +64,7 @@ def lattice_transform(t: BasisTransform, lat: Lattice) -> Lattice:
 
     # Iterate over existing atoms (or implicit origin)
     if lat.unit_cell:
-        items = lat.unit_cell.items()
+        items = cast(List[Tuple[str, Offset]], list(lat.unit_cell.items()))
     else:
         default_offset = Offset(
             rep=ImmutableDenseMatrix([0] * lat.dim), space=lat.affine

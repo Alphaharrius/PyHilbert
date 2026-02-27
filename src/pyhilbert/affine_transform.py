@@ -787,7 +787,6 @@ def _affine_transform_hilbert(
     return gram, new_h
 
 
-# TODO: Check if this function is valid deeply
 def bandtransform(
     t: AffineGroupElement,
     tensor: Tensor,

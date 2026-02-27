@@ -1,6 +1,5 @@
 from dataclasses import dataclass, replace, field
 from typing import Callable, Tuple, TypeVar, Generic, Union
-from typing import cast
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
@@ -8,65 +7,12 @@ from itertools import chain, islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
-from .abstracts import Updatable, Gaugable
-from .utils import FrozenDict
 from .spatials import (
     Spatial,
     ReciprocalLattice,
     Momentum,
     cartes,
 )
-
-
-@dataclass(frozen=True)
-class Mode(Spatial, Updatable["Mode"], Gaugable):
-    """
-    Mode:
-    - r: Real space offset of the mode (unit-cell offset + basis)
-    - spin: Spin information
-    """
-
-    count: int
-    attr: FrozenDict
-
-    def attr_names(self) -> Tuple[str, ...]:
-        """Return the attribute names of this mode."""
-        return cast(Tuple[str, ...], tuple(self.attr.keys()))
-
-    @dispatch(object)
-    def __getitem__(self, v):
-        raise NotImplementedError(f"Get item of {type(v)} is not supported!")
-
-    @dispatch(str)  # type: ignore[no-redef]
-    def __getitem__(self, name: str):
-        return self.attr[name]
-
-    @dispatch(tuple)  # type: ignore[no-redef]
-    def __getitem__(self, names: Tuple[str, ...]):
-        items = {name: self.attr[name] for name in names}
-        return replace(self, attr=FrozenDict(items))
-
-    @property
-    def dim(self) -> int:
-        return self.count
-
-    def _updated(self, **kwargs) -> "Mode":
-        updated_attr = {**self.attr}
-        _MISSING = object()
-        for k, v in kwargs.items():
-            old = updated_attr.get(k, _MISSING)
-            if callable(v):
-                if old is _MISSING:
-                    continue
-                updated_attr[k] = v(old)
-            else:
-                updated_attr[k] = v
-
-        return replace(self, attr=FrozenDict(updated_attr))
-
-    @classmethod
-    def from_attr(cls, count: int, **attr) -> "Mode":
-        return cls(count=count, attr=FrozenDict(attr))
 
 
 TSpatial = TypeVar("TSpatial", bound=Spatial)

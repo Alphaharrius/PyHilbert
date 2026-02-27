@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from collections import OrderedDict
 from pyhilbert import state_space
 from pyhilbert.tensors import Tensor, matmul
-from pyhilbert.hilbert_space import HilbertElement, HilbertSpace
+from pyhilbert.hilbert_space import HilbertSpace
 from pyhilbert.state_space import BroadcastSpace, MomentumSpace
 from pyhilbert.utils import FrozenDict
 from pyhilbert.tensors import unsqueeze
 
 
 @dataclass(frozen=True)
-class MockMode(HilbertElement):
+class MockMode:
     count: int
     attr: FrozenDict
 
@@ -1116,6 +1116,12 @@ class TestTensorGetitem:
                 sub_structure = OrderedDict()
                 sub_structure[self.mode_b] = slice(2, 5)
                 self.subspace = HilbertSpace(structure=sub_structure)
+                self.subspace_a = HilbertSpace(
+                    structure=OrderedDict({self.mode_a: slice(0, 2)})
+                )
+                self.subspace_b = HilbertSpace(
+                    structure=OrderedDict({self.mode_b: slice(2, 5)})
+                )
 
         return Context()
 
@@ -1134,10 +1140,8 @@ class TestTensorGetitem:
         assert out2.shape == (1, 5, 5)
 
     def test_getitem_spatial(self, getitem_ctx):
-        out = getitem_ctx.tensor_mat[getitem_ctx.mode_a, getitem_ctx.mode_b]
-        expected_dims = HilbertSpace(
-            structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})
-        )
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, getitem_ctx.subspace_b]
+        expected_dims = getitem_ctx.subspace_a
         assert isinstance(out, Tensor)
         assert out.dims == (
             expected_dims,
@@ -1157,11 +1161,11 @@ class TestTensorGetitem:
 
     def test_getitem_no_mix(self, getitem_ctx):
         with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_mat[getitem_ctx.mode_a, 0]
+            _ = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, 0]
 
     def test_getitem_3d_hilbert(self, getitem_ctx):
         out = getitem_ctx.tensor_3d[
-            getitem_ctx.subspace, getitem_ctx.mode_a, getitem_ctx.space
+            getitem_ctx.subspace, getitem_ctx.subspace_a, getitem_ctx.space
         ]
         expected_dims = (
             HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
@@ -1174,7 +1178,9 @@ class TestTensorGetitem:
         assert torch.equal(out.data, expected)
 
     def test_getitem_hilbert_none_inserts_dim(self, getitem_ctx):
-        out = getitem_ctx.tensor_mat[None, getitem_ctx.mode_a, getitem_ctx.mode_b]
+        out = getitem_ctx.tensor_mat[
+            None, getitem_ctx.subspace_a, getitem_ctx.subspace_b
+        ]
         expected_dims = (
             state_space.BroadcastSpace(),
             HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
@@ -1225,13 +1231,14 @@ class TestTensorGetitem:
 
     def test_getitem_hilbert_spatial_missing(self, getitem_ctx):
         mode_c = MockMode(count=1, attr=FrozenDict({"name": "c"}))
-        with pytest.raises(KeyError, match="Spatial index not found"):
-            _ = getitem_ctx.tensor_mat[mode_c, getitem_ctx.space]
+        subspace = HilbertSpace(structure=OrderedDict({mode_c: slice(0, 1)}))
+        with pytest.raises(ValueError, match="not a subspace"):
+            _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
 
     def test_getitem_hilbert_ellipsis_not_allowed(self, getitem_ctx):
         with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_mat[getitem_ctx.mode_a, ...]
+            _ = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, ...]
 
     def test_getitem_hilbert_short_key_not_allowed(self, getitem_ctx):
         with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_3d[getitem_ctx.mode_a]
+            _ = getitem_ctx.tensor_3d[getitem_ctx.subspace_a]
