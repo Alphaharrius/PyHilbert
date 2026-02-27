@@ -4,6 +4,7 @@ from typing import Any, Dict, Literal, Tuple, cast
 from collections import OrderedDict
 from itertools import product
 from functools import lru_cache, reduce
+from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 import sympy as sy
 
@@ -28,6 +29,11 @@ from .utils import FrozenDict
 class AbelianBasis(Spatial):
     """
     Symbolic abelian eigen-basis expressed in a polynomial basis over given axes.
+
+    Ordering
+    --------
+    `AbelianBasis` comparison (`<`, `>`) is defined by lexicographic string
+    ordering of `expr` (`str(expr)`).
 
     Attributes
     ----------
@@ -56,6 +62,16 @@ class AbelianBasis(Spatial):
 
     def __repr__(self):
         return f"AbelianBasis({repr(self.expr)})"
+
+
+@dispatch(AbelianBasis, AbelianBasis)
+def operator_lt(a: AbelianBasis, b: AbelianBasis) -> bool:
+    return str(a.expr) < str(b.expr)
+
+
+@dispatch(AbelianBasis, AbelianBasis)
+def operator_gt(a: AbelianBasis, b: AbelianBasis) -> bool:
+    return str(a.expr) > str(b.expr)
 
 
 @dataclass(frozen=True)

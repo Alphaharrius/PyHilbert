@@ -24,7 +24,7 @@ import torch
 import sympy as sy
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
-from .utils import FrozenDict
+from .utils import FrozenDict, full_typename
 from .abstracts import Operable, Functional, Span, HasUnit
 from .spatials import Spatial
 from .state_space import StateSpace, restructure
@@ -46,7 +46,18 @@ class Ket(Generic[_IrrepType], Operable):
     tensor-product states with `@`.
     """
 
+    # TODO: In the future if we replace @dispatch operator_xxx with Operator.register, check if this type defines __lt__ or __gt__
     irrep: _IrrepType
+
+
+@dispatch(Ket, Ket)
+def operator_lt(a: Ket[_IrrepType], b: Ket[_IrrepType]) -> bool:
+    return a.irrep < b.irrep  # type: ignore[operator]
+
+
+@dispatch(Ket, Ket)
+def operator_gt(a: Ket[_IrrepType], b: Ket[_IrrepType]) -> bool:
+    return a.irrep > b.irrep  # type: ignore[operator]
 
 
 @dataclass(frozen=True)
@@ -86,6 +97,11 @@ class U1Basis(Spatial, HasUnit):
       concrete runtime type as `irrep`.
     - `@` dispatch overloads combine kets/states into a new `U1Basis`.
     - `|` dispatch overloads build a `U1Span` of distinct `U1Basis` values.
+    - Ordering (`<`, `>`) compares, in order: number of irreps, tuple of
+      fully-qualified irrep type names (`module.qualname`) from
+      `canonical_repr()`, then the canonical irrep-value tuple itself.
+      If irrep values of matching types are not orderable, the comparison
+      raises from the underlying irrep objects.
 
     Raises
     ------
@@ -210,6 +226,62 @@ class U1Basis(Spatial, HasUnit):
     def unit(self) -> "U1Basis":
         """Get a new copy from this `U1Basis` with the U(1) irrep being `1`."""
         return replace(self, irrep=sy.Integer(1))
+
+    @lru_cache
+    def canonical_repr(self) -> Tuple[Any, ...]:
+        """
+        Get a canonical representation of this `U1Basis` for hashing and comparison.
+
+        This method returns a tuple of `(ket_type_name, ket_irrep)` pairs sorted
+        by `ket_type_name`. This provides a consistent ordering for comparison and
+        hashing, independent of the original order of kets in the state.
+
+        Returns
+        -------
+        `Tuple[Any, ...]`
+            A tuple of `(ket_type_name, ket_irrep)` pairs sorted by `ket_type_name`.
+        """
+        return tuple(
+            v
+            for _, v in sorted(
+                ((full_typename(type(ket.irrep)), ket.irrep) for ket in self.kets),
+                key=lambda x: x[0],
+            )
+        )
+
+
+@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
+def operator_lt(a: U1Basis, b: U1Basis) -> bool:
+    rep_a = a.canonical_repr()
+    rep_b = b.canonical_repr()
+    if len(rep_a) < len(rep_b):
+        return True
+    if len(rep_a) > len(rep_b):
+        return False
+    typenames_a = tuple(full_typename(type(v)) for v in rep_a)
+    typenames_b = tuple(full_typename(type(v)) for v in rep_b)
+    if typenames_a < typenames_b:
+        return True
+    if typenames_a > typenames_b:
+        return False
+    return rep_a < rep_b
+
+
+@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
+def operator_gt(a: U1Basis, b: U1Basis) -> bool:
+    rep_a = a.canonical_repr()
+    rep_b = b.canonical_repr()
+    if len(rep_a) > len(rep_b):
+        return True
+    if len(rep_a) < len(rep_b):
+        return False
+    typenames_a = tuple(full_typename(type(v)) for v in rep_a)
+    typenames_b = tuple(full_typename(type(v)) for v in rep_b)
+    if typenames_a > typenames_b:
+        return True
+    if typenames_a < typenames_b:
+        return False
+    return rep_a > rep_b
 
 
 @dataclass(frozen=True)
@@ -431,6 +503,7 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
               original flattened elements to a regrouped space with structure
               `(ungrouped elements) + (generated spans)`.
         """
+        # TODO: Sort the generated U1Span so that the group function has compatibility with Tensor operations
         elements = self.elements()
         all_span = U1Span(elements)
 
@@ -452,7 +525,7 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
                     except ValueError:
                         continue
                 selected = tuple(selected_list)
-            span = U1Span(selected)
+            span = U1Span(tuple(sorted(selected)))
             overlap = grouped_union & span
             if overlap.dim > 0:
                 raise ValueError(
