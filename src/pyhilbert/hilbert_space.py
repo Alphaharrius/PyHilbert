@@ -322,6 +322,11 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
       immutable instance is O(1) after the first call.
     - `group()` requires disjoint selectors; overlapping grouped spans raise
       `ValueError`.
+    - Even if two `HilbertSpace` objects have the same flattened `U1Basis`
+      elements, `permutation_order`, `flat_permutation_order`, and
+      `embedding_order` may fail when `U1Span` sectors are present in one of
+      the spaces, because these utilities operate on current `structure` keys
+      rather than flattened basis elements.
     """
 
     __hash__ = StateSpace.__hash__
