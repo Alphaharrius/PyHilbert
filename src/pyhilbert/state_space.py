@@ -179,7 +179,7 @@ def restructure(
     return new_structure
 
 
-# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@lru_cache
 def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     """
     Return the permutation of `src` sectors needed to match `dest` sector order.
@@ -216,7 +216,7 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     return tuple(order_table[k] for k in dest.structure.keys())
 
 
-# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@lru_cache
 def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     """
     Return the flattened index permutation that reorders `src` to match `dest`.
@@ -243,7 +243,7 @@ def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, 
     return tuple(chain.from_iterable(ordered_groups))
 
 
-# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@lru_cache
 def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
     """
     Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
