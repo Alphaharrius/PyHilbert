@@ -499,6 +499,7 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
         -------
         `HilbertSpace.GroupResult`
             - `spans`: frozen mapping from labels to generated `U1Span`.
+              Each generated span is sorted in ascending `U1Basis` order.
             - `mapping`: tensor with dims `(self, new_hilbert_space)` mapping
               original flattened elements to a regrouped space with structure
               `(ungrouped elements) + (generated spans)`.
