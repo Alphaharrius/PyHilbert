@@ -1,8 +1,7 @@
-# mypy: ignore-errors
-# TODO: Remove the mypy ignore comment
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
+from sympy import ImmutableDenseMatrix
 
 
 class BoundaryCondition(ABC):
@@ -14,7 +13,7 @@ class BoundaryCondition(ABC):
     e.g., for infinite boundaries.
     """
 
-    size: int
+    basis: ImmutableDenseMatrix
 
     @abstractmethod
     def wrap(self, index: int) -> int:
@@ -33,13 +32,13 @@ class PeriodicBoundary(BoundaryCondition):
 
     Attributes
     ----------
-    size : int
+    basis : ImmutableDenseMatrix
         Number of unit cells along this dimension (periodicity).
     """
 
-    def wrap(self, index: int) -> Optional[int]:
+    def wrap(self, index: ImmutableDenseMatrix) -> ImmutableDenseMatrix:
         """
-        Wrap the index within [0, size-1] using modulo operation.
+        Wrap the index within [0, basis-1] using modulo operation.
 
         Parameters
         ----------
@@ -51,15 +50,4 @@ class PeriodicBoundary(BoundaryCondition):
         int
             The wrapped index.
         """
-        return index % self.size
-
-
-@dataclass(frozen=True)
-class OpenBoundary(BoundaryCondition):
-    """
-    Open boundary: allows only indices within [0, size-1].
-    Indices falling outside may cause an error or require custom handling.
-    """
-
-    def wrap(self, index: int) -> int:
-        pass  # TODO: Implement later
+        return index % self.basis

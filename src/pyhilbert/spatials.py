@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Dict, Type, TypeVar, Union, cast
+from typing import Tuple, Optional, Dict, Type, TypeVar, Union, cast, Mapping
 from typing_extensions import override
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
@@ -12,7 +12,7 @@ from .precision import get_precision_config
 from sympy import ImmutableDenseMatrix, sympify
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, HasBase, Plottable
-
+from .boundary import BoundaryCondition
 
 @dataclass(frozen=True)
 class Spatial(Operable, Plottable, ABC):
@@ -51,38 +51,49 @@ class AbstractLattice(AffineSpace, HasDual):
 
 @dataclass(frozen=True)
 class Lattice(AbstractLattice):
-    unit_cell: FrozenDict = field(
-        default_factory=FrozenDict
-    )  # TODO : Any way to improve the init
+    # boundaries: Tuple[BoundaryCondition, ...]
+    _unit_cell_fractional: FrozenDict[str, ImmutableDenseMatrix] = field(
+        init=False, repr=False, compare=True
+    )
 
-    def __post_init__(self):
-        unit_cell_source = self.unit_cell
-        if len(unit_cell_source) == 0:
-            unit_cell_source = FrozenDict(
-                {
-                    "r": Offset(
-                        rep=ImmutableDenseMatrix([0] * self.dim), space=self.affine
-                    )
-                }
-            )
-        processed_cell = {}
-        for key, value in unit_cell_source.items():
-            if not isinstance(key, str):
-                raise TypeError(f"unit_cell keys must be strings, but got {type(key)}")
-            if isinstance(value, Offset):
-                processed_cell[key] = value
-            else:
+    def __init__(self, basis: ImmutableDenseMatrix, shape: Tuple[int, ...], unit_cell: Mapping[str, ImmutableDenseMatrix]):
+        object.__setattr__(self, "basis", basis)
+        object.__setattr__(self, "shape", shape)
+
+        if len(unit_cell) == 0:
+            raise ValueError("unit_cell is empty; define at least one site in unit_cell.")
+
+        processed_cell: dict[str, ImmutableDenseMatrix] = {}
+        basis_inverse = self.basis.inv()
+        for site, offset in unit_cell.items():
+            if not isinstance(offset, ImmutableDenseMatrix):
+                raise TypeError(
+                    f"unit_cell['{site}'] must be ImmutableDenseMatrix, got {type(offset).__name__}."
+                )
+            if offset.shape != (self.dim, 1):
                 try:
-                    rep = ImmutableDenseMatrix(value)
-                    if rep.shape != (self.dim, 1):
-                        rep = rep.reshape(self.dim, 1)
-                    processed_cell[key] = Offset(rep=rep, space=self.affine)
+                    offset = offset.reshape(self.dim, 1)
                 except Exception as e:
-                    raise TypeError(
-                        f"Could not convert unit_cell value {value} for key '{key}' to an Offset."
+                    raise ValueError(
+                        f"unit_cell['{site}'] has shape {offset.shape}; expected ({self.dim}, 1)."
                     ) from e
+            # unit_cell offsets are provided in Cartesian coordinates.
+            # Convert to lattice-coordinate representation before wrapping as Offset.
+            fractional_offset = basis_inverse @ offset
+            fractional_offset = ImmutableDenseMatrix(fractional_offset)
+            processed_cell[site] = fractional_offset
+        object.__setattr__(self, "_unit_cell_fractional", FrozenDict(processed_cell))
 
-        object.__setattr__(self, "unit_cell", FrozenDict(processed_cell))
+    @property
+    @lru_cache
+    def unit_cell(self) -> FrozenDict[str, "Offset"]:
+        return FrozenDict(
+            {
+                site: Offset(rep=offset, space=self)
+                for site, offset in self._unit_cell_fractional.items()
+            }
+        )
+
 
     @property
     @lru_cache
@@ -129,17 +140,12 @@ class Lattice(AbstractLattice):
         )  # (N_cells, Dim)
 
         basis_reps = []
-        if not self.unit_cell:
-            basis_reps.append(np.zeros(self.dim, dtype=precision.np_float))
-        else:
-            sorted_unit_cell = sorted(self.unit_cell.items(), key=lambda x: str(x[0]))
-            for _, site_offset in sorted_unit_cell:
-                site_vec = site_offset.rep
-                if subs:
-                    site_vec = site_vec.subs(subs)
-                basis_reps.append(
-                    np.array(site_vec).flatten().astype(precision.np_float)
-                )
+        sorted_unit_cell = sorted(self.unit_cell.items(), key=lambda x: str(x[0]))
+        for _, site_offset in sorted_unit_cell:
+            site_vec = site_offset.rep
+            if subs:
+                site_vec = site_vec.subs(subs)
+            basis_reps.append(np.array(site_vec).flatten().astype(precision.np_float))
 
         basis_tensor = torch.tensor(
             np.array(basis_reps), dtype=precision.torch_float
@@ -169,9 +175,9 @@ _VecType = TypeVar("_VecType", bound=Union[np.ndarray, ImmutableDenseMatrix])
 
 
 @dataclass(frozen=True)
-class Offset(Spatial, HasBase[AffineSpace]):
+class Offset(Spatial, HasBase[Lattice]):
     rep: ImmutableDenseMatrix
-    space: AffineSpace
+    space: Lattice
 
     def __post_init__(self):
         if self.rep.shape != (self.space.dim, 1):
@@ -191,23 +197,23 @@ class Offset(Spatial, HasBase[AffineSpace]):
 
     fractional = lru_cache(fractional)  # Prevent mypy type checking issues
 
-    def base(self) -> AffineSpace:
-        """Get the `AffineSpace` this `Offset` is expressed in."""
+    def base(self) -> Lattice:
+        """Get the `Lattice` this `Offset` is expressed in."""
         return self.space
 
-    def rebase(self, space: AffineSpace) -> "Offset":
+    def rebase(self, space: Lattice) -> "Offset": # TODO: need to check if it consist with boundary conditions (urgent)
         """
-        Re-express this Offset in a different AffineSpace.
+        Re-express this Offset in a different Lattice.
 
         Parameters
         ----------
-        `space` : `AffineSpace`
-            The new affine space to express this Offset in.
+        `space` : `Lattice`
+            The new lattice to express this Offset in.
 
         Returns
         -------
         `Offset`
-            New Offset expressed in the given affine space.
+            New Offset expressed in the given lattice.
         """
         rebase_transform_mat = space.basis.inv() @ self.space.basis
         new_rep = rebase_transform_mat @ self.rep
@@ -215,7 +221,7 @@ class Offset(Spatial, HasBase[AffineSpace]):
 
     def to_vec(self, T: Type[_VecType]) -> _VecType:
         """Convert this Offset to a vector in Cartesian coordinates by applying
-        the basis transformation of its affine space.
+        the basis transformation of its lattice.
 
         Returns
         -------
