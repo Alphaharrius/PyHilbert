@@ -279,183 +279,6 @@ class U1Span(Span[U1Basis, sy.ImmutableDenseMatrix], Spatial, HasUnit):
         return sy.ImmutableDenseMatrix(out)
 
 
-_ObservableType = TypeVar("_ObservableType")
-
-
-class Operator(Generic[_ObservableType], Functional, Operable, ABC):
-    """
-    A composable operator that acts on observable-compatible objects.
-
-    `Operator` combines two core behaviors:
-
-    1. `Functional` dispatch and chaining
-       Implementations are registered via `Functional.register` for pairs of
-       `(input_type, operator_subclass)`. At runtime, :meth:`apply` resolves the
-       function chain for the concrete input object and executes each function in
-       order.
-
-    2. `Operable` matrix-application syntax
-       Because `Operator` is `Operable`, it participates in the overloaded `@`
-       operator. This module defines `operator_matmul(Operator, U1Basis)`,
-       so `op @ value` applies the operator and returns only the transformed
-       value component.
-
-    Conceptually, an operator application returns two outputs:
-
-    - an observation/measurement-like payload (`_ObservableType`)
-    - the transformed object (same runtime type as the input)
-
-    The observation payload allows operator execution to report auxiliary
-    information while still producing an updated value.
-
-    Type Parameters
-    ---------------
-    `_ObservableType`
-        The type of the first element returned by an operator application
-        (e.g. expectation value, coefficient, metadata, or any domain-specific
-        observable artifact).
-
-    Implementation Guidelines
-    -------------------------
-    - The registered callable chain for an operator must produce a
-      2-tuple `(observable, transformed_value)`.
-    - The transformed value must have the same runtime type as the input object.
-      This invariant is validated by :meth:`apply` using assertions.
-    - Closure validation in :meth:`apply` has two branches:
-      - for `U1Basis` inputs, closure is span-based
-        (`same_span(input, transformed_value)`).
-      - for non-`U1Basis` inputs, closure is value-based
-        (`input == transformed_value`).
-      In either branch, if closure fails, the observable must be `None`.
-    - If no registration exists for `(type(input), type(operator))`,
-      :class:`NotImplementedError` is raised by `Functional.apply`.
-
-    Usage Pattern
-    -------------
-    1. Define an `Operator` subclass.
-    2. Register behavior with `@YourOperatorSubclass.register(InputType)`.
-    3. Apply by either:
-       - `obs, out = op(input_obj)` to receive both outputs, or
-       - `out = op @ input_obj` to receive only the transformed value.
-    """
-
-    @override
-    def apply(  # type: ignore[override]
-        self, v: U1Basis, **kwargs
-    ) -> Tuple[_ObservableType, U1Basis]:
-        result = super().apply(v, **kwargs)
-        assert isinstance(result, tuple), (
-            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, Any]!"
-        )
-        o, ov = result
-        assert isinstance(ov, type(v)), (
-            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, {type(v).__name__}]!"
-        )
-        if type(v) is type(ov):
-            try:
-                needs_none = not same_span(v, ov)  # type: ignore[arg-type]
-            except Exception:
-                needs_none = v != ov
-        else:
-            needs_none = v != ov
-        if needs_none:
-            assert o is None, (
-                f"Un-closed operator action should have undefined irrep (None), got {o}!"
-            )
-
-        return o, ov
-
-    def eigen_opr(self) -> Self:
-        """
-        Return an eigenstate-validating copy of this operator.
-
-        This helper creates a shallow copy of the operator and wraps its
-        :meth:`apply` method with a post-condition check: the transformed output
-        must be equal to the input value. If the value changes, the wrapped
-        operator raises :class:`ValueError`.
-
-        Use this when downstream logic assumes that the input is already an
-        eigenstate of the operator and should therefore remain unchanged by the
-        operator action.
-
-        Returns
-        -------
-        Self
-            A copy of the current operator whose application enforces
-            the same closure condition as :meth:`apply`.
-
-        Raises
-        ------
-        ValueError
-            Raised at call time if the wrapped operator is applied to a value
-            that is not closure-preserving under :meth:`apply` semantics.
-
-        Examples
-        --------
-        A common use case is validating basis assumptions in algorithms that
-        require eigen-aligned states:
-
-        - Build `checked = op.eigen_opr()`.
-        - Apply `checked(state)` before a specialized computation.
-        - Fail fast with `ValueError` if `state` is not an eigenstate.
-        """
-        op = copy(self)
-        apply = op.apply
-
-        def eigen_apply(v: U1Basis, **kwargs) -> Tuple[_ObservableType, U1Basis]:
-            """
-            Apply the copied operator and enforce closure-preserving output.
-
-            This wrapper delegates to the copied operator's original
-            :meth:`apply` implementation, then validates that the transformed
-            output remains closed with the input under the same semantics used by
-            :meth:`Operator.apply`:
-
-            - If both input and output are `U1Basis`, closure is checked
-              by span membership with `same_span(v, ov)`.
-            - Otherwise, closure is checked by strict value equality `ov == v`.
-
-            Parameters
-            ----------
-            `v` : `U1Basis`
-                Input object to transform.
-            `**kwargs`
-                Keyword arguments forwarded to the wrapped :meth:`apply` call.
-
-            Returns
-            -------
-            `Tuple[_ObservableType, U1Basis]`
-                The observable payload and transformed output from the wrapped
-                operator call, when closure is preserved.
-
-            Raises
-            ------
-            `ValueError`
-                If the transformed output is not closure-preserving with respect
-                to `v` under the branch-specific rule above.
-            """
-            o, ov = apply(v, **kwargs)
-            if isinstance(v, U1Basis) and isinstance(ov, U1Basis):
-                is_closed = same_span(v, ov)
-            else:
-                is_closed = ov == v
-            if not is_closed:
-                raise ValueError(
-                    f"{type(op).__name__} expected a closure-preserving state, but output "
-                    "{ov!r} is not closed with input {v!r}."
-                )
-            return o, ov
-
-        object.__setattr__(op, "apply", eigen_apply)
-        return op
-
-
-@dispatch(Operator, Operable)
-def operator_matmul(o: Operator, v: Operable):
-    _, v = o(v)
-    return v
-
-
 U1Elements = Union[U1Basis, U1Span]
 """Union of valid element types in a `HilbertSpace`."""
 
@@ -680,8 +503,185 @@ def same_span(a: HilbertSpace, b: HilbertSpace) -> bool:
     )
 
 
+_ObservableType = TypeVar("_ObservableType")
+
+
+class U1Operator(Generic[_ObservableType], Functional, Operable, ABC):
+    """
+    A composable operator that acts on observable-compatible objects.
+
+    `Operator` combines two core behaviors:
+
+    1. `Functional` dispatch and chaining
+       Implementations are registered via `Functional.register` for pairs of
+       `(input_type, operator_subclass)`. At runtime, :meth:`apply` resolves the
+       function chain for the concrete input object and executes each function in
+       order.
+
+    2. `Operable` matrix-application syntax
+       Because `Operator` is `Operable`, it participates in the overloaded `@`
+       operator. This module defines `operator_matmul(Operator, U1Basis)`,
+       so `op @ value` applies the operator and returns only the transformed
+       value component.
+
+    Conceptually, an operator application returns two outputs:
+
+    - an observation/measurement-like payload (`_ObservableType`)
+    - the transformed object (same runtime type as the input)
+
+    The observation payload allows operator execution to report auxiliary
+    information while still producing an updated value.
+
+    Type Parameters
+    ---------------
+    `_ObservableType`
+        The type of the first element returned by an operator application
+        (e.g. expectation value, coefficient, metadata, or any domain-specific
+        observable artifact).
+
+    Implementation Guidelines
+    -------------------------
+    - The registered callable chain for an operator must produce a
+      2-tuple `(observable, transformed_value)`.
+    - The transformed value must have the same runtime type as the input object.
+      This invariant is validated by :meth:`apply` using assertions.
+    - Closure validation in :meth:`apply` has two branches:
+      - for `U1Basis` inputs, closure is span-based
+        (`same_span(input, transformed_value)`).
+      - for non-`U1Basis` inputs, closure is value-based
+        (`input == transformed_value`).
+      In either branch, if closure fails, the observable must be `None`.
+    - If no registration exists for `(type(input), type(operator))`,
+      :class:`NotImplementedError` is raised by `Functional.apply`.
+
+    Usage Pattern
+    -------------
+    1. Define an `Operator` subclass.
+    2. Register behavior with `@YourOperatorSubclass.register(InputType)`.
+    3. Apply by either:
+       - `obs, out = op(input_obj)` to receive both outputs, or
+       - `out = op @ input_obj` to receive only the transformed value.
+    """
+
+    @override
+    def apply(  # type: ignore[override]
+        self, v: U1Basis, **kwargs
+    ) -> Tuple[_ObservableType, U1Basis]:
+        result = super().apply(v, **kwargs)
+        assert isinstance(result, tuple), (
+            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, Any]!"
+        )
+        o, ov = result
+        assert isinstance(ov, type(v)), (
+            f"Operator {type(self)} acting on {type(v).__name__} should yield a Tuple[Any, {type(v).__name__}]!"
+        )
+        if type(v) is type(ov):
+            try:
+                needs_none = not same_span(v, ov)  # type: ignore[arg-type]
+            except Exception:
+                needs_none = v != ov
+        else:
+            needs_none = v != ov
+        if needs_none:
+            assert o is None, (
+                f"Un-closed operator action should have undefined irrep (None), got {o}!"
+            )
+
+        return o, ov
+
+    def eigen_opr(self) -> Self:
+        """
+        Return an eigenstate-validating copy of this operator.
+
+        This helper creates a shallow copy of the operator and wraps its
+        :meth:`apply` method with a post-condition check: the transformed output
+        must be equal to the input value. If the value changes, the wrapped
+        operator raises :class:`ValueError`.
+
+        Use this when downstream logic assumes that the input is already an
+        eigenstate of the operator and should therefore remain unchanged by the
+        operator action.
+
+        Returns
+        -------
+        Self
+            A copy of the current operator whose application enforces
+            the same closure condition as :meth:`apply`.
+
+        Raises
+        ------
+        ValueError
+            Raised at call time if the wrapped operator is applied to a value
+            that is not closure-preserving under :meth:`apply` semantics.
+
+        Examples
+        --------
+        A common use case is validating basis assumptions in algorithms that
+        require eigen-aligned states:
+
+        - Build `checked = op.eigen_opr()`.
+        - Apply `checked(state)` before a specialized computation.
+        - Fail fast with `ValueError` if `state` is not an eigenstate.
+        """
+        op = copy(self)
+        apply = op.apply
+
+        def eigen_apply(v: U1Basis, **kwargs) -> Tuple[_ObservableType, U1Basis]:
+            """
+            Apply the copied operator and enforce closure-preserving output.
+
+            This wrapper delegates to the copied operator's original
+            :meth:`apply` implementation, then validates that the transformed
+            output remains closed with the input under the same semantics used by
+            :meth:`Operator.apply`:
+
+            - If both input and output are `U1Basis`, closure is checked
+              by span membership with `same_span(v, ov)`.
+            - Otherwise, closure is checked by strict value equality `ov == v`.
+
+            Parameters
+            ----------
+            `v` : `U1Basis`
+                Input object to transform.
+            `**kwargs`
+                Keyword arguments forwarded to the wrapped :meth:`apply` call.
+
+            Returns
+            -------
+            `Tuple[_ObservableType, U1Basis]`
+                The observable payload and transformed output from the wrapped
+                operator call, when closure is preserved.
+
+            Raises
+            ------
+            `ValueError`
+                If the transformed output is not closure-preserving with respect
+                to `v` under the branch-specific rule above.
+            """
+            o, ov = apply(v, **kwargs)
+            if isinstance(v, U1Basis) and isinstance(ov, U1Basis):
+                is_closed = same_span(v, ov)
+            else:
+                is_closed = ov == v
+            if not is_closed:
+                raise ValueError(
+                    f"{type(op).__name__} expected a closure-preserving state, but output "
+                    "{ov!r} is not closed with input {v!r}."
+                )
+            return o, ov
+
+        object.__setattr__(op, "apply", eigen_apply)
+        return op
+
+
+@dispatch(U1Operator, Operable)
+def operator_matmul(o: U1Operator, v: Operable):
+    _, v = o(v)
+    return v
+
+
 @dataclass(frozen=True)
-class FuncOpr(Generic[_IrrepType], Operator[sy.Integer]):
+class FuncOpr(Generic[_IrrepType], U1Operator[sy.Integer]):
     T: Type[_IrrepType]
     func: Callable
 

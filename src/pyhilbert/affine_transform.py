@@ -11,7 +11,7 @@ from .abstracts import HasBase
 from .spatials import AffineSpace, Spatial, Offset, Momentum
 from .state_space import MomentumSpace, same_span
 from .hilbert_space import (
-    Operator,
+    U1Operator,
     HilbertSpace,
     Ket,
     U1Basis,
@@ -59,7 +59,7 @@ class AbelianBasis(Spatial):
 
 
 @dataclass(frozen=True)
-class AffineGroupElement(Operator, HasBase[AffineSpace]):
+class AffineGroupElement(U1Operator, HasBase[AffineSpace]):
     """
     Affine group element acting on polynomial coordinate functions.
 
