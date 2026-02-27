@@ -25,7 +25,7 @@ import sympy as sy
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from .utils import FrozenDict, full_typename
-from .abstracts import Operable, Functional, Span, HasUnit
+from .abstracts import AbstractKet, Operable, Functional, Span, HasUnit
 from .spatials import Spatial
 from .state_space import StateSpace, restructure
 from .tensors import Tensor
@@ -37,7 +37,7 @@ _IrrepType = TypeVar("_IrrepType")
 
 
 @dataclass(frozen=True)  # eq=False, Skipping Operable.__eq__
-class Ket(Generic[_IrrepType], Operable):
+class Ket(Generic[_IrrepType], AbstractKet[int], Operable):
     """
     A single basis label in the Hilbert construction.
 
@@ -46,8 +46,25 @@ class Ket(Generic[_IrrepType], Operable):
     tensor-product states with `@`.
     """
 
-    # TODO: In the future if we replace @dispatch operator_xxx with Operator.register, check if this type defines __lt__ or __gt__
+    # TODO: In the future if we replace @dispatch operator_xxx with Opeator.register, check if this type defines __lt__ or __gt__
     irrep: _IrrepType
+
+    @override
+    def ket(self, another: "Ket[_IrrepType]") -> int:
+        """
+        Return the overlap of this ket with another ket.
+
+        Parameters
+        ----------
+        `another` : `Ket[_IrrepType]`
+            The ket to compute the overlap with.
+
+        Returns
+        -------
+        `int`
+            `1` if the irreps of this ket and `another` are equal, `0` otherwise.
+        """
+        return int(self.irrep == another.irrep)
 
 
 @dispatch(Ket, Ket)
@@ -61,7 +78,7 @@ def operator_gt(a: Ket[_IrrepType], b: Ket[_IrrepType]) -> bool:
 
 
 @dataclass(frozen=True)
-class U1Basis(Spatial, HasUnit):
+class U1Basis(Spatial, AbstractKet[sy.Expr], HasUnit):
     """
     Immutable single-particle basis state built from typed irreps.
 
@@ -203,7 +220,24 @@ class U1Basis(Spatial, HasUnit):
                 return cast(_IrrepType, irrep)
         raise ValueError(f"U1Basis {self} has no irrep of type {T.__name__}.")
 
+    @override
     def ket(self, psi: "U1Basis") -> sy.Expr:
+        """
+        Return the overlap of this state with another state.
+
+        Parameters
+        ----------
+        `psi` : `U1Basis`
+            The state to compute the overlap with.
+
+        Returns
+        -------
+        `sy.Expr`
+            The symbolic overlap of this state with `psi`. If the kets of the
+            two states do not match, the overlap is `0`. If the kets match, the
+            overlap is the product of this state's irrep and the conjugate of
+            `psi`'s irrep.
+        """
         if not self.kets == psi.kets:
             return sy.Integer(0)
         return cast(sy.Expr, (sy.conjugate(self.irrep) * psi.irrep).simplify())

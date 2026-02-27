@@ -315,6 +315,22 @@ class HasBase(Generic[BaseType], ABC):
         raise NotImplementedError()
 
 
+_InnerProductType = TypeVar("_InnerProductType")
+
+
+class AbstractKet(Generic[_InnerProductType], ABC):
+    """
+    The base class for all ket-like objects that the inner product is defined via `<bra|ket>` syntax.
+
+    The `_InnerProductType` is the type of the inner product mapping between this ket and its dual bra.
+    """
+
+    @abstractmethod
+    def ket(self, another: Self) -> _InnerProductType:
+        """Return the inner product mapping between this ket and `another` ket."""
+        raise NotImplementedError()
+
+
 @dataclass(frozen=True)
 class Functional(ABC):
     _registered_methods: ClassVar[Dict[Tuple[type, type], Tuple[Callable, ...]]] = {}
