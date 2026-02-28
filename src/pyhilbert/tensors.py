@@ -5,12 +5,13 @@ from collections import OrderedDict
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
 from .precision import get_precision_config
-from functools import wraps
+from functools import wraps, reduce
 
 from .abstracts import Operable, Plottable
 from .state_space import (
     StateSpace,
     BroadcastSpace,
+    StateSpaceFactorization,
     embedding_order,
     same_span,
     flat_permutation_order,
@@ -316,15 +317,82 @@ class Tensor(Operable, Plottable):
         # Decide indexing convention: Hilbert (Spatial/StateSpace) vs normal (int/slice/range).
         has_hilbert_indices = any(isinstance(k, (Spatial, StateSpace)) for k in key)
         if has_hilbert_indices:
-            if any(isinstance(k, (int, slice, range)) for k in key if k is not None):
-                # Prevent mixing conventions to avoid ambiguous semantics.
+            if any(isinstance(k, (int, range)) for k in key if k is not None):
                 raise ValueError(
-                    "Hilbert indexing cannot be mixed with integer/slice indexing"
+                    "Hilbert indexing cannot be mixed with integer/range indexing"
+                )
+            if any(
+                isinstance(k, slice) and k != slice(None, None, None)
+                for k in key
+                if k is not None
+            ):
+                raise ValueError(
+                    "Hilbert indexing only allows full slices ':' when mixed with StateSpace/Spatial indices"
                 )
         else:
             return self.data[key]
 
         return _tensor_getitem_hilbert(self, key)
+
+    def factorize_dim(self, dim: int, rule: StateSpaceFactorization) -> "Tensor":
+        """
+        Factorize one `StateSpace`-like dimension into multiple subspaces.
+
+        For a tensor with shape `(A, B)`, factorizing the `0`th dimension with
+        `factorized=(A1, A2)` and a compatible `align_dim` produces shape
+        `(A1, A2, B)`.
+
+        Parameters
+        ----------
+        `dim` : `int`
+            The index of the dimension to factorize.
+        `rule` : `StateSpaceFactorization`
+            The factorization rule.
+
+        Returns
+        -------
+        `Tensor`
+            A new tensor with the specified dimension factorized.
+        """
+        return factorize_dim(self, dim, rule)
+
+    def product_dims(self, *indices_group: Tuple[int, ...]) -> "Tensor":
+        """
+        Combine selected tensor dimensions into product dimensions.
+
+        Each entry in `indices_group` defines one output product dimension.
+        For a group `(i0, i1, ..., ik)`, the returned tensor contains a single
+        axis whose size is the product of the grouped axis sizes and whose
+        `StateSpace` is `self.dims[i0] @ self.dims[i1] @ ... @ self.dims[ik]`.
+        Dimensions not listed in any group are preserved as-is.
+
+        Negative indices are supported and follow Python indexing rules.
+        Grouped dimensions do not need to be contiguous in the input tensor; the
+        method reorders axes internally, performs one reshape, and returns the
+        result in the canonical output order.
+
+        Parameters
+        ----------
+        `indices_group` : `Tuple[int, ...]`
+            One or more non-empty groups of dimension indices to combine.
+            Indices must be unique across all groups (a dimension can belong to
+            at most one group).
+
+        Returns
+        -------
+        `Tensor`
+            A new tensor where each requested group is replaced by one product
+            dimension and all non-grouped dimensions are retained.
+
+        Raises
+        ------
+        `IndexError`
+            If any provided index is out of range for the tensor rank.
+        `ValueError`
+            If any group is empty, if a group contains duplicate indices, or if
+            the same index appears in more than one group.
+        """
+        return product_dims(self, *indices_group)
 
     def __repr__(self) -> str:
         device_type = self.data.device.type
@@ -390,6 +458,13 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
             data = data.narrow(dim_index, sl.start, sl.stop - sl.start)
             sub = replace(dim, structure=restructure(OrderedDict({k: sl})))
             new_dims[dim_index] = sub
+            dim_index += 1
+            continue
+        if isinstance(k, slice):
+            if k != slice(None, None, None):
+                raise TypeError(
+                    "Only full slice ':' is supported with StateSpace indexing"
+                )
             dim_index += 1
             continue
         raise TypeError(f"Unsupported index type for StateSpace slicing: {type(k)}")
@@ -1137,3 +1212,173 @@ def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
     new_dims = list(tensor.dims)
     new_dims[dim] = new_dim
     return Tensor(data=tensor.data, dims=tuple(new_dims))
+
+
+def factorize_dim(tensor: Tensor, dim: int, rule: StateSpaceFactorization) -> Tensor:
+    """
+    Factorize one `StateSpace`-like dimension into multiple subspaces.
+
+    For a tensor with shape `(A, B)`, factorizing the `0`th dimension with
+    `factorized=(A1, A2)` and a compatible `align_dim` produces shape
+    `(A1, A2, B)`.
+
+    Parameters
+    ----------
+    `tensor` : `Tensor`
+        The tensor to modify.
+    `dim` : `int`
+        The index of the dimension to factorize.
+    `rule` : `StateSpaceFactorization`
+        The factorization rule.
+
+    Returns
+    -------
+    `Tensor`
+        A new tensor with the specified dimension factorized.
+    """
+    rank = tensor.rank()
+    if dim < 0:
+        dim += rank
+    if dim < 0 or dim >= rank:
+        raise IndexError(f"Dimension index {dim} out of range for rank {rank}")
+
+    align_dim = rule.align_dim
+    factorized_sizes = tuple(d.dim for d in rule.factorized)
+    expected_size = 1
+    for s in factorized_sizes:
+        expected_size *= s
+    if expected_size != align_dim.dim:
+        raise ValueError(
+            f"Factorized dimensions product {expected_size} does not match "
+            f"align_dim size {align_dim.dim}"
+        )
+
+    aligned = tensor.align(dim, align_dim)
+    new_shape = (
+        tuple(aligned.data.shape[:dim])
+        + factorized_sizes
+        + tuple(aligned.data.shape[dim + 1 :])
+    )
+    new_data = aligned.data.reshape(new_shape)
+    new_dims = tensor.dims[:dim] + rule.factorized + tensor.dims[dim + 1 :]
+    return Tensor(data=new_data, dims=new_dims)
+
+
+def _product_dims_normalize_groups(
+    rank: int, indices_group: Tuple[Tuple[int, ...], ...]
+) -> Tuple[list[Tuple[int, ...]], set[int]]:
+    normalized_groups: list[Tuple[int, ...]] = []
+    grouped_indices: set[int] = set()
+
+    for group_idx, group in enumerate(indices_group):
+        if len(group) == 0:
+            raise ValueError("Each indices_group entry must be non-empty")
+
+        normalized: list[int] = []
+        seen_in_group = set()
+        for idx in group:
+            if idx < 0:
+                idx += rank
+            if idx < 0 or idx >= rank:
+                raise IndexError(f"Dimension index {idx} out of range for rank {rank}")
+            if idx in seen_in_group:
+                raise ValueError(f"Duplicate index {idx} in group {group_idx}")
+            if idx in grouped_indices:
+                raise ValueError(f"Dimension index {idx} appears in multiple groups")
+            seen_in_group.add(idx)
+            grouped_indices.add(idx)
+            normalized.append(idx)
+        normalized_groups.append(tuple(normalized))
+
+    return normalized_groups, grouped_indices
+
+
+def _product_dims_build_slots(
+    rank: int, normalized_groups: list[Tuple[int, ...]], grouped_indices: set[int]
+) -> list[Tuple[bool, Tuple[int, ...]]]:
+    groups_by_anchor = {min(group): group for group in normalized_groups}
+    slots: list[Tuple[bool, Tuple[int, ...]]] = []
+    for idx in range(rank):
+        group = groups_by_anchor.get(idx)
+        if group is not None:
+            slots.append((True, group))
+        elif idx not in grouped_indices:
+            slots.append((False, (idx,)))
+    return slots
+
+
+def product_dims(tensor: Tensor, *indices_group: Tuple[int, ...]) -> Tensor:
+    """
+    Combine selected tensor dimensions into product dimensions.
+
+    Each entry in `indices_group` defines one output product dimension.
+    For a group `(i0, i1, ..., ik)`, the returned tensor contains a single
+    axis whose size is the product of the grouped axis sizes and whose
+    `StateSpace` is `self.dims[i0] @ self.dims[i1] @ ... @ self.dims[ik]`.
+    Dimensions not listed in any group are preserved as-is.
+
+    Negative indices are supported and follow Python indexing rules.
+    Grouped dimensions do not need to be contiguous in the input tensor; the
+    method reorders axes internally, performs one reshape, and returns the
+    result in the canonical output order.
+
+    Parameters
+    ----------
+    `tensor` : `Tensor`
+        The tensor to modify.
+    `indices_group` : `Tuple[int, ...]`
+        One or more non-empty groups of dimension indices to combine.
+        Indices must be unique across all groups (a dimension can belong to
+        at most one group).
+
+    Returns
+    -------
+    `Tensor`
+        A new tensor where each requested group is replaced by one product
+        dimension and all non-grouped dimensions are retained.
+
+    Raises
+    ------
+    `IndexError`
+        If any provided index is out of range for the tensor rank.
+    `ValueError`
+        If any group is empty, if a group contains duplicate indices, or if
+        the same index appears in more than one group.
+    """
+    if not indices_group:
+        return tensor
+
+    rank = tensor.rank()
+    normalized_groups, grouped_indices = _product_dims_normalize_groups(
+        rank, indices_group
+    )
+    slots = _product_dims_build_slots(rank, normalized_groups, grouped_indices)
+
+    permute_order = tuple(idx for _, group in slots for idx in group)
+    permuted = tensor.permute(permute_order)
+
+    new_shape: list[int] = []
+    new_dims: list[StateSpace] = []
+    cursor = 0
+
+    def _accumulate_group_size(acc: int, offset: int) -> int:
+        return acc * permuted.data.shape[cursor + offset]
+
+    def _tensor_product_dims(acc: StateSpace, g_idx: int) -> StateSpace:
+        return cast(StateSpace, acc @ tensor.dims[g_idx])
+
+    for is_grouped, group in slots:
+        if is_grouped:
+            combined_size = reduce(_accumulate_group_size, range(len(group)), 1)
+            combined_dim = reduce(
+                _tensor_product_dims, group[1:], tensor.dims[group[0]]
+            )
+            new_shape.append(combined_size)
+            new_dims.append(cast(StateSpace, combined_dim))
+        else:
+            idx = group[0]
+            new_shape.append(permuted.data.shape[cursor])
+            new_dims.append(tensor.dims[idx])
+        cursor += len(group)
+
+    return Tensor(data=permuted.data.reshape(tuple(new_shape)), dims=tuple(new_dims))

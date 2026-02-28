@@ -18,6 +18,7 @@ from typing_extensions import override
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
+from itertools import product
 
 import numpy as np
 import torch
@@ -27,7 +28,7 @@ from multipledispatch import dispatch  # type: ignore[import-untyped]
 from .utils import FrozenDict, full_typename
 from .abstracts import AbstractKet, Operable, Functional, Span, HasUnit
 from .spatials import Spatial
-from .state_space import StateSpace, restructure
+from .state_space import StateSpace, StateSpaceFactorization, restructure
 from .tensors import Tensor
 from .precision import get_precision_config
 
@@ -98,18 +99,22 @@ class U1Basis(Spatial, AbstractKet[sy.Expr], HasUnit):
     `irrep`: `sy.Expr`
         The irrep of this state under an recent operation.
     `kets` : `Tuple[Ket[Any], ...]`
-        Ordered tuple of kets that defines the state.
+        Tuple of kets that defines the state. Input order is canonicalized in
+        `__post_init__` by sorting on `full_typename(type(ket.irrep))`.
 
     Attributes
     ----------
     `irrep`: `sy.Expr`
         The irrep of this state under an recent operation.
     `kets` : `Tuple[Ket[Any], ...]`
-        Immutable tuple of basis labels in tensor-product order.
+        Immutable canonical ket order sorted by concrete irrep type name
+        (`module.qualname`).
 
     Notes
     -----
     - `dim` is always `1`; this type represents one basis vector.
+    - Ket order is canonicalized at construction; permutations of the same
+      typed irreps produce the same internal `kets` tuple.
     - `replace(irrep)` substitutes the unique ket whose irrep has the same
       concrete runtime type as `irrep`.
     - `@` dispatch overloads combine kets/states into a new `U1Basis`.
@@ -142,6 +147,16 @@ class U1Basis(Spatial, AbstractKet[sy.Expr], HasUnit):
                 "U1Basis allows only irrep with unity multiplicity; "
                 f"got multiple non-singleton types ({detail})."
             )
+        object.__setattr__(
+            self,
+            "kets",
+            tuple(
+                sorted(
+                    self.kets,
+                    key=lambda ket: full_typename(type(ket.irrep)),
+                )
+            ),
+        )
 
     @property
     def dim(self) -> int:
@@ -266,22 +281,29 @@ class U1Basis(Spatial, AbstractKet[sy.Expr], HasUnit):
         """
         Get a canonical representation of this `U1Basis` for hashing and comparison.
 
-        This method returns a tuple of `(ket_type_name, ket_irrep)` pairs sorted
-        by `ket_type_name`. This provides a consistent ordering for comparison and
-        hashing, independent of the original order of kets in the state.
+        Kets are canonicalized in `U1Basis` init with sorting on
+        `full_typename(type(ket.irrep))`, so this returns the ordered irrep tuple.
 
         Returns
         -------
         `Tuple[Any, ...]`
-            A tuple of `(ket_type_name, ket_irrep)` pairs sorted by `ket_type_name`.
+            Canonical irrep tuple in deterministic type-name order.
         """
-        return tuple(
-            v
-            for _, v in sorted(
-                ((full_typename(type(ket.irrep)), ket.irrep) for ket in self.kets),
-                key=lambda x: x[0],
-            )
-        )
+        return tuple(ket.irrep for ket in self.kets)
+
+    def canonical_repr_types(self) -> Tuple[Type, ...]:
+        """
+        Get a tuple of concrete irrep types in this `U1Basis` in canonical order.
+
+        This is the same order as `canonical_repr()`, which is determined by
+        sorting on `full_typename(type(ket.irrep))`.
+
+        Returns
+        -------
+        `Tuple[Type, ...]`
+            Tuple of concrete irrep types in deterministic type-name order.
+        """
+        return tuple(type(ket.irrep) for ket in self.kets)
 
 
 @dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
@@ -437,6 +459,29 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
 
     __hash__ = StateSpace.__hash__
 
+    def __str__(self) -> str:
+        return f"HilbertSpace(dim={self.dim}, sectors={len(self.structure)})"
+
+    def __repr__(self) -> str:
+        if not self.structure:
+            return f"{self}: <empty>"
+
+        def _format_el(el: U1Elements) -> str:
+            if isinstance(el, U1Basis):
+                return str(el)
+            span = cast(U1Span, el)
+            if span.dim <= 3:
+                preview = ", ".join(str(state) for state in span.span)
+            else:
+                preview = f"{span.span[0]}, {span.span[1]}, ..., {span.span[-1]}"
+            return f"U1Span(dim={span.dim})[{preview}]"
+
+        body = "\n".join(
+            f"\t{n}: {s.start}:{s.stop} {_format_el(el)}"
+            for n, (el, s) in enumerate(self.structure.items())
+        )
+        return f"{self}:\n{body}"
+
     def lookup(self, query: Dict[Type[Any], Any]) -> U1Basis:
         """
         Return the unique element that exactly matches all typed-irrep query entries.
@@ -512,8 +557,22 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
         return cast(Tuple[U1Basis, ...], tuple(self.flatten().structure.keys()))
 
     class GroupResult(NamedTuple):
+        """
+        Result payload returned by `HilbertSpace.group`.
+
+        Attributes
+        ----------
+        `spans` : `FrozenDict[str, U1Span]`
+            Mapping from user-provided group label to the generated span.
+        `mapping` : `Tensor`
+            Basis-change map from the original space to the regrouped
+            `HilbertSpace`.
+        """
+
         spans: FrozenDict[str, U1Span]
+        """Mapping from user-provided group label to the generated span."""
         mapping: Tensor
+        """Basis-change map from the original space to the regrouped `HilbertSpace`."""
 
     def group(
         self, **groups: Union[Callable[[U1Basis], bool], Any]
@@ -570,18 +629,248 @@ class HilbertSpace(HasUnit, StateSpace[U1Elements], Span[U1Elements, Tensor]):
             spans_by_label[label] = span
 
         ungrouped = (all_span - grouped_union).span
-
-        new_structure: OrderedDict[U1Elements, slice] = OrderedDict()
-        for el in ungrouped:
-            new_structure[el] = slice(0, el.dim)
-        for span in spans_by_label.values():
-            new_structure[span] = slice(0, span.dim)
-        new_hilbert = HilbertSpace(restructure(new_structure))
+        new_hilbert = hilbert((*ungrouped, *spans_by_label.values()))
 
         return HilbertSpace.GroupResult(
             spans=FrozenDict(spans_by_label),
             mapping=self.gram(new_hilbert),
         )
+
+    class GroupByResult(NamedTuple):
+        """
+        Result payload returned by `HilbertSpace.group_by`.
+
+        Attributes
+        ----------
+        `groups` : `Tuple[U1Span, ...]`
+            Grouped spans in the order their irrep keys first appear in the
+            flattened basis.
+        `mapping` : `Tensor`
+            Basis-change map from the original space to the grouped
+            `HilbertSpace`.
+        """
+
+        groups: Tuple[U1Span, ...]
+        """Grouped spans in the order their irrep keys first appear in the flattened basis."""
+        mapping: Tensor
+        """Basis-change map from the original space to the grouped `HilbertSpace`."""
+
+    def group_by(self, *T: Type) -> "HilbertSpace.GroupByResult":
+        """
+        Form groups by matching irrep types keyed by the irreps.
+
+        This function will try to group the basis by the irrep in order specified by the types in `T`.
+
+        Parameters
+        ----------
+        `*T` : `Type`
+            The irrep types to group by. The grouping will be performed in the order of the types specified.
+            For example `group_by(A, B)` will group the basis by `(A, B)`, the basis with the same irrep of `A` and `B`
+            will be within the same `U1Span`.
+
+        Returns
+        -------
+        `HilbertSpace.GroupByResult`
+            The result of grouping the basis elements by the specified irrep types.
+        """
+        keys: OrderedDict[Tuple[Any, ...], None] = OrderedDict()
+        for el in self.elements():
+            keys[tuple(el.irrep_of(t) for t in T)] = None
+
+        selectors: OrderedDict[str, Callable[[U1Basis], bool]] = OrderedDict()
+        for i, key in enumerate(keys):
+            selectors[f"_{i}"] = lambda el, key=key: all(
+                el.irrep_of(t) == target for t, target in zip(T, key)
+            )
+
+        result = self.group(**selectors)
+        return HilbertSpace.GroupByResult(
+            groups=tuple(result.spans.values()),
+            mapping=result.mapping,
+        )
+
+    def is_homogeneous(self) -> bool:
+        """
+        Check if this `HilbertSpace` is homogeneous, i.e., all basis states share the same irrep types.
+
+        Returns
+        -------
+        `bool`
+            `True` if all basis states in this `HilbertSpace` have the same set of irrep types, `False` otherwise.
+        """
+        elements = self.elements()
+        if not elements:  # An empty Hilbert space is considered homogeneous.
+            return True
+        irrep_types = elements[0].canonical_repr_types()
+        for el in elements[1:]:
+            if el.canonical_repr_types() != irrep_types:
+                return False
+        return True
+
+    def factorize(self, *irrep_types: Tuple[Type, ...]) -> StateSpaceFactorization:
+        """
+        Factorize this homogeneous `HilbertSpace` into tensor factors grouped by irrep type.
+
+        Each argument in `irrep_types` defines one output factor as a tuple of irrep
+        types to group together. Across all groups, every irrep type in this space must
+        appear exactly once. The result is a `StateSpaceFactorization` describing the factor
+        spaces and the basis reindexing needed to move between the original basis order
+        and the factorized tensor-product structure.
+
+        Example
+        -------
+        For basis states labeled by `(int, str)`:
+        `(|1⟩|'a'⟩, |1⟩|'b'⟩, |2⟩|'a'⟩, |2⟩|'b'⟩)`,
+        `factorize((int,), (str,))` produces two factors:
+        `(|1⟩, |2⟩)` and `(|'a'⟩, |'b'⟩)`.
+
+        Failed examples
+        ---------------
+        Assume a homogeneous space with canonical irrep-type order `(int, str, float)`.
+
+        - If the space mixes different irrep-type layouts across basis states, it is not
+          homogeneous and factorization fails.
+        - If a factorization leaves out one of the space's irrep types (for example,
+          dropping `float`), factorization fails.
+        - If a factorization introduces an irrep type not present in the space (for
+          example `bool`), factorization fails.
+        - Incomplete Cartesian-product basis: for basis
+          `(|1⟩|'a'⟩, |1⟩|'b'⟩, |2⟩|'a'⟩, |2⟩|'b'⟩, |2⟩|'c'⟩)`,
+          factorization by `(int,)` and `(str,)` fails because the factorized product
+          would require `|1⟩|'c'⟩` as well.
+
+        Parameters
+        ----------
+        `*irrep_types` : `Tuple[Type, ...]`
+            Factor specification. Each tuple is one factor, containing the irrep
+            types assigned to that factor.
+
+        Returns
+        -------
+        `StateSpaceFactorization`
+            Factorization metadata: factor spaces and basis-index mapping.
+
+        Raises
+        ------
+        `ValueError`
+            Raised when:
+            - this space is not homogeneous;
+            - some irrep type in the space is missing from `irrep_types`;
+            - `irrep_types` contains a type not present in the space;
+            - the basis is not factorizable for the requested groups (incomplete
+              Cartesian-product structure).
+        """
+        if not self.is_homogeneous():
+            raise ValueError("Cannot factorize a non-homogeneous HilbertSpace.")
+
+        elements = self.elements()
+        if not elements:
+            if irrep_types:
+                raise ValueError(
+                    "Cannot factorize an empty HilbertSpace with non-empty irrep groups."
+                )
+            return StateSpaceFactorization(factorized=(), align_dim=self)
+
+        if any(not group for group in irrep_types):
+            raise ValueError("Each irrep group in factorize must be non-empty.")
+
+        canonical_types = elements[0].canonical_repr_types()
+        requested_types = tuple(T for group in irrep_types for T in group)
+        requested_set = set(requested_types)
+        canonical_set = set(canonical_types)
+
+        if len(requested_set) != len(requested_types):
+            raise ValueError(
+                "Each irrep type must appear exactly once in `irrep_types`."
+            )
+
+        missing_types = tuple(
+            T.__name__ for T in canonical_types if T not in requested_set
+        )
+        extra_types = tuple(
+            T.__name__ for T in requested_types if T not in canonical_set
+        )
+        if missing_types or extra_types:
+            details = []
+            if missing_types:
+                details.append(f"missing types: {missing_types}")
+            if extra_types:
+                details.append(f"extra types: {extra_types}")
+            raise ValueError(
+                f"`irrep_types` does not match space irrep types ({', '.join(details)})."
+            )
+
+        factor_keys: list[Tuple[Tuple[Any, ...], ...]] = []
+        factorized: list[HilbertSpace] = []
+        for group in irrep_types:
+            keys: OrderedDict[Tuple[Any, ...], None] = OrderedDict()
+            for el in elements:
+                keys[tuple(el.irrep_of(T) for T in group)] = None
+            grouped_basis = tuple(
+                U1Basis(sy.Integer(1), tuple(Ket(irrep) for irrep in key))
+                for key in keys
+            )
+            factor_keys.append(tuple(keys.keys()))
+            factorized.append(hilbert(grouped_basis))
+
+        # Map each basis state to its grouped-irrep key tuple.
+        combo_to_element: OrderedDict[Tuple[Tuple[Any, ...], ...], U1Basis] = (
+            OrderedDict()
+        )
+        for el in elements:
+            combo = tuple(tuple(el.irrep_of(T) for T in group) for group in irrep_types)
+            combo_to_element[combo] = el
+
+        expected_size = 1
+        for keys in factor_keys:
+            expected_size *= len(keys)
+        if expected_size != len(combo_to_element):
+            raise ValueError(
+                "Requested factorization is not valid: basis is not a complete Cartesian product."
+            )
+
+        # Build reshape-compatible order: first factor varies slowest, last varies fastest.
+        align_elements: list[U1Basis] = []
+        for combo in product(*factor_keys):
+            if combo not in combo_to_element:
+                raise ValueError(
+                    "Requested factorization is not valid: basis is not a complete Cartesian product."
+                )
+            align_elements.append(combo_to_element[combo])
+
+        return StateSpaceFactorization(
+            factorized=tuple(factorized),
+            align_dim=hilbert(align_elements),
+        )
+
+    @override
+    def tensor_product(self, other: "HilbertSpace") -> "HilbertSpace":
+        """
+        Build the tensor-product space of this space with another `HilbertSpace`.
+
+        The resulting basis is generated by taking every ordered pair
+        `(a, b)` from `self.elements()` and `other.elements()`, then forming the
+        basis-level tensor product `a @ b` for each pair.
+
+        Ordering follows `itertools.product(self.elements(), other.elements())`:
+        basis elements from `self` vary slowest, and basis elements from `other`
+        vary fastest. This deterministic order is important for tensor reshape
+        and alignment logic that depends on stable axis conventions.
+
+        Parameters
+        ----------
+        `other` : `HilbertSpace`
+            Right-hand tensor factor.
+
+        Returns
+        -------
+        `HilbertSpace`
+            A new space whose basis spans `self ⊗ other`.
+        """
+        elements = []
+        for a, b in product(self.elements(), other.elements()):
+            elements.append(a @ b)
+        return hilbert(elements)
 
     @override
     def unit(self) -> "HilbertSpace":

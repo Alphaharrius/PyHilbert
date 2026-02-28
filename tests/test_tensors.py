@@ -1,10 +1,11 @@
 import pytest
 import torch
+import sympy as sy
 from dataclasses import dataclass
 from collections import OrderedDict
 from pyhilbert import state_space
 from pyhilbert.tensors import Tensor, matmul
-from pyhilbert.hilbert_space import HilbertSpace
+from pyhilbert.hilbert_space import HilbertSpace, Ket, U1Basis, hilbert
 from pyhilbert.state_space import BroadcastSpace, MomentumSpace
 from pyhilbert.utils import FrozenDict
 from pyhilbert.tensors import unsqueeze
@@ -1235,10 +1236,122 @@ class TestTensorGetitem:
         with pytest.raises(ValueError, match="not a subspace"):
             _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
 
-    def test_getitem_hilbert_ellipsis_not_allowed(self, getitem_ctx):
-        with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, ...]
+    def test_getitem_hilbert_colon_statespace_colon(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[:, getitem_ctx.subspace, :]
+        expected_dims = (
+            getitem_ctx.space,
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_3d[:, 2:5, :]
+        assert torch.equal(out.data, expected)
 
-    def test_getitem_hilbert_short_key_not_allowed(self, getitem_ctx):
-        with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_3d[getitem_ctx.subspace_a]
+    def test_getitem_hilbert_ellipsis_colon_statespace_colon(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[..., getitem_ctx.subspace, :]
+        expected_dims = (
+            getitem_ctx.space,
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_3d[:, 2:5, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_ellipsis_allowed(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, ...]
+        expected_dims = (
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_mat[0:2, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_short_key_allowed(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[getitem_ctx.subspace_a]
+        expected_dims = (
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+            getitem_ctx.space,
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_3d[0:2, :, :]
+        assert torch.equal(out.data, expected)
+
+
+def _simple_hilbert(tag: str, size: int, make_irrep=None) -> HilbertSpace:
+    if make_irrep is None:
+
+        def make_irrep(n):
+            return (tag, n)
+
+    basis = tuple(
+        U1Basis(irrep=sy.Integer(1), kets=(Ket(make_irrep(n)),)) for n in range(size)
+    )
+    return hilbert(basis)
+
+
+def test_factorize_dim_then_product_dims_roundtrip_hilbert():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 3)
+
+    factorizable = hilbert(
+        U1Basis(irrep=sy.Integer(1), kets=(Ket(i), Ket(j)))
+        for i in (0, 1)
+        for j in ("a", "b", "c")
+    )
+
+    data = torch.arange(
+        left.dim * factorizable.dim * right.dim, dtype=torch.float64
+    ).reshape(left.dim, factorizable.dim, right.dim)
+    tensor = Tensor(data=data, dims=(left, factorizable, right))
+
+    rule = factorizable.factorize((int,), (str,))
+    factorized = tensor.factorize_dim(1, rule)
+    restored = factorized.product_dims((1, 2))
+
+    assert restored.dims == tensor.dims
+    assert torch.equal(restored.data, tensor.data)
+
+
+def test_product_dims_non_sequential_groups_hilbert():
+    irrep_makers = (
+        lambda n: n,  # int
+        lambda n: f"s{n}",  # str
+        lambda n: float(n),  # float
+        lambda n: complex(n, 0),  # complex
+        lambda n: (n,),  # tuple
+        lambda n: bytes([n]),  # bytes
+    )
+    spaces = tuple(
+        _simple_hilbert(f"s{n}", size, irrep_makers[n])
+        for n, size in enumerate((2, 3, 4, 2, 5, 3))
+    )
+    data = torch.arange(
+        spaces[0].dim
+        * spaces[1].dim
+        * spaces[2].dim
+        * spaces[3].dim
+        * spaces[4].dim
+        * spaces[5].dim,
+        dtype=torch.float64,
+    ).reshape(*(space.dim for space in spaces))
+    tensor = Tensor(data=data, dims=spaces)
+
+    out = tensor.product_dims((1, 4), (5, 2))
+
+    expected_dims = (spaces[0], spaces[1] @ spaces[4], spaces[5] @ spaces[2], spaces[3])
+    expected_data = data.permute(0, 1, 4, 5, 2, 3).reshape(
+        spaces[0].dim,
+        spaces[1].dim * spaces[4].dim,
+        spaces[5].dim * spaces[2].dim,
+        spaces[3].dim,
+    )
+
+    assert out.dims == expected_dims
+    assert torch.equal(out.data, expected_data)

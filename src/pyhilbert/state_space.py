@@ -1,5 +1,5 @@
 from dataclasses import dataclass, replace, field
-from typing import Callable, Tuple, TypeVar, Generic, Union
+from typing import Callable, NamedTuple, Tuple, TypeVar, Generic, Union, Self
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
@@ -152,6 +152,27 @@ class StateSpace(Spatial, Generic[TSpatial]):
             new_k = func(k)
             new_structure[new_k] = s
         return replace(self, structure=restructure(new_structure))
+
+    def tensor_product(self, other: Self) -> Self:
+        """
+        Return the tensor product of this state space with another.
+
+        Parameters
+        ----------
+        `other` : `StateSpace`
+            The other state space to tensor with.
+
+        Returns
+        -------
+        `StateSpace`
+            A new state space representing the tensor product of the two.
+        """
+        raise NotImplementedError(f"Tensor product not implemented for {type(self)}!")
+
+
+@dispatch(StateSpace, StateSpace)
+def operator_matmul(a: StateSpace, b: StateSpace):
+    return a.tensor_product(b)
 
 
 def restructure(
@@ -448,3 +469,20 @@ class FactorSpace(StateSpace[FactorBand]):
             structure[band] = slice(base, base + count)
             base += count
         return cls(structure=structure)
+
+
+class StateSpaceFactorization(NamedTuple):
+    """
+    Ruleset for factorizing one `StateSpace`-like tensor dimension.
+
+    Attributes
+    ----------
+    `factorized` : `Tuple[StateSpace, ...]`
+        Target factor spaces in `torch.Tensor.reshape` ordering.
+    `align_dim` : `StateSpace`
+        A permutation of the original dimension whose flattened order is
+        compatible with reshaping into `factorized`.
+    """
+
+    factorized: Tuple[StateSpace, ...]
+    align_dim: StateSpace
