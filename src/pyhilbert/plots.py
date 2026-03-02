@@ -2,16 +2,16 @@ import torch
 import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
-from typing import Optional, List, Union, Dict
-from .abstracts import Plottable
+from typing import Optional, Union, Dict, Tuple
 from .spatials import Lattice
+from .tensors import Tensor
 from .utils import compute_bonds
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
 # --- Registered Plot Methods ---
 
 
-@Plottable.register_plot_method("structure", backend="plotly")
+@Lattice.register_plot_method("structure", backend="plotly")
 def plot_structure(
     obj: Lattice,
     subs: Optional[Dict] = None,
@@ -179,11 +179,13 @@ def plot_structure(
     return fig
 
 
-@Plottable.register_plot_method("heatmap", backend="plotly")
+@Tensor.register_plot_method("heatmap", backend="plotly")
 def plot_heatmap(
-    obj: Union[np.ndarray, torch.Tensor, object],
+    obj: Tensor,
     title: str = "Matrix Visualization",
     show: bool = True,
+    fixed_indices: Optional[Tuple[int, ...]] = None,
+    axes: Tuple[int, int] = (-2, -1),
     **kwargs,
 ) -> go.Figure:
     """
@@ -194,12 +196,17 @@ def plot_heatmap(
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        2D matrix to visualize.
+    obj : Tensor
+        Tensor to visualize as a 2D heatmap.
     title : str, default "Matrix Visualization"
         Title of the plot.
     show : bool, default True
         Whether to show the plot immediately.
+    fixed_indices : tuple of int, optional
+        Indices used to fix non-heatmap dimensions. For an N-dimensional tensor,
+        this must provide N-2 indices after selecting `axes`.
+    axes : tuple of int, default (-2, -1)
+        Pair of dimensions used as (row_axis, col_axis) in the heatmap.
     **kwargs
         Additional keyword arguments.
 
@@ -208,16 +215,64 @@ def plot_heatmap(
     plotly.graph_objects.Figure
         The Plotly figure.
     """
-    # 1. Standardize to PyTorch Tensor on CPU
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        tensor = obj.data.detach().cpu()
-    elif isinstance(obj, torch.Tensor):
-        tensor = obj.detach().cpu()
-    else:
-        tensor = torch.from_numpy(np.array(obj))
+    tensor = obj.data.detach().cpu()
+    rank = tensor.ndim
+    if rank < 2:
+        raise ValueError(
+            f"Heatmap requires rank >= 2 tensor, got shape {tuple(tensor.shape)}"
+        )
 
-    if tensor.ndim != 2:
-        raise ValueError(f"Heatmap requires a 2D matrix, got shape {tensor.shape}")
+    if len(axes) != 2:
+        raise ValueError(f"`axes` must have length 2, got {axes}")
+
+    normalized_axes = []
+    for axis in axes:
+        ax_norm = axis + rank if axis < 0 else axis
+        if not (0 <= ax_norm < rank):
+            raise ValueError(
+                f"Axis {axis} is out of bounds for tensor with rank {rank}"
+            )
+        normalized_axes.append(ax_norm)
+    row_axis, col_axis = normalized_axes
+    if row_axis == col_axis:
+        raise ValueError(f"`axes` must reference two different dimensions, got {axes}")
+
+    permute_order = [i for i in range(rank) if i not in (row_axis, col_axis)] + [
+        row_axis,
+        col_axis,
+    ]
+    tensor = tensor.permute(*permute_order)
+
+    expected_fixed = rank - 2
+    fixed_indices_resolved: Tuple[int, ...]
+    if fixed_indices is None:
+        if expected_fixed == 0:
+            fixed_indices_resolved = ()
+        else:
+            raise ValueError(
+                f"Heatmap for shape {tuple(obj.data.shape)} with axes={axes} requires "
+                f"`fixed_indices` of length {expected_fixed}."
+            )
+    else:
+        if len(fixed_indices) != expected_fixed:
+            raise ValueError(
+                f"`fixed_indices` length must be {expected_fixed} for shape "
+                f"{tuple(obj.data.shape)} with axes={axes}, got {len(fixed_indices)}."
+            )
+        fixed_indices_resolved = fixed_indices
+
+    indexer: Tuple[Union[int, slice], ...] = (
+        *fixed_indices_resolved,
+        slice(None),
+        slice(None),
+    )
+    try:
+        tensor = tensor[indexer]
+    except IndexError as exc:
+        raise IndexError(
+            f"`fixed_indices` {fixed_indices_resolved} is out of bounds for shape "
+            f"{tuple(obj.data.shape)} with axes={axes}."
+        ) from exc
 
     is_complex = tensor.is_complex()
 
@@ -277,11 +332,13 @@ def plot_heatmap(
     return fig
 
 
-@Plottable.register_plot_method("spectrum", backend="plotly")
+@Tensor.register_plot_method("spectrum", backend="plotly")
 def plot_spectrum(
-    obj: Union[np.ndarray, torch.Tensor, object],
+    obj: Tensor,
     title: str = "Spectrum Visualization",
     show: bool = True,
+    fixed_indices: Optional[Tuple[int, ...]] = None,
+    axes: Tuple[int, int] = (-2, -1),
     **kwargs,
 ) -> go.Figure:
     """
@@ -289,12 +346,17 @@ def plot_spectrum(
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        2D matrix to analyze.
+    obj : Tensor
+        Matrix/tensor to analyze as a 2D operator.
     title : str, default "Spectrum Visualization"
         Title of the plot.
     show : bool, default True
         Whether to show the plot immediately.
+    fixed_indices : tuple of int, optional
+        Indices used to fix non-matrix dimensions. For an N-dimensional tensor,
+        this must provide N-2 indices after selecting `axes`.
+    axes : tuple of int, default (-2, -1)
+        Pair of dimensions used as (row_axis, col_axis) for spectrum analysis.
     **kwargs
         Additional keyword arguments.
 
@@ -303,16 +365,70 @@ def plot_spectrum(
     plotly.graph_objects.Figure
         The Plotly figure.
     """
-    # 1. Standardize to PyTorch Tensor
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        tensor = obj.data.detach().cpu()
-    elif isinstance(obj, torch.Tensor):
-        tensor = obj.detach().cpu()
-    else:
-        tensor = torch.from_numpy(np.array(obj))
+    tensor = obj.data.detach().cpu()
 
-    if tensor.ndim != 2:
-        raise ValueError(f"Spectrum requires a 2D matrix, got shape {tensor.shape}")
+    rank = tensor.ndim
+    if rank < 2:
+        raise ValueError(
+            f"Spectrum requires rank >= 2 tensor, got shape {tuple(tensor.shape)}"
+        )
+
+    if len(axes) != 2:
+        raise ValueError(f"`axes` must have length 2, got {axes}")
+
+    normalized_axes = []
+    for axis in axes:
+        ax_norm = axis + rank if axis < 0 else axis
+        if not (0 <= ax_norm < rank):
+            raise ValueError(
+                f"Axis {axis} is out of bounds for tensor with rank {rank}"
+            )
+        normalized_axes.append(ax_norm)
+    row_axis, col_axis = normalized_axes
+    if row_axis == col_axis:
+        raise ValueError(f"`axes` must reference two different dimensions, got {axes}")
+
+    permute_order = [i for i in range(rank) if i not in (row_axis, col_axis)] + [
+        row_axis,
+        col_axis,
+    ]
+    tensor = tensor.permute(*permute_order)
+
+    expected_fixed = rank - 2
+    fixed_indices_resolved: Tuple[int, ...]
+    if fixed_indices is None:
+        if expected_fixed == 0:
+            fixed_indices_resolved = ()
+        else:
+            raise ValueError(
+                f"Spectrum for shape {tuple(tensor.shape)} with axes={axes} requires "
+                f"`fixed_indices` of length {expected_fixed}."
+            )
+    else:
+        if len(fixed_indices) != expected_fixed:
+            raise ValueError(
+                f"`fixed_indices` length must be {expected_fixed} for shape "
+                f"{tuple(tensor.shape)} with axes={axes}, got {len(fixed_indices)}."
+            )
+        fixed_indices_resolved = fixed_indices
+
+    indexer: Tuple[Union[int, slice], ...] = (
+        *fixed_indices_resolved,
+        slice(None),
+        slice(None),
+    )
+    try:
+        tensor = tensor[indexer]
+    except IndexError as exc:
+        raise IndexError(
+            f"`fixed_indices` {fixed_indices_resolved} is out of bounds for shape "
+            f"{tuple(tensor.shape)} with axes={axes}."
+        ) from exc
+
+    if tensor.shape[-2] != tensor.shape[-1]:
+        raise ValueError(
+            f"Spectrum requires a square matrix after slicing, got shape {tuple(tensor.shape)}"
+        )
 
     # 2. Check for Hermiticity (M == M.H)
     is_complex = tensor.is_complex()
@@ -375,33 +491,30 @@ def plot_spectrum(
     return fig
 
 
-@Plottable.register_plot_method("bandstructure", backend="plotly")
+@Tensor.register_plot_method("bandstructure", backend="plotly")
 def plot_bandstructure(
-    obj: Union[np.ndarray, torch.Tensor, object],
-    k_distances: Optional[Union[np.ndarray, torch.Tensor]] = None,
-    k_node_indices: Optional[List[int]] = None,
-    k_node_labels: Optional[List[str]] = None,
+    obj: Tensor,
     title: str = "Band Structure",
     show: bool = True,
+    subs: Optional[Dict] = None,
+    fig: Optional[go.Figure] = None,
     **kwargs,
 ) -> go.Figure:
     """
-    Plot electronic band structure using Plotly.
+    Plot the band structure using Real Physical Reciprocal Coordinates.
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        (N_k, N_bands) array of energy eigenvalues.
-    k_distances : array-like, optional
-        (N_k,) array of cumulative distances.
-    k_node_indices : list of int, optional
-        Indices of high-symmetry points.
-    k_node_labels : list of str, optional
-        Labels for high-symmetry points.
+    obj : Tensor
+        Tensor to visualize as a band structure.
     title : str, default "Band Structure"
         Title of the plot.
     show : bool, default True
         Whether to show the plot immediately.
+    subs : dict, optional
+        Dictionary of symbol substitutions for lattice parameters.
+    fig : plotly.graph_objects.Figure, optional
+        Existing figure to add traces to.
     **kwargs
         Additional keyword arguments.
 
@@ -410,67 +523,94 @@ def plot_bandstructure(
     plotly.graph_objects.Figure
         The Plotly figure.
     """
-    # Standardize inputs
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        energies = obj.data.detach().cpu().numpy()
-    elif isinstance(obj, torch.Tensor):
-        energies = obj.detach().cpu().numpy()
+    if obj.rank() != 3:
+        raise ValueError(f"Tensor must be rank 3, got {obj.rank()}")
+    k_space = obj.dims[0]
+    k_points = list(k_space)
+
+    # 2. Diagonalize
+    eigvals = torch.linalg.eigvalsh(obj.data)  # (K, N_bands)
+    eigvals_np = eigvals.detach().cpu().numpy()
+    n_bands = eigvals_np.shape[1]
+
+    grid_shape = getattr(k_space, "shape", None)
+    if grid_shape is None and "shape" in kwargs:
+        grid_shape = kwargs["shape"]
+
+    is_2d_grid = False
+    if grid_shape is not None and len(grid_shape) == 2:
+        if grid_shape[0] * grid_shape[1] == len(k_points):
+            is_2d_grid = True
+
+    if fig is None:
+        fig = go.Figure()
+
+    if len(k_points) > 0:
+        recip = k_points[0].space
+        basis_sym = recip.basis
+
+        if subs:
+            basis_eval = basis_sym.subs(subs)
+        else:
+            basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
+
+        basis_mat = np.array(basis_eval.evalf()).astype(float)
+
+        k_fracs = [np.array(k.rep).astype(float).flatten() for k in k_points]
+        k_fracs_arr = np.stack(k_fracs)  # Shape: (K, 2)
+
+        k_cart = k_fracs_arr @ basis_mat
     else:
-        energies = np.array(obj)
+        k_cart = np.array([])
 
-    if isinstance(k_distances, torch.Tensor):
-        k_distances = k_distances.detach().cpu().numpy()
+    if is_2d_grid and grid_shape is not None:
+        # === 3D Surface Plot ===
+        nx, ny = grid_shape
 
-    if energies.ndim != 2:
-        raise ValueError(f"Energies must be 2D (N_k, N_bands), got {energies.shape}")
+        KX = k_cart[:, 0].reshape(nx, ny)
+        KY = k_cart[:, 1].reshape(nx, ny)
+        evals_grid = eigvals_np.reshape(nx, ny, n_bands)
 
-    num_k, num_bands = energies.shape
-
-    if k_distances is None:
-        k_distances = np.arange(num_k)
-
-    fig = go.Figure()
-
-    # Plot bands
-    for b in range(num_bands):
-        fig.add_trace(
-            go.Scatter(
-                x=k_distances,
-                y=energies[:, b],
-                mode="lines",
-                line=dict(color="black", width=1.5),
-                name=f"Band {b}",
-                showlegend=False,
-            )
-        )
-
-    # Vertical lines and ticks
-    if k_node_indices:
-        tick_vals = []
-        tick_text = []
-        labels = k_node_labels if k_node_labels else [str(i) for i in k_node_indices]
-
-        for idx, label in zip(k_node_indices, labels):
-            if 0 <= idx < len(k_distances):
-                x_val = k_distances[idx]
-                tick_vals.append(x_val)
-                tick_text.append(label)
-
-                # Vertical line
-                fig.add_vline(
-                    x=x_val, line_width=1, line_dash="dash", line_color="grey"
+        for b in range(n_bands):
+            fig.add_trace(
+                go.Surface(
+                    x=KX,
+                    y=KY,
+                    z=evals_grid[:, :, b],
+                    name=f"Band {b}",
+                    showscale=(b == 0),
+                    colorscale="Viridis",
+                    opacity=0.9,
+                    hovertemplate="kx: %{x:.2f}<br>ky: %{y:.2f}<br>E: %{z:.3f}<extra></extra>",
                 )
+            )
 
-        if tick_vals:
-            fig.update_xaxes(tickvals=tick_vals, ticktext=tick_text)
+    else:
+        # === 1D Line Plot ===
+        x_vals = np.array([0.0])
+        if len(k_points) > 1:
+            diffs = k_cart[1:] - k_cart[:-1]
+            dists = np.linalg.norm(diffs, axis=1)
+            x_vals = np.concatenate(([0.0], np.cumsum(dists)))
+
+        for b in range(n_bands):
+            fig.add_trace(
+                go.Scatter(x=x_vals, y=eigvals_np[:, b], mode="lines", name=f"Band {b}")
+            )
 
     fig.update_layout(
         title=title,
-        xaxis_title="Wave Vector",
-        yaxis_title="Energy",
-        template="simple_white",
+        scene=dict(
+            xaxis_title="kx (1/Å)",
+            yaxis_title="ky (1/Å)",
+            zaxis_title="Energy (eV)",
+            aspectmode="data",
+        )
+        if is_2d_grid
+        else None,
     )
 
     if show:
         fig.show()
+
     return fig

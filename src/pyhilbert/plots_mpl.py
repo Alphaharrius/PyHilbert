@@ -1,15 +1,15 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, List, Union, Dict, Any, cast
-from .abstracts import Plottable
+from typing import Optional, Union, Dict, Any, cast, Tuple
 from .spatials import Lattice
+from .tensors import Tensor
 from .utils import compute_bonds
-
+from .hilbert import HilbertSpace, MomentumSpace, same_span
 # --- Registered Plot Methods (Matplotlib Backend) ---
 
 
-@Plottable.register_plot_method("structure", backend="matplotlib")
+@Lattice.register_plot_method("structure", backend="matplotlib")
 def plot_structure_mpl(
     obj: Lattice,
     subs: Optional[Dict] = None,
@@ -145,11 +145,13 @@ def plot_structure_mpl(
     return fig
 
 
-@Plottable.register_plot_method("heatmap", backend="matplotlib")
+@Tensor.register_plot_method("heatmap", backend="matplotlib")
 def plot_heatmap_mpl(
-    obj: Union[np.ndarray, torch.Tensor, object],
+    obj: Tensor,
     title: str = "Matrix Visualization",
     save_path: Optional[str] = None,
+    fixed_indices: Optional[Tuple[int, ...]] = None,
+    axes: Tuple[int, int] = (-2, -1),
     **kwargs,
 ) -> plt.Figure:
     """
@@ -159,12 +161,17 @@ def plot_heatmap_mpl(
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        2D matrix to visualize.
+    obj : Tensor
+        Tensor to visualize as a 2D heatmap.
     title : str, default "Matrix Visualization"
         Title of the figure.
     save_path : str, optional
         If provided, saves the figure to this path.
+    fixed_indices : tuple of int, optional
+        Indices used to fix non-heatmap dimensions. For an N-dimensional tensor,
+        this must provide N-2 indices after selecting `axes`.
+    axes : tuple of int, default (-2, -1)
+        Pair of dimensions used as (row_axis, col_axis) in the heatmap.
     **kwargs
         Additional keyword arguments passed to `plt.subplots` (e.g., `figsize`).
 
@@ -173,16 +180,65 @@ def plot_heatmap_mpl(
     matplotlib.figure.Figure
         The generated Matplotlib figure.
     """
-    # Standardize input
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        tensor = obj.data.detach().cpu()
-    elif isinstance(obj, torch.Tensor):
-        tensor = obj.detach().cpu()
-    else:
-        tensor = torch.from_numpy(np.array(obj))
 
-    if tensor.ndim != 2:
-        raise ValueError(f"Heatmap requires a 2D matrix, got shape {tensor.shape}")
+    tensor = obj.data.detach().cpu()
+    rank = tensor.ndim
+    if rank < 2:
+        raise ValueError(
+            f"Heatmap requires rank >= 2 tensor, got shape {tuple(tensor.shape)}"
+        )
+
+    if len(axes) != 2:
+        raise ValueError(f"`axes` must have length 2, got {axes}")
+
+    normalized_axes = []
+    for axis in axes:
+        ax_norm = axis + rank if axis < 0 else axis
+        if not (0 <= ax_norm < rank):
+            raise ValueError(
+                f"Axis {axis} is out of bounds for tensor with rank {rank}"
+            )
+        normalized_axes.append(ax_norm)
+    row_axis, col_axis = normalized_axes
+    if row_axis == col_axis:
+        raise ValueError(f"`axes` must reference two different dimensions, got {axes}")
+
+    permute_order = [i for i in range(rank) if i not in (row_axis, col_axis)] + [
+        row_axis,
+        col_axis,
+    ]
+    tensor = tensor.permute(*permute_order)
+
+    expected_fixed = rank - 2
+    fixed_indices_resolved: Tuple[int, ...]
+    if fixed_indices is None:
+        if expected_fixed == 0:
+            fixed_indices_resolved = ()
+        else:
+            raise ValueError(
+                f"Heatmap for shape {tuple(obj.data.shape)} with axes={axes} requires "
+                f"`fixed_indices` of length {expected_fixed}."
+            )
+    else:
+        if len(fixed_indices) != expected_fixed:
+            raise ValueError(
+                f"`fixed_indices` length must be {expected_fixed} for shape "
+                f"{tuple(obj.data.shape)} with axes={axes}, got {len(fixed_indices)}."
+            )
+        fixed_indices_resolved = fixed_indices
+
+    indexer: Tuple[Union[int, slice], ...] = (
+        *fixed_indices_resolved,
+        slice(None),
+        slice(None),
+    )
+    try:
+        tensor = tensor[indexer]
+    except IndexError as exc:
+        raise IndexError(
+            f"`fixed_indices` {fixed_indices_resolved} is out of bounds for shape "
+            f"{tuple(obj.data.shape)} with axes={axes}."
+        ) from exc
 
     is_complex = tensor.is_complex()
 
@@ -192,15 +248,15 @@ def plot_heatmap_mpl(
 
         limit = max(np.abs(real_part).max(), np.abs(imag_part).max())
 
-        fig, axes = plt.subplots(1, 2, figsize=kwargs.get("figsize", (12, 5)))
+        fig, subplot_axes = plt.subplots(1, 2, figsize=kwargs.get("figsize", (12, 5)))
 
-        im1 = axes[0].imshow(real_part, cmap="RdBu", vmin=-limit, vmax=limit)
-        axes[0].set_title("Real Part")
-        fig.colorbar(im1, ax=axes[0])
+        im1 = subplot_axes[0].imshow(real_part, cmap="RdBu", vmin=-limit, vmax=limit)
+        subplot_axes[0].set_title("Real Part")
+        fig.colorbar(im1, ax=subplot_axes[0])
 
-        im2 = axes[1].imshow(imag_part, cmap="RdBu", vmin=-limit, vmax=limit)
-        axes[1].set_title("Imaginary Part")
-        fig.colorbar(im2, ax=axes[1])
+        im2 = subplot_axes[1].imshow(imag_part, cmap="RdBu", vmin=-limit, vmax=limit)
+        subplot_axes[1].set_title("Imaginary Part")
+        fig.colorbar(im2, ax=subplot_axes[1])
 
         fig.suptitle(title)
     else:
@@ -218,11 +274,13 @@ def plot_heatmap_mpl(
     return fig
 
 
-@Plottable.register_plot_method("spectrum", backend="matplotlib")
+@Tensor.register_plot_method("spectrum", backend="matplotlib")
 def plot_spectrum_mpl(
-    obj: Union[np.ndarray, torch.Tensor, object],
+    obj: Tensor,
     title: str = "Spectrum Visualization",
     save_path: Optional[str] = None,
+    fixed_indices: Optional[Tuple[int, ...]] = None,
+    axes: Tuple[int, int] = (-2, -1),
     **kwargs,
 ) -> plt.Figure:
     """
@@ -233,12 +291,17 @@ def plot_spectrum_mpl(
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        2D matrix to analyze.
+    obj : Tensor
+        Matrix/tensor to analyze as a 2D operator.
     title : str, default "Spectrum Visualization"
         Title of the figure.
     save_path : str, optional
         If provided, saves the figure to this path.
+    fixed_indices : tuple of int, optional
+        Indices used to fix non-matrix dimensions. For an N-dimensional tensor,
+        this must provide N-2 indices after selecting `axes`.
+    axes : tuple of int, default (-2, -1)
+        Pair of dimensions used as (row_axis, col_axis) for spectrum analysis.
     **kwargs
         Additional keyword arguments passed to `plt.subplots`.
 
@@ -247,16 +310,70 @@ def plot_spectrum_mpl(
     matplotlib.figure.Figure
         The generated Matplotlib figure.
     """
-    # Standardize
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        tensor = obj.data.detach().cpu()
-    elif isinstance(obj, torch.Tensor):
-        tensor = obj.detach().cpu()
-    else:
-        tensor = torch.from_numpy(np.array(obj))
+    tensor = obj.data.detach().cpu()
 
-    if tensor.ndim != 2:
-        raise ValueError(f"Spectrum requires a 2D matrix, got shape {tensor.shape}")
+    rank = tensor.ndim
+    if rank < 2:
+        raise ValueError(
+            f"Spectrum requires rank >= 2 tensor, got shape {tuple(tensor.shape)}"
+        )
+
+    if len(axes) != 2:
+        raise ValueError(f"`axes` must have length 2, got {axes}")
+
+    normalized_axes = []
+    for axis in axes:
+        ax_norm = axis + rank if axis < 0 else axis
+        if not (0 <= ax_norm < rank):
+            raise ValueError(
+                f"Axis {axis} is out of bounds for tensor with rank {rank}"
+            )
+        normalized_axes.append(ax_norm)
+    row_axis, col_axis = normalized_axes
+    if row_axis == col_axis:
+        raise ValueError(f"`axes` must reference two different dimensions, got {axes}")
+
+    permute_order = [i for i in range(rank) if i not in (row_axis, col_axis)] + [
+        row_axis,
+        col_axis,
+    ]
+    tensor = tensor.permute(*permute_order)
+
+    expected_fixed = rank - 2
+    fixed_indices_resolved: Tuple[int, ...]
+    if fixed_indices is None:
+        if expected_fixed == 0:
+            fixed_indices_resolved = ()
+        else:
+            raise ValueError(
+                f"Spectrum for shape {tuple(tensor.shape)} with axes={axes} requires "
+                f"`fixed_indices` of length {expected_fixed}."
+            )
+    else:
+        if len(fixed_indices) != expected_fixed:
+            raise ValueError(
+                f"`fixed_indices` length must be {expected_fixed} for shape "
+                f"{tuple(tensor.shape)} with axes={axes}, got {len(fixed_indices)}."
+            )
+        fixed_indices_resolved = fixed_indices
+
+    indexer: Tuple[Union[int, slice], ...] = (
+        *fixed_indices_resolved,
+        slice(None),
+        slice(None),
+    )
+    try:
+        tensor = tensor[indexer]
+    except IndexError as exc:
+        raise IndexError(
+            f"`fixed_indices` {fixed_indices_resolved} is out of bounds for shape "
+            f"{tuple(tensor.shape)} with axes={axes}."
+        ) from exc
+
+    if tensor.shape[-2] != tensor.shape[-1]:
+        raise ValueError(
+            f"Spectrum requires a square matrix after slicing, got shape {tuple(tensor.shape)}"
+        )
 
     # Check Hermiticity
     is_complex = tensor.is_complex()
@@ -298,89 +415,167 @@ def plot_spectrum_mpl(
     return fig
 
 
-@Plottable.register_plot_method("bandstructure", backend="matplotlib")
+@Tensor.register_plot_method("bandstructure", backend="matplotlib")
 def plot_bandstructure_mpl(
-    obj: Union[np.ndarray, torch.Tensor, object],
-    k_distances: Optional[Union[np.ndarray, torch.Tensor]] = None,
-    k_node_indices: Optional[List[int]] = None,
-    k_node_labels: Optional[List[str]] = None,
+    obj: Tensor,
     title: str = "Band Structure",
     save_path: Optional[str] = None,
+    subs: Optional[Dict] = None,
+    ax: Optional[Any] = None,
+    data_aspect: bool = True,
     **kwargs,
 ) -> plt.Figure:
     """
-    Plot electronic band structure using Matplotlib.
+    Plot the band structure of a Hamiltonian tensor using Matplotlib.
+    The tensor must have dimensions (MomentumSpace, HilbertSpace, HilbertSpace).
 
     Parameters
     ----------
-    obj : array-like or Tensor
-        (N_k, N_bands) array containing energy eigenvalues for each k-point.
-    k_distances : array-like, optional
-        (N_k,) array of cumulative distances along the k-path.
-        If None, defaults to indices.
-    k_node_indices : list of int, optional
-        Indices of high-symmetry points (ticks) in `k_distances`.
-    k_node_labels : list of str, optional
-        Labels for the high-symmetry points (e.g., ['G', 'M', 'K']).
-    title : str, default "Band Structure"
-        Title of the plot.
-    save_path : str, optional
-        If provided, saves the figure to this path.
-    **kwargs
-        Additional keyword arguments passed to `plt.subplots`.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-        The generated Matplotlib figure.
+    subs : dict, optional
+        Dictionary of symbol substitutions for lattice parameters.
+    ax : matplotlib.axes.Axes, optional
+        Existing axes to plot on. If provided, the plot is added to this axes and
+        the corresponding figure is returned via `ax.get_figure()`.
+    data_aspect : bool, default True
+        If True, keep the real physical kx:ky axis ratio in 3D surface mode.
     """
-    # Standardize
-    if hasattr(obj, "data") and isinstance(obj.data, torch.Tensor):
-        energies = obj.data.detach().cpu().numpy()
-    elif isinstance(obj, torch.Tensor):
-        energies = obj.detach().cpu().numpy()
+    # 1. Check Dimensions
+    if obj.rank() != 3:
+        raise ValueError(
+            f"Tensor must be rank 3 (Momentum, Hilbert, Hilbert), got rank {obj.rank()}"
+        )
+
+    k_space = obj.dims[0]
+    if not isinstance(k_space, MomentumSpace):
+        raise ValueError(f"First dimension must be MomentumSpace, got {type(k_space)}")
+
+    if not (
+        isinstance(obj.dims[1], HilbertSpace) and isinstance(obj.dims[2], HilbertSpace)
+    ):
+        raise ValueError("Last two dimensions must be HilbertSpace")
+
+    if not same_span(obj.dims[1], obj.dims[2]):
+        raise ValueError("Last two dimensions must span the same Hilbert space")
+
+    k_points = list(k_space)
+
+    # 2. Diagonalize
+    hk_data = obj.data
+    eigvals = torch.linalg.eigvalsh(hk_data)  # (K, N_bands)
+    eigvals_np = eigvals.detach().cpu().numpy()
+    n_bands = eigvals_np.shape[1]
+
+    # 3. Detect 2D grid shape (aligned with plotly backend logic)
+    grid_shape = getattr(k_space, "shape", None)
+    if grid_shape is None and "shape" in kwargs:
+        grid_shape = kwargs["shape"]
+
+    is_2d_grid = (
+        grid_shape is not None
+        and len(grid_shape) == 2
+        and grid_shape[0] * grid_shape[1] == len(k_points)
+    )
+
+    # 4. Build Cartesian reciprocal coordinates once for both modes.
+    if len(k_points) > 0:
+        recip = k_points[0].space
+        basis_sym = recip.basis
+        if subs:
+            basis_eval = basis_sym.subs(subs)
+        else:
+            basis_eval = basis_sym.subs({s: 1.0 for s in basis_sym.free_symbols})
+        basis_mat = np.array(basis_eval.evalf()).astype(float)
+
+        k_fracs = []
+        for k in k_points:
+            rep = k.rep
+            if subs:
+                rep = rep.subs(subs)
+            k_fracs.append(np.array(rep).astype(float).flatten())
+        k_fracs_arr = np.stack(k_fracs)
+        k_cart = k_fracs_arr @ basis_mat
     else:
-        energies = np.array(obj)
+        k_cart = np.array([])
 
-    if isinstance(k_distances, torch.Tensor):
-        k_distances = k_distances.detach().cpu().numpy()
+    if is_2d_grid and grid_shape is not None and len(k_cart) > 0:
+        # 2D Surface Plot
+        # Requires 3D projection
+        if ax is None:
+            fig = plt.figure(figsize=kwargs.get("figsize", (10, 8)))
+            ax = fig.add_subplot(111, projection="3d")
+        else:
+            fig = ax.get_figure()
+            if not hasattr(ax, "zaxis"):
+                raise ValueError(
+                    "A 3D axes is required for 2D grid bandstructure surface."
+                )
 
-    if energies.ndim != 2:
-        raise ValueError(f"Energies must be 2D, got {energies.shape}")
+        # Reshape eigenvalues
+        evals_grid = eigvals_np.reshape(grid_shape[0], grid_shape[1], n_bands)
 
-    num_k, num_bands = energies.shape
+        KX = k_cart[:, 0].reshape(grid_shape[0], grid_shape[1])
+        KY = k_cart[:, 1].reshape(grid_shape[0], grid_shape[1])
 
-    if k_distances is None:
-        k_distances = np.arange(num_k)
+        cmap = kwargs.get("cmap", "viridis")
+        surface_alpha = kwargs.get("surface_alpha", 0.85)
+        for b in range(n_bands):
+            ax.plot_surface(
+                KX,
+                KY,
+                evals_grid[:, :, b],
+                cmap=cmap,
+                alpha=surface_alpha,
+                linewidth=0,
+                antialiased=True,
+            )
 
-    fig, ax = plt.subplots(figsize=kwargs.get("figsize", (8, 5)))
+        ax.set_title(title)
+        ax.set_xlabel("kx (1/A)")
+        ax.set_ylabel("ky (1/A)")
+        # Explicit cast to avoid type checking issues with dynamic ax
+        cast(Any, ax).set_zlabel("Energy (eV)")
+        if data_aspect:
+            x_span = float(np.ptp(KX))
+            y_span = float(np.ptp(KY))
+            z_span = float(np.ptp(evals_grid))
+            # Keep real kx:ky scaling (plotly's aspectmode='data' equivalent).
+            cast(Any, ax).set_box_aspect(
+                (
+                    x_span if x_span > 0.0 else 1.0,
+                    y_span if y_span > 0.0 else 1.0,
+                    z_span if z_span > 0.0 else 1.0,
+                )
+            )
 
-    # Plot bands
-    ax.plot(k_distances, energies, "k-", linewidth=1.5)
+    else:
+        # 1D Line Plot
+        if ax is None:
+            fig, ax = plt.subplots(figsize=kwargs.get("figsize", (8, 6)))
+        else:
+            fig = ax.get_figure()
 
-    # Vertical lines
-    if k_node_indices:
-        tick_vals = []
-        tick_text = []
-        labels = k_node_labels if k_node_labels else [str(i) for i in k_node_indices]
+        x_vals = np.array([0.0])
+        if len(k_points) > 1 and len(k_cart) > 0:
+            diffs = k_cart[1:] - k_cart[:-1]
+            dists = np.linalg.norm(diffs, axis=1)
+            x_vals = np.concatenate(([0.0], np.cumsum(dists)))
 
-        for idx, label in zip(k_node_indices, labels):
-            if 0 <= idx < len(k_distances):
-                x_val = k_distances[idx]
-                tick_vals.append(x_val)
-                tick_text.append(label)
-                ax.axvline(x=x_val, color="grey", linestyle="--", linewidth=1)
+        line_width = kwargs.get("line_width", 1.5)
+        for b in range(n_bands):
+            ax.plot(x_vals, eigvals_np[:, b], linewidth=line_width, label=f"Band {b}")
 
-        if tick_vals:
-            ax.set_xticks(tick_vals)
-            ax.set_xticklabels(tick_text)
-
-    ax.set_title(title)
-    ax.set_xlabel("Wave Vector")
-    ax.set_ylabel("Energy")
-    ax.set_xlim(k_distances[0], k_distances[-1])
+        ax.set_title(title)
+        ax.set_xlabel("k-path (1/A)")
+        ax.set_ylabel("Energy (eV)")
+        if len(x_vals) > 1 and x_vals[-1] > x_vals[0]:
+            ax.set_xlim(float(x_vals[0]), float(x_vals[-1]))
+        else:
+            ax.set_xlim(-0.5, 0.5)
+        ax.grid(True, alpha=kwargs.get("grid_alpha", 0.3))
+        if kwargs.get("legend", False):
+            ax.legend(loc=kwargs.get("legend_loc", "best"))
 
     if save_path:
-        plt.savefig(save_path, bbox_inches="tight")
+        fig.savefig(save_path, bbox_inches="tight")
 
     return fig
