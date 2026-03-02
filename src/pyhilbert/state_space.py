@@ -29,7 +29,7 @@ class StateSpace(Spatial, Generic[TSpatial]):
     Attributes
     ----------
     structure : OrderedDict[Spatial, slice]
-        An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`, `Mode`) to a slice object that defines its
+        An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`) to a slice object that defines its
         position and the range in the tensor. The slices should be contiguous and ordered.
 
     dim : int
@@ -38,7 +38,7 @@ class StateSpace(Spatial, Generic[TSpatial]):
 
     structure: OrderedDict[TSpatial, slice]
     """
-    An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`, `Mode`) to a slice object that defines its 
+    An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`) to a slice object that defines its 
     position and the range in the tensor. The slices should be contiguous and ordered.
     """
 

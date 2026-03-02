@@ -9,7 +9,6 @@ from typing import (
     Tuple,
     Dict,
     TypeVar,
-    Union,
     Iterable,
     Callable,
     Type,
