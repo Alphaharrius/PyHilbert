@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from collections import OrderedDict
 from sympy import ImmutableDenseMatrix
 from pyhilbert import state_space
-from pyhilbert.tensors import Tensor, matmul
+from pyhilbert.tensors import Tensor, matmul, ones, zeros
 from pyhilbert.hilbert_space import HilbertSpace, Ket, U1Basis, hilbert
 from pyhilbert.state_space import (
     BroadcastSpace,
@@ -833,6 +833,22 @@ def tensor_ops_ctx():
 
 
 class TestTensorOperations:
+    def test_zeros_helper(self, tensor_ops_ctx):
+        dims = (tensor_ops_ctx.space_a, tensor_ops_ctx.space_a)
+        out = zeros(dims)
+        assert isinstance(out, Tensor)
+        assert out.dims == dims
+        assert out.data.shape == (2, 2)
+        assert torch.equal(out.data, torch.zeros(2, 2))
+
+    def test_ones_helper(self, tensor_ops_ctx):
+        dims = (tensor_ops_ctx.space_a, tensor_ops_ctx.space_a)
+        out = ones(dims)
+        assert isinstance(out, Tensor)
+        assert out.dims == dims
+        assert out.data.shape == (2, 2)
+        assert torch.equal(out.data, torch.ones(2, 2))
+
     def test_neg(self, tensor_ops_ctx):
         res = -tensor_ops_ctx.tensor
         assert torch.allclose(res.data, -tensor_ops_ctx.data)

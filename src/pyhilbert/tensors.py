@@ -1234,6 +1234,42 @@ def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
     return Tensor(data=torch.eye(rows, cols), dims=matrix_dims)
 
 
+def zeros(dims: Tuple[StateSpace, ...]) -> Tensor:
+    """
+    Create a zero-filled tensor with shape defined by `dims`.
+
+    Parameters
+    ----------
+    dims : `Tuple[StateSpace, ...]`
+        StateSpace dimensions defining the tensor shape.
+
+    Returns
+    -------
+    `Tensor`
+        A tensor of zeros with `shape == tuple(dim.dim for dim in dims)`.
+    """
+    shape = tuple(dim.dim for dim in dims)
+    return Tensor(data=torch.zeros(shape), dims=dims)
+
+
+def ones(dims: Tuple[StateSpace, ...]) -> Tensor:
+    """
+    Create a one-filled tensor with shape defined by `dims`.
+
+    Parameters
+    ----------
+    dims : `Tuple[StateSpace, ...]`
+        StateSpace dimensions defining the tensor shape.
+
+    Returns
+    -------
+    `Tensor`
+        A tensor of ones with `shape == tuple(dim.dim for dim in dims)`.
+    """
+    shape = tuple(dim.dim for dim in dims)
+    return Tensor(data=torch.ones(shape), dims=dims)
+
+
 def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
     """
     Replace the StateSpace at the specified dimension with a new StateSpace.
