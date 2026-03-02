@@ -171,6 +171,38 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         """
         return mean(self, dim)
 
+    def argmax(self, dim: int) -> "Tensor":
+        """
+        Compute the indices of the maximum values over a specified dimension.
+
+        Parameters
+        ----------
+        dim : `int`
+            The dimension to reduce.
+
+        Returns
+        -------
+        `Tensor`
+            A new tensor with the specified dimension reduced.
+        """
+        return argmax(self, dim)
+
+    def argmin(self, dim: int) -> "Tensor":
+        """
+        Compute the indices of the minimum values over a specified dimension.
+
+        Parameters
+        ----------
+        dim : `int`
+            The dimension to reduce.
+
+        Returns
+        -------
+        `Tensor`
+            A new tensor with the specified dimension reduced.
+        """
+        return argmin(self, dim)
+
     def expand_to_union(self, union_dims: list[StateSpace]) -> "Tensor":
         """
         Expand the tensor to the union of the specified dimensions.
@@ -1130,6 +1162,60 @@ def mean(tensor: Tensor, dim: int) -> Tensor:
 
     return Tensor(
         data=tensor.data.mean(dim=dim),
+        dims=tensor.dims[:dim] + tensor.dims[dim + 1 :],
+    )
+
+
+def argmax(tensor: Tensor, dim: int) -> Tensor:
+    """
+    Compute the indices of the maximum values over a specified dimension.
+
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to reduce.
+    dim : `int`
+        The dimension to reduce.
+
+    Returns
+    -------
+    `Tensor`
+        A new tensor with the specified dimension reduced.
+    """
+    if dim < 0:
+        dim += tensor.rank()
+    if dim < 0 or dim >= tensor.rank():
+        raise IndexError(f"Dimension index {dim} out of range for rank {tensor.rank()}")
+
+    return Tensor(
+        data=tensor.data.argmax(dim=dim),
+        dims=tensor.dims[:dim] + tensor.dims[dim + 1 :],
+    )
+
+
+def argmin(tensor: Tensor, dim: int) -> Tensor:
+    """
+    Compute the indices of the minimum values over a specified dimension.
+
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to reduce.
+    dim : `int`
+        The dimension to reduce.
+
+    Returns
+    -------
+    `Tensor`
+        A new tensor with the specified dimension reduced.
+    """
+    if dim < 0:
+        dim += tensor.rank()
+    if dim < 0 or dim >= tensor.rank():
+        raise IndexError(f"Dimension index {dim} out of range for rank {tensor.rank()}")
+
+    return Tensor(
+        data=tensor.data.argmin(dim=dim),
         dims=tensor.dims[:dim] + tensor.dims[dim + 1 :],
     )
 

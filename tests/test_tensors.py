@@ -1462,3 +1462,77 @@ def test_tensor_mean_raises_for_out_of_range_dim():
 
     with pytest.raises(IndexError, match="out of range"):
         _ = tensor.mean(2)
+
+
+def test_tensor_argmax_reduces_selected_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmax(1)
+
+    assert out.dims == (left, right)
+    assert torch.equal(out.data, data.argmax(dim=1))
+
+
+def test_tensor_argmax_supports_negative_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmax(-1)
+
+    assert out.dims == (left, mid)
+    assert torch.equal(out.data, data.argmax(dim=-1))
+
+
+def test_tensor_argmax_raises_for_out_of_range_dim():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 4)
+    tensor = Tensor(
+        data=torch.randn(left.dim, right.dim, dtype=torch.float64), dims=(left, right)
+    )
+
+    with pytest.raises(IndexError, match="out of range"):
+        _ = tensor.argmax(2)
+
+
+def test_tensor_argmin_reduces_selected_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmin(1)
+
+    assert out.dims == (left, right)
+    assert torch.equal(out.data, data.argmin(dim=1))
+
+
+def test_tensor_argmin_supports_negative_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmin(-1)
+
+    assert out.dims == (left, mid)
+    assert torch.equal(out.data, data.argmin(dim=-1))
+
+
+def test_tensor_argmin_raises_for_out_of_range_dim():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 4)
+    tensor = Tensor(
+        data=torch.randn(left.dim, right.dim, dtype=torch.float64), dims=(left, right)
+    )
+
+    with pytest.raises(IndexError, match="out of range"):
+        _ = tensor.argmin(2)
