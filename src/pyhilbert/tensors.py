@@ -27,7 +27,7 @@ such as `torch.FloatTensor`, `torch.DoubleTensor`, etc.
 
 
 @dataclass(frozen=True)
-class Tensor(Generic[T], Operable, Plottable):
+class Tensor(Generic[T], Operable, Plottable, Convertible):
     data: T
     dims: Tuple[StateSpace, ...]
 
