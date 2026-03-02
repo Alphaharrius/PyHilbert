@@ -11,7 +11,7 @@ import torch
 from .precision import get_precision_config
 from sympy import ImmutableDenseMatrix, sympify
 from .utils import FrozenDict
-from .abstracts import Operable, HasDual, HasBase, Plottable
+from .abstracts import Convertible, Operable, HasDual, HasBase, Plottable
 
 
 @dataclass(frozen=True)
@@ -303,7 +303,7 @@ def operator_gt(a: Offset, b: Offset) -> bool:
 
 
 @dataclass(frozen=True)
-class Momentum(Offset, HasBase[ReciprocalLattice]):
+class Momentum(Offset, HasBase[ReciprocalLattice], Convertible):
     @override
     def fractional(self) -> "Momentum":
         """

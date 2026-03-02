@@ -7,6 +7,7 @@ from itertools import chain, islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
+from .abstracts import Convertible
 from .spatials import (
     Spatial,
     ReciprocalLattice,
@@ -363,6 +364,13 @@ class MomentumSpace(StateSpace[Momentum]):
         return header + body
 
 
+@Momentum.add_conversion(StateSpace)
+def momentum_to_momentumspace(k: Momentum) -> StateSpace:
+    """Convert a `Momentum` to a `MomentumSpace` containing only that momentum."""
+    structure = OrderedDict({k: slice(0, 1)})
+    return MomentumSpace(structure=structure)
+
+
 @lru_cache
 def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
     elements = cartes(lattice)
@@ -416,7 +424,7 @@ def operator_add(a: BroadcastSpace, b: StateSpace):
 
 
 @dataclass(frozen=True)
-class FactorBand(Spatial):
+class FactorBand(Spatial, Convertible):
     """
     A spectral band in an eigenvalue spectrum.
 
@@ -469,6 +477,13 @@ class FactorSpace(StateSpace[FactorBand]):
             structure[band] = slice(base, base + count)
             base += count
         return cls(structure=structure)
+
+
+@FactorBand.add_conversion(StateSpace)
+def factorband_to_factorspace(band: FactorBand) -> StateSpace:
+    """Convert a `FactorBand` to a `FactorSpace` containing only that band."""
+    structure = OrderedDict({band: slice(0, band.dim)})
+    return FactorSpace(structure=structure)
 
 
 class StateSpaceFactorization(NamedTuple):

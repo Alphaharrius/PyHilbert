@@ -26,7 +26,7 @@ import sympy as sy
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from .utils import FrozenDict, full_typename
-from .abstracts import AbstractKet, Operable, Functional, Span, HasUnit
+from .abstracts import AbstractKet, Convertible, Operable, Functional, Span, HasUnit
 from .spatials import Spatial
 from .state_space import StateSpace, StateSpaceFactorization, restructure
 from .tensors import Tensor
@@ -79,7 +79,7 @@ def operator_gt(a: Ket[_IrrepType], b: Ket[_IrrepType]) -> bool:
 
 
 @dataclass(frozen=True)
-class U1Basis(Spatial, AbstractKet[sy.Expr], HasUnit):
+class U1Basis(Spatial, AbstractKet[sy.Expr], HasUnit, Convertible):
     """
     Immutable single-particle basis state built from typed irreps.
 
@@ -895,6 +895,12 @@ def hilbert(itr: Iterable[U1Elements]) -> HilbertSpace:
         structure[el] = slice(base, base + el.dim)
         base += el.dim
     return HilbertSpace(structure=structure)
+
+
+@U1Basis.add_conversion(StateSpace)
+def u1basis_to_hilbertspace(basis: U1Basis) -> StateSpace:
+    """Convert a `U1Basis` to a `HilbertSpace` containing only that basis state."""
+    return hilbert((basis,))
 
 
 @dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]

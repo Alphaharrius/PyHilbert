@@ -1,13 +1,12 @@
 from typing import Tuple, Union, Sequence, cast, Dict, Any, Optional
 from numbers import Number
 from dataclasses import dataclass, replace
-from collections import OrderedDict
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
 from .precision import get_precision_config
 from functools import wraps, reduce
 
-from .abstracts import Operable, Plottable
+from .abstracts import Convertible, Operable, Plottable
 from .state_space import (
     StateSpace,
     BroadcastSpace,
@@ -17,7 +16,6 @@ from .state_space import (
     flat_permutation_order,
     restructure,
 )
-from .spatials import Spatial
 
 
 @dataclass(frozen=True)
@@ -330,8 +328,8 @@ class Tensor(Operable, Plottable):
         if non_none > len(self.dims):
             raise IndexError("Too many indices for tensor")
 
-        # Decide indexing convention: Hilbert (Spatial/StateSpace) vs normal (int/slice/range).
-        has_hilbert_indices = any(isinstance(k, (Spatial, StateSpace)) for k in key)
+        # Decide indexing convention: StateSpace/Convertible vs normal (int/slice/range).
+        has_hilbert_indices = any(isinstance(k, (StateSpace, Convertible)) for k in key)
         if has_hilbert_indices:
             if any(isinstance(k, (int, range)) for k in key if k is not None):
                 raise ValueError(
@@ -343,7 +341,7 @@ class Tensor(Operable, Plottable):
                 if k is not None
             ):
                 raise ValueError(
-                    "Hilbert indexing only allows full slices ':' when mixed with StateSpace/Spatial indices"
+                    "Hilbert indexing only allows full slices ':' when mixed with StateSpace/Convertible indices"
                 )
         else:
             return self.data[key]
@@ -454,6 +452,17 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
             raise IndexError("Too many indices for tensor")
         dim = tensor.dims[dim_pos]
         dim_pos += 1
+        if not isinstance(k, (StateSpace, slice)) and isinstance(k, Convertible):
+            try:
+                converted = k.convert(StateSpace)
+            except NotImplementedError as e:
+                raise TypeError(
+                    f"{type(k).__name__} cannot be converted to StateSpace for tensor indexing"
+                ) from e
+            assert isinstance(converted, StateSpace), (
+                "Convertible.convert(StateSpace) must return a StateSpace"
+            )
+            k = converted
         if isinstance(k, StateSpace):
             if not set(k.structure.keys()).issubset(dim.structure.keys()):
                 raise ValueError("StateSpace index is not a subspace of tensor dim")
@@ -465,15 +474,6 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
             )
             data = data.index_select(dim_index, idx)
             new_dims[dim_index] = sub_space
-            dim_index += 1
-            continue
-        if isinstance(k, Spatial):
-            if k not in dim.structure:
-                raise KeyError("Spatial index not found in tensor dim")
-            sl = dim.get_slice(k)
-            data = data.narrow(dim_index, sl.start, sl.stop - sl.start)
-            sub = replace(dim, structure=restructure(OrderedDict({k: sl})))
-            new_dims[dim_index] = sub
             dim_index += 1
             continue
         if isinstance(k, slice):

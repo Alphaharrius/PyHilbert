@@ -12,7 +12,9 @@ from typing import (
     Generic,
     Type,
     TypeVar,
+    cast,
 )
+from typing_extensions import final
 
 from multipledispatch import dispatch
 
@@ -552,3 +554,72 @@ class HasUnit(ABC):
     def unit(self) -> Self:
         """Return the unit representation of this object."""
         raise NotImplementedError()
+
+
+A = TypeVar("A", bound="Convertible")
+B = TypeVar("B")
+_type_conversion_table: Dict[Tuple[Type[Any], Type[Any]], Callable[[Any], Any]] = {}
+
+
+class Convertible(ABC):
+    """
+    Mixin for objects that support explicit type-to-type conversion.
+
+    Conversion functions are registered globally using
+    ``@MyType.add_conversion(TargetType)`` with
+    ``(source_type, destination_type)`` as the lookup key. Implementers inherit
+    :meth:`convert` and usually only need to register conversion handlers.
+
+    Notes
+    -----
+    Lookup is exact on ``type(self)`` and the requested target type ``T``.
+    If no conversion function is registered for that pair, conversion fails
+    with ``NotImplementedError``.
+    """
+
+    @classmethod
+    def add_conversion(
+        cls: Type[A], T: Type[B]
+    ) -> Callable[[Callable[[A], B]], Callable[[A], B]]:
+        """
+        Register a conversion from ``cls`` to ``T``.
+
+        Example
+        -------
+        `@MyType.add_conversion(TargetType)`
+        `def to_target(x: MyType) -> TargetType: ...`
+        """
+
+        def decorator(func: Callable[[A], B]) -> Callable[[A], B]:
+            _type_conversion_table[(cls, T)] = cast(Callable[[Any], Any], func)
+            return func
+
+        return decorator
+
+    @final
+    def convert(self, T: Type[B]) -> B:
+        """
+        Convert this instance to the requested target type.
+
+        Parameters
+        ----------
+        `T` : `Type[B]`
+            Destination type to convert into.
+
+        Returns
+        -------
+        `B`
+            Converted object produced by the registered conversion function.
+
+        Raises
+        ------
+        `NotImplementedError`
+            If no conversion function has been registered for
+            ``(type(self), T)`` via :meth:`add_conversion`.
+        """
+        convertor = _type_conversion_table.get((type(self), T))
+        if convertor is None:
+            raise NotImplementedError(
+                f"No conversion from {type(self).__name__} to {T.__name__}!"
+            )
+        return cast(Callable[["Convertible"], B], convertor)(self)

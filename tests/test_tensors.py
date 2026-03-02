@@ -3,10 +3,17 @@ import torch
 import sympy as sy
 from dataclasses import dataclass
 from collections import OrderedDict
+from sympy import ImmutableDenseMatrix
 from pyhilbert import state_space
 from pyhilbert.tensors import Tensor, matmul
 from pyhilbert.hilbert_space import HilbertSpace, Ket, U1Basis, hilbert
-from pyhilbert.state_space import BroadcastSpace, MomentumSpace
+from pyhilbert.state_space import (
+    BroadcastSpace,
+    FactorSpace,
+    MomentumSpace,
+    brillouin_zone,
+)
+from pyhilbert.spatials import Lattice
 from pyhilbert.utils import FrozenDict
 from pyhilbert.tensors import unsqueeze
 
@@ -1282,6 +1289,53 @@ class TestTensorGetitem:
         assert out.dims == expected_dims
         expected = getitem_ctx.data_3d[0:2, :, :]
         assert torch.equal(out.data, expected)
+
+    def test_getitem_with_u1basis_index(self):
+        b0 = U1Basis(irrep=sy.Integer(0), kets=(Ket(sy.Integer(0)),))
+        b1 = U1Basis(irrep=sy.Integer(1), kets=(Ket(sy.Integer(1)),))
+        space = hilbert((b0, b1))
+        data = torch.arange(8, dtype=torch.float64).reshape(2, 2, 2)
+        tensor = Tensor(data=data, dims=(space, space, space))
+
+        out = tensor[:, :, b1]
+        assert isinstance(out, Tensor)
+        assert out.dims == (space, space, hilbert((b1,)))
+        assert torch.equal(out.data, data[:, :, 1:2])
+
+    def test_getitem_with_momentum_index(self):
+        lattice = Lattice(basis=ImmutableDenseMatrix([[1]]), shape=(2,))
+        momentum_space = brillouin_zone(lattice.dual)
+        _k0, k1 = tuple(momentum_space.structure.keys())
+
+        data = torch.arange(8, dtype=torch.float64).reshape(2, 2, 2)
+        tensor = Tensor(
+            data=data, dims=(momentum_space, momentum_space, momentum_space)
+        )
+
+        out = tensor[:, :, k1]
+        expected_dim = MomentumSpace(structure=OrderedDict({k1: slice(0, 1)}))
+        expected_slice = momentum_space.get_slice(k1)
+        assert isinstance(out, Tensor)
+        assert out.dims == (momentum_space, momentum_space, expected_dim)
+        assert torch.equal(
+            out.data, data[:, :, expected_slice.start : expected_slice.stop]
+        )
+
+    def test_getitem_with_factorband_index(self):
+        factor_space = FactorSpace.from_band_counts((1, 2))
+        _b0, b1 = tuple(factor_space.structure.keys())
+
+        data = torch.arange(27, dtype=torch.float64).reshape(3, 3, 3)
+        tensor = Tensor(data=data, dims=(factor_space, factor_space, factor_space))
+
+        out = tensor[:, :, b1]
+        expected_dim = FactorSpace(structure=OrderedDict({b1: slice(0, b1.dim)}))
+        expected_slice = factor_space.get_slice(b1)
+        assert isinstance(out, Tensor)
+        assert out.dims == (factor_space, factor_space, expected_dim)
+        assert torch.equal(
+            out.data, data[:, :, expected_slice.start : expected_slice.stop]
+        )
 
 
 def _simple_hilbert(tag: str, size: int, make_irrep=None) -> HilbertSpace:
