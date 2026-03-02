@@ -1,4 +1,4 @@
-from typing import Tuple, Union, Sequence, cast, Dict, Any, Optional
+from typing import Tuple, TypeVar, Generic, Union, Sequence, cast, Dict, Any, Optional
 from numbers import Number
 from dataclasses import dataclass, replace
 from multipledispatch import dispatch  # type: ignore[import-untyped]
@@ -18,9 +18,17 @@ from .state_space import (
 )
 
 
+T = TypeVar("T", bound=torch.Tensor)
+"""
+The `torch.Tensor` types to be used in `Tensor`. 
+This is a type variable that can be any subclass of `torch.Tensor`, 
+such as `torch.FloatTensor`, `torch.DoubleTensor`, etc.
+"""
+
+
 @dataclass(frozen=True)
-class Tensor(Operable, Plottable):
-    data: torch.Tensor
+class Tensor(Generic[T], Operable, Plottable):
+    data: T
     dims: Tuple[StateSpace, ...]
 
     def conj(self) -> "Tensor":
