@@ -1,5 +1,6 @@
 import torch
 import sympy as sy
+from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 
 from pyhilbert.spatials import (
@@ -9,10 +10,19 @@ from pyhilbert.spatials import (
     ReciprocalLattice,
     Momentum,
 )
-from pyhilbert.hilbert import brillouin_zone, hilbert, Mode
+from pyhilbert.state_space import brillouin_zone
+from pyhilbert.hilbert_space import Ket, U1Basis, hilbert
 from pyhilbert.tensors import Tensor
 from pyhilbert.basis_transform import bandfold, BasisTransform
-from pyhilbert.utils import FrozenDict
+
+
+@dataclass(frozen=True)
+class Orb:
+    name: str
+
+
+def _mode(r: Offset, orb: str = "s") -> U1Basis:
+    return U1Basis(irrep=sy.Integer(1), kets=(Ket(r), Ket(Orb(orb))))
 
 
 def test_bandfold_1d():
@@ -25,7 +35,7 @@ def test_bandfold_1d():
 
     # 1b. Define a simple 1-dim Hilbert space
     r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice.affine)
-    h_space = hilbert([Mode(count=1, attr=FrozenDict({"r": r_offset}))])
+    h_space = hilbert([_mode(r_offset)])
     assert h_space.dim == 1
 
     # 1c. Create an input tensor (4, 1, 1)
@@ -77,7 +87,7 @@ def test_bandfold_2d():
 
     # 1b. Define a simple Hilbert space
     r_offset = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
-    h_space = hilbert([Mode(count=1, attr=FrozenDict({"orb": "s", "r": r_offset}))])
+    h_space = hilbert([_mode(r_offset, "s")])
     assert h_space.dim == 1
 
     # 1c. Create input tensor (4, 1, 1)

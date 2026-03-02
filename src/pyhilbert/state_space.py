@@ -1,70 +1,18 @@
 from dataclasses import dataclass, replace, field
-from typing import Any, Callable, Tuple, TypeVar, Generic, Union, cast
+from typing import Callable, NamedTuple, Tuple, TypeVar, Generic, Union, Self
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
 from functools import lru_cache
 from itertools import chain, islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
-from .abstracts import Updatable, Gaugable
-from .utils import FrozenDict
+
 from .spatials import (
     Spatial,
     ReciprocalLattice,
     Momentum,
     cartes,
 )
-
-
-@dataclass(frozen=True)
-class Mode(Spatial, Updatable["Mode"], Gaugable):
-    """
-    Mode:
-    - r: Real space offset of the mode (unit-cell offset + basis)
-    - spin: Spin information
-    """
-
-    count: int
-    attr: FrozenDict
-
-    def attr_names(self) -> Tuple[str, ...]:
-        """Return the attribute names of this mode."""
-        return cast(Tuple[str, ...], tuple(self.attr.keys()))
-
-    @dispatch(object)
-    def __getitem__(self, v):
-        raise NotImplementedError(f"Get item of {type(v)} is not supported!")
-
-    @dispatch(str)  # type: ignore[no-redef]
-    def __getitem__(self, name: str):
-        return self.attr[name]
-
-    @dispatch(tuple)  # type: ignore[no-redef]
-    def __getitem__(self, names: Tuple[str, ...]):
-        items = {name: self.attr[name] for name in names}
-        return replace(self, attr=FrozenDict(items))
-
-    @property
-    def dim(self) -> int:
-        return self.count
-
-    def _updated(self, **kwargs) -> "Mode":
-        updated_attr = {**self.attr}
-        _MISSING = object()
-        for k, v in kwargs.items():
-            old = updated_attr.get(k, _MISSING)
-            if callable(v):
-                if old is _MISSING:
-                    continue
-                updated_attr[k] = v(old)
-            else:
-                updated_attr[k] = v
-
-        return replace(self, attr=FrozenDict(updated_attr))
-
-    @classmethod
-    def from_attr(cls, count: int, **attr) -> "Mode":
-        return cls(count=count, attr=FrozenDict(attr))
 
 
 TSpatial = TypeVar("TSpatial", bound=Spatial)
@@ -205,6 +153,27 @@ class StateSpace(Spatial, Generic[TSpatial]):
             new_structure[new_k] = s
         return replace(self, structure=restructure(new_structure))
 
+    def tensor_product(self, other: Self) -> Self:
+        """
+        Return the tensor product of this state space with another.
+
+        Parameters
+        ----------
+        `other` : `StateSpace`
+            The other state space to tensor with.
+
+        Returns
+        -------
+        `StateSpace`
+            A new state space representing the tensor product of the two.
+        """
+        raise NotImplementedError(f"Tensor product not implemented for {type(self)}!")
+
+
+@dispatch(StateSpace, StateSpace)
+def operator_matmul(a: StateSpace, b: StateSpace):
+    return a.tensor_product(b)
+
 
 def restructure(
     structure: OrderedDict[TSpatial, slice],
@@ -231,7 +200,7 @@ def restructure(
     return new_structure
 
 
-# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@lru_cache
 def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     """
     Return the permutation of `src` sectors needed to match `dest` sector order.
@@ -251,14 +220,24 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     Returns
     -------
     `Tuple[int, ...]`
-        Sector indices mapping each key in `dest` to its position in `src`
-        (`-1` if missing).
+        Sector indices mapping each key in `dest` to its position in `src`.
+
+    Raises
+    ------
+    `ValueError`
+        If a destination sector key is missing from the source state space.
     """
     order_table = {k: n for n, k in enumerate(src.structure.keys())}
-    return tuple(order_table.get(k, -1) for k in dest.structure.keys())
+    missing = [k for k in dest.structure.keys() if k not in order_table]
+    if missing:
+        raise ValueError(
+            "Cannot build permutation order: destination contains keys not present "
+            f"in source: {missing}"
+        )
+    return tuple(order_table[k] for k in dest.structure.keys())
 
 
-# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@lru_cache
 def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     """
     Return the flattened index permutation that reorders `src` to match `dest`.
@@ -285,7 +264,7 @@ def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, 
     return tuple(chain.from_iterable(ordered_groups))
 
 
-# TODO: We can put @lru_cache if the hashing of StateSpace is well defined
+@lru_cache
 def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
     """
     Return indices mapping `sub` into `sup` (assumes `sub` ⊆ `sup`).
@@ -382,81 +361,6 @@ class MomentumSpace(StateSpace[Momentum]):
             [f"{n}: {k}" for n, k in enumerate(self.structure.keys())]
         )
         return header + body
-
-
-@dataclass(frozen=True)
-class HilbertSpace(StateSpace[Mode], Updatable["HilbertSpace"]):
-    __hash__ = StateSpace.__hash__
-
-    def _updated(self, **kwargs) -> "HilbertSpace":
-        updated_structure = {}
-        for m, s in self.structure.items():
-            if not isinstance(m, Mode):
-                raise RuntimeError(
-                    f"Implementation error: found {type(m)} in HilbertSpace structure!"
-                )
-            updated_m = m.update(**kwargs)
-            updated_structure[updated_m] = s
-
-        # Don't need StateSpace.restructure here since the slices are unchanged
-        return HilbertSpace(structure=OrderedDict(updated_structure))
-
-    def collect(self, *key: str) -> Tuple[Any, ...]:
-        """
-        Collect attributes from the `Mode` elements under this `HilbertSpace`
-        and return them as a `Tuple`.
-
-        Parameters
-        ----------
-        *key : str
-            Attribute names to collect from each `Mode`, if multiple keys are provided,
-            the collected attributes will be returned as a `Tuple` of reduced `Mode` with only those attributes.
-
-        Returns
-        -------
-        `Tuple`
-            A tuple of `Mode` elements with the specified attributes if multiple keys are provided,
-            otherwise a tuple of the collected attributes.
-        """
-        if len(key) == 1:
-            return tuple(m[key[0]] for m in self)
-        return tuple(m[key] for m in self)
-
-    def mode_lookup(self, **kwargs) -> Mode:
-        """
-        Find a single mode with matching attributes.
-
-        Parameters
-        ----------
-        **kwargs
-            Attribute names and values to match.
-
-        Returns
-        -------
-        `Mode`
-            The unique `Mode` matching the criteria.
-
-        Raises
-        ------
-        `ValueError`
-            If no mode or multiple modes are found.
-        """
-        found = [m for m in self if all(m.attr.get(k) == v for k, v in kwargs.items())]
-        if not found:
-            raise ValueError(f"No mode found with attributes {kwargs}")
-        if len(found) > 1:
-            raise ValueError(f"Multiple modes found with attributes {kwargs}")
-        return found[0]
-
-
-@dispatch(Iterable)
-def hilbert(itr: Iterable[Mode]) -> HilbertSpace:
-    structure: OrderedDict[Mode, slice] = OrderedDict()
-    base = 0
-    for mode in itr:
-        structure[mode] = slice(base, base + mode.count)
-        base += mode.count
-    return HilbertSpace(structure=structure)
 
 
 @lru_cache
@@ -565,3 +469,20 @@ class FactorSpace(StateSpace[FactorBand]):
             structure[band] = slice(base, base + count)
             base += count
         return cls(structure=structure)
+
+
+class StateSpaceFactorization(NamedTuple):
+    """
+    Ruleset for factorizing one `StateSpace`-like tensor dimension.
+
+    Attributes
+    ----------
+    `factorized` : `Tuple[StateSpace, ...]`
+        Target factor spaces in `torch.Tensor.reshape` ordering.
+    `align_dim` : `StateSpace`
+        A permutation of the original dimension whose flattened order is
+        compatible with reshaping into `factorized`.
+    """
+
+    factorized: Tuple[StateSpace, ...]
+    align_dim: StateSpace

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, Type, TypeVar, Union, cast
+from typing_extensions import override
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 from itertools import product
@@ -163,8 +164,48 @@ class ReciprocalLattice(AbstractLattice):
         return self.lattice
 
 
+_VecType = TypeVar("_VecType", bound=Union[np.ndarray, ImmutableDenseMatrix])
+"""Type variable for vector types that can be returned by `Offset.to_vec()`."""
+
+
 @dataclass(frozen=True)
 class Offset(Spatial, HasBase[AffineSpace]):
+    """
+    Offset vector in an affine basis.
+
+    Let :math:`x = (r_x, S_x)` and :math:`y = (r_y, S_y)`, where
+    :math:`r_x, r_y \\in \\mathbb{R}^{d \\times 1}` are coordinate columns and
+    :math:`S_x, S_y` are affine spaces with basis matrices :math:`B_x, B_y`.
+
+    Algebra
+    -------
+    :math:`-x = (-r_x, S_x)`.
+
+    :math:`x + y = (r_x + \\tilde r_y, S_x)`, where
+    :math:`\\tilde r_y = B_x^{-1} B_y r_y` if :math:`S_x \\neq S_y`
+    (equivalently, rebase :math:`y` into :math:`S_x` first).
+
+    :math:`x - y = x + (-y)`.
+
+    Equality
+    --------
+    :math:`x = y \\iff (r_x = r_y) \\land (S_x = S_y)`.
+    This is exact structural equality; no implicit rebasing is applied.
+
+    Order
+    -----
+    For :math:`x < y` and :math:`x > y`:
+    compare :math:`d_x` and :math:`d_y` first.
+    If :math:`d_x = d_y`, compare Cartesian tuples
+    :math:`\\mathrm{tuple}(B_x r_x)` and :math:`\\mathrm{tuple}(B_y r_y)`
+    lexicographically.
+
+    Unsupported operators
+    ---------------------
+    :math:`\\le, \\ge, \\times, @, /, //, ^, \\land, \\lor`
+    are not defined for `Offset` and raise `NotImplementedError`.
+    """
+
     rep: ImmutableDenseMatrix
     space: AffineSpace
 
@@ -184,7 +225,7 @@ class Offset(Spatial, HasBase[AffineSpace]):
         s = self.rep - n
         return Offset(rep=sy.ImmutableDenseMatrix(s), space=self.space)
 
-    fractional = lru_cache(fractional)
+    fractional = lru_cache(fractional)  # Prevent mypy type checking issues
 
     def base(self) -> AffineSpace:
         """Get the `AffineSpace` this `Offset` is expressed in."""
@@ -208,6 +249,28 @@ class Offset(Spatial, HasBase[AffineSpace]):
         new_rep = rebase_transform_mat @ self.rep
         return Offset(rep=ImmutableDenseMatrix(new_rep), space=space)
 
+    def to_vec(self, T: Type[_VecType]) -> _VecType:
+        """Convert this Offset to a vector in Cartesian coordinates by applying
+        the basis transformation of its affine space.
+
+        Returns
+        -------
+        `ImmutableDenseMatrix`
+            The Cartesian coordinate vector in column format corresponding to this Offset.
+        """
+        vec = self.space.basis @ self.rep
+        if T == ImmutableDenseMatrix:
+            return vec
+        elif T == np.ndarray:
+            precision = get_precision_config()
+            return cast(
+                _VecType, np.array(vec.evalf(), dtype=precision.np_float).reshape(-1)
+            )
+        else:
+            raise TypeError(
+                f"Unsupported type {T} for to_vec. Supported types: np.ndarray, ImmutableDenseMatrix"
+            )
+
     def __str__(self):
         # If it's a column vector, flatten to 1D python list
         if self.rep.shape[1] == 1:
@@ -221,8 +284,27 @@ class Offset(Spatial, HasBase[AffineSpace]):
         return str(self)
 
 
+@dispatch(Offset, Offset)  # type: ignore[no-redef]
+def operator_lt(a: Offset, b: Offset) -> bool:
+    if a.dim != b.dim:
+        return a.dim < b.dim
+    va = a.to_vec(np.ndarray)
+    vb = b.to_vec(np.ndarray)
+    return tuple(va) < tuple(vb)
+
+
+@dispatch(Offset, Offset)  # type: ignore[no-redef]
+def operator_gt(a: Offset, b: Offset) -> bool:
+    if a.dim != b.dim:
+        return a.dim > b.dim
+    va = a.to_vec(np.ndarray)
+    vb = b.to_vec(np.ndarray)
+    return tuple(va) > tuple(vb)
+
+
 @dataclass(frozen=True)
 class Momentum(Offset, HasBase[ReciprocalLattice]):
+    @override
     def fractional(self) -> "Momentum":
         """
         Return the fractional coordinates of this Offset within its lattice space.
@@ -231,7 +313,7 @@ class Momentum(Offset, HasBase[ReciprocalLattice]):
         s = self.rep - n
         return Momentum(rep=sy.ImmutableDenseMatrix(s), space=self.space)
 
-    fractional = lru_cache(fractional)
+    fractional = lru_cache(fractional)  # Prevent mypy type checking issues
 
     def base(self) -> ReciprocalLattice:
         """Get the `ReciprocalLattice` this `Momentum` is expressed in."""
@@ -258,6 +340,42 @@ class Momentum(Offset, HasBase[ReciprocalLattice]):
         rebase_transform_mat = space.basis.inv() @ self.space.basis
         new_rep = rebase_transform_mat @ self.rep
         return Momentum(rep=ImmutableDenseMatrix(new_rep), space=space)
+
+
+@dispatch(Offset, Offset)  # type: ignore[no-redef]
+def operator_add(a: Offset, b: Offset) -> Offset:
+    if a.space != b.space:
+        b = b.rebase(a.space)
+    new_rep = a.rep + b.rep
+    return Offset(rep=ImmutableDenseMatrix(new_rep), space=a.space)
+
+
+@dispatch(Momentum, Momentum)  # type: ignore[no-redef]
+def operator_add(a: Momentum, b: Momentum) -> Momentum:
+    if a.space != b.space:
+        b = b.rebase(a.space)
+    new_rep = a.rep + b.rep
+    return Momentum(rep=ImmutableDenseMatrix(new_rep), space=a.space)
+
+
+@dispatch(Offset)  # type: ignore[no-redef]
+def operator_neg(r: Offset) -> Offset:
+    return Offset(rep=-r.rep, space=r.space)
+
+
+@dispatch(Momentum)  # type: ignore[no-redef]
+def operator_neg(r: Momentum) -> Momentum:
+    return Momentum(rep=-r.rep, space=r.space)
+
+
+@dispatch(Offset, Offset)  # type: ignore[no-redef]
+def operator_sub(a: Offset, b: Offset) -> Offset:
+    return a + (-b)
+
+
+@dispatch(Momentum, Momentum)  # type: ignore[no-redef]
+def operator_sub(a: Momentum, b: Momentum) -> Momentum:
+    return a + (-b)
 
 
 @dispatch(Lattice)  # type: ignore[no-redef]

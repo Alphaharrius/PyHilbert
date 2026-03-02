@@ -1,12 +1,11 @@
 import torch
-from collections import OrderedDict
+import sympy as sy
 from pyhilbert.tensors import Tensor
-from pyhilbert.hilbert import HilbertSpace, Mode
-from pyhilbert.utils import FrozenDict
+from pyhilbert.hilbert_space import Ket, U1Basis, hilbert
 
 
-class MockMode(Mode):
-    pass
+def _state(tag: str, idx: int) -> U1Basis:
+    return U1Basis(irrep=sy.Integer(1), kets=(Ket((tag, idx)),))
 
 
 class TestTensorAutograd:
@@ -73,9 +72,7 @@ class TestTensorAutograd:
         gradient calculation, and detachment.
         """
         # 1. Simulate inputs and weights
-        # FIX: Added explicit dimensions to match data shape, as operator_add does not support hidden batch dims
-        mode = MockMode(count=3, attr=FrozenDict({"name": "batch"}))
-        space = HilbertSpace(structure=OrderedDict([(mode, slice(0, 3))]))
+        space = hilbert(_state("batch", i) for i in range(3))
         dims = (space,)
 
         x_data = torch.tensor([1.0, 2.0, 3.0])

@@ -3,10 +3,13 @@ from abc import ABCMeta
 from typing import (
     Iterator,
     Any,
+    Generic,
     List,
     Optional,
     Tuple,
     Dict,
+    TypeVar,
+    Union,
     Iterable,
     Callable,
     Type,
@@ -15,10 +18,14 @@ from typing import (
 import torch
 
 
-class FrozenDict(Mapping):
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+class FrozenDict(Mapping[_K, _V], Generic[_K, _V]):
     __slots__ = ("__items", "__hash")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any):
         data = dict(*args, **kwargs)
         try:
             fitems = frozenset(data.items())  # ensures all keys/vals are hashable
@@ -33,32 +40,25 @@ class FrozenDict(Mapping):
         object.__setattr__(self, "_FrozenDict__hash", hash(fitems))
 
     # internal accessor that bypasses the guard
-    def _items(self):
-        return object.__getattribute__(self, "_FrozenDict__items")
+    def _items(self) -> Tuple[Tuple[_K, _V], ...]:
+        return cast(
+            Tuple[Tuple[_K, _V], ...],
+            object.__getattribute__(self, "_FrozenDict__items"),
+        )
 
     # --- Mapping interface ---
     def __len__(self) -> int:
         return len(self._items())
 
-    def __iter__(self) -> Iterator:
+    def __iter__(self) -> Iterator[_K]:
         for k, _ in self._items():
             yield k
 
-    def __getitem__(self, key: Any) -> Any:
+    def __getitem__(self, key: _K) -> _V:
         for k, v in self._items():
             if k == key:
                 return v
         raise KeyError(key)
-
-    # convenient immutable snapshots
-    def keys(self):
-        return tuple(k for k, _ in self._items())
-
-    def items(self):
-        return tuple(self._items())
-
-    def values(self):
-        return tuple(v for _, v in self._items())
 
     # --- equality & hash ---
     def __hash__(self) -> int:
@@ -197,3 +197,20 @@ def subtypes(cls: Type) -> Tuple[ABCMeta, ...]:
             out.add(sub)
             stack.extend(sub.__subclasses__())
     return cast(Tuple[ABCMeta, ...], tuple(out))
+
+
+def full_typename(cls: Type) -> str:
+    """
+    Get the full module and class name of a type.
+
+    Parameters
+    ----------
+    `cls` : `Type`
+        The class to get the name of.
+
+    Returns
+    -------
+    `str`
+        The full name of the class, including its module.
+    """
+    return f"{cls.__module__}.{cls.__qualname__}"

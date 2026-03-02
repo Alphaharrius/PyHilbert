@@ -6,8 +6,8 @@ import torch
 from pyhilbert.hilbert import Mode, hilbert, brillouin_zone
 from pyhilbert.spatials import Lattice, Offset
 from pyhilbert.tensors import Tensor
-from pyhilbert.utils import FrozenDict
-from pyhilbert.fourier import fourier_transform
+from pyhilbert.hilbert_space import Ket, U1Basis, hilbert
+from pyhilbert.utils import generate_k_path
 
 
 def create_dummy_tensor(data_like):
@@ -17,9 +17,16 @@ def create_dummy_tensor(data_like):
     else:
         data = data_like
 
-    m = Mode(count=data.shape[0], attr=FrozenDict({"label": "dummy"}))
-    hspace = hilbert([m])
-    dims = (hspace,) * data.ndim
+    hspace = hilbert(
+        U1Basis(irrep=sy.Integer(1), kets=(Ket(("dummy", i)),))
+        for i in range(data.shape[0])
+    )
+
+    if data.ndim == 2:
+        dims = (hspace, hspace)
+    else:
+        dims = (hspace,) * data.ndim
+
     return Tensor(data=data, dims=dims)
 
 
