@@ -43,6 +43,31 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
     data: T
     dims: Tuple[StateSpace, ...]
 
+    @classmethod
+    @dispatch(Number)
+    def scalar(number: Number) -> "Tensor":
+        """
+        Create a 0-dimensional `Tensor` from a scalar number.
+
+        Parameters
+        ----------
+        number : `Number`
+            The scalar value to convert into a tensor.
+
+        Returns
+        -------
+        `Tensor`
+            A 0-dimensional tensor containing the given number.
+        """
+        precision = get_precision_config()
+        dtype = (
+            precision.torch_complex
+            if isinstance(number, complex)
+            else precision.torch_float
+        )
+        data = torch.tensor(number, dtype=dtype)
+        return Tensor(data=data, dims=())
+
     def astype(self, dtype: torch.dtype) -> "Tensor":
         """
         Return a new tensor with the same dims and converted data dtype.
@@ -633,31 +658,6 @@ def auto_promote(func):
         return func(left, right, *args, **kwargs)
 
     return wrapper
-
-
-@dispatch(Number)
-def tensor(number: Number) -> Tensor:
-    """
-    Create a 0-dimensional `Tensor` from a scalar number.
-
-    Parameters
-    ----------
-    number : `Number`
-        The scalar value to convert into a tensor.
-
-    Returns
-    -------
-    `Tensor`
-        A 0-dimensional tensor containing the given number.
-    """
-    precision = get_precision_config()
-    dtype = (
-        precision.torch_complex
-        if isinstance(number, complex)
-        else precision.torch_float
-    )
-    data = torch.tensor(number, dtype=dtype)
-    return Tensor(data=data, dims=())
 
 
 def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
