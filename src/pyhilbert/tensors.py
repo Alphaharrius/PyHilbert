@@ -9,6 +9,7 @@ from typing import (
     Any,
     Optional,
     Callable,
+    Literal,
 )
 from numbers import Number
 from dataclasses import dataclass, replace
@@ -43,8 +44,8 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
     data: T
     dims: Tuple[StateSpace, ...]
 
-    @classmethod
     @dispatch(Number)
+    @staticmethod
     def scalar(number: Number) -> "Tensor":
         """
         Create a 0-dimensional `Tensor` from a scalar number.
@@ -418,6 +419,27 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
             raise RuntimeError(
                 "Only CUDA and MPS devices are supported for GPU operations!"
             )
+
+    def device(
+        self, device: Optional[Literal["cpu", "gpu"]] = None
+    ) -> "Tensor" | Literal["cpu", "gpu"]:
+        """
+        ### Provided `device`
+        Copy the tensor data to the specified device and create a new `Tensor` instance.
+        See ``Tensor.cpu()`` and ``Tensor.gpu()`` for device-specific behavior and requirements.
+
+        ### No `device` argument
+        If `device` is `None`, this returns a string indicating the current device type of the tensor data:
+        - Returns `"gpu"` if the data is on a CUDA or MPS device.
+        - Returns `"cpu"` if the data is on a CPU device.
+        """
+        if device is None:
+            device_type = self.data.device.type
+            return "gpu" if device_type in {"cuda", "mps"} else "cpu"
+        elif device == "cpu":
+            return self.cpu()
+        elif device == "gpu":
+            return self.gpu()
 
     @property
     def requires_grad(self) -> bool:
