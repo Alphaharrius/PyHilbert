@@ -31,6 +31,28 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
     data: T
     dims: Tuple[StateSpace, ...]
 
+    def equal(self, other: "Tensor") -> bool:
+        """
+        Compare this tensor to another tensor for exact equality.
+
+        Behavior
+        --------
+        - Attempts to align `other.dims` to `self.dims` using `align_all`.
+        - If dimension alignment is not possible, returns `False`.
+        - If alignment succeeds, compares aligned data via `torch.equal`.
+
+        Parameters
+        ----------
+        `other` : `Tensor`
+            The tensor to compare against this tensor.
+
+        Returns
+        -------
+        `bool`
+            `True` if tensors are exactly equal after alignment; otherwise `False`.
+        """
+        return equal(self, other)
+
     def allclose(
         self,
         other: "Tensor",
@@ -1397,6 +1419,40 @@ def allclose(
         right = right.to(device=left.device, dtype=common_dtype)
 
     return torch.allclose(left, right, rtol=rtol, atol=atol, equal_nan=equal_nan)
+
+
+def equal(a: Tensor, b: Tensor) -> bool:
+    """
+    Compare two tensors for exact equality with dimension-aware alignment.
+
+    This function first aligns `b` to `a` by calling `b.align_all(a.dims)`.
+    If alignment fails (for example, mismatched rank or non-alignable
+    `StateSpace`s), this function returns `False` instead of raising.
+    When alignment succeeds, the function compares data values using
+    `torch.equal`.
+
+    After alignment, equality is delegated directly to `torch.equal`, preserving
+    native PyTorch equality behavior for dtype/device handling.
+
+    Parameters
+    ----------
+    a : `Tensor`
+        Reference tensor defining the target dimension layout.
+    b : `Tensor`
+        Tensor that will be aligned to `a` before comparison.
+
+    Returns
+    -------
+    `bool`
+        `True` if values are exactly equal after successful alignment; `False`
+        if alignment fails or values are not equal.
+    """
+    try:
+        aligned_b = b.align_all(a.dims)
+    except (IndexError, TypeError, ValueError, RuntimeError):
+        return False
+
+    return torch.equal(a.data, aligned_b.data)
 
 
 def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:

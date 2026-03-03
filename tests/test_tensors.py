@@ -5,7 +5,16 @@ from dataclasses import dataclass
 from collections import OrderedDict
 from sympy import ImmutableDenseMatrix
 from pyhilbert import state_space
-from pyhilbert.tensors import Tensor, align_all, allclose, matmul, one_hot, ones, zeros
+from pyhilbert.tensors import (
+    Tensor,
+    align_all,
+    allclose,
+    equal,
+    matmul,
+    one_hot,
+    ones,
+    zeros,
+)
 from pyhilbert.hilbert_space import HilbertSpace, Ket, U1Basis, hilbert
 from pyhilbert.state_space import (
     BroadcastSpace,
@@ -1643,3 +1652,54 @@ def test_align_all_raises_when_not_alignable():
 
     with pytest.raises(ValueError, match="cannot be aligned|Cannot align"):
         _ = align_all(tensor, (left,))
+
+
+def test_equal_aligns_right_dims():
+    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
+    space_ab = HilbertSpace(
+        structure=OrderedDict([(mode_a, slice(0, 2)), (mode_b, slice(2, 5))])
+    )
+    space_ba = HilbertSpace(
+        structure=OrderedDict([(mode_b, slice(0, 3)), (mode_a, slice(3, 5))])
+    )
+
+    a_data = torch.randn(space_ab.dim, dtype=torch.float64)
+    b_data = torch.empty_like(a_data)
+    perm = torch.tensor([3, 4, 0, 1, 2], dtype=torch.long)
+    b_data[perm] = a_data
+
+    a = Tensor(data=a_data, dims=(space_ab,))
+    b = Tensor(data=b_data, dims=(space_ba,))
+
+    assert equal(a, b)
+    assert a.equal(b)
+
+
+def test_equal_returns_false_for_non_alignable_dims():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 3)
+    a = Tensor(data=torch.randn(left.dim), dims=(left,))
+    b = Tensor(data=torch.randn(right.dim), dims=(right,))
+
+    assert not equal(a, b)
+    assert not a.equal(b)
+
+
+def test_equal_returns_false_when_values_differ():
+    left = _simple_hilbert("left", 3)
+    a = Tensor(data=torch.tensor([1.0, 2.0, 3.0]), dims=(left,))
+    b = Tensor(data=torch.tensor([1.0, 2.0, 4.0]), dims=(left,))
+
+    assert not equal(a, b)
+    assert not a.equal(b)
+
+
+def test_equal_matches_torch_behavior_for_dtype_mismatch():
+    left = _simple_hilbert("left", 3)
+    a = Tensor(data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32), dims=(left,))
+    b = Tensor(data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64), dims=(left,))
+
+    expected = torch.equal(a.data, b.data)
+    assert equal(a, b) == expected
+    assert a.equal(b) == expected
