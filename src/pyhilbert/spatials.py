@@ -42,7 +42,6 @@ class AffineSpace(Spatial):
 
 @dataclass(frozen=True)
 class AbstractLattice(AffineSpace, HasDual):
-    shape: Tuple[int, ...]
 
     @property
     def affine(self) -> AffineSpace:
@@ -51,14 +50,19 @@ class AbstractLattice(AffineSpace, HasDual):
 
 @dataclass(frozen=True)
 class Lattice(AbstractLattice):
-    # boundaries: Tuple[BoundaryCondition, ...]
+    boundaries: Tuple[BoundaryCondition, ...]
     _unit_cell_fractional: FrozenDict[str, ImmutableDenseMatrix] = field(
         init=False, repr=False, compare=True
     )
 
-    def __init__(self, basis: ImmutableDenseMatrix, shape: Tuple[int, ...], unit_cell: Mapping[str, ImmutableDenseMatrix]):
+    @property
+    @lru_cache
+    def shape(self) -> Tuple[int, ...]:
+        return tuple(boundary.basis.rows for boundary in self.boundaries)
+
+    def __init__(self, basis: ImmutableDenseMatrix, boundaries: Tuple[BoundaryCondition, ...], unit_cell: Mapping[str, ImmutableDenseMatrix]):
         object.__setattr__(self, "basis", basis)
-        object.__setattr__(self, "shape", shape)
+        object.__setattr__(self, "boundaries", boundaries)
 
         if len(unit_cell) == 0:
             raise ValueError("unit_cell is empty; define at least one site in unit_cell.")
@@ -77,8 +81,6 @@ class Lattice(AbstractLattice):
                     raise ValueError(
                         f"unit_cell['{site}'] has shape {offset.shape}; expected ({self.dim}, 1)."
                     ) from e
-            # unit_cell offsets are provided in Cartesian coordinates.
-            # Convert to lattice-coordinate representation before wrapping as Offset.
             fractional_offset = basis_inverse @ offset
             fractional_offset = ImmutableDenseMatrix(fractional_offset)
             processed_cell[site] = fractional_offset
@@ -93,7 +95,6 @@ class Lattice(AbstractLattice):
                 for site, offset in self._unit_cell_fractional.items()
             }
         )
-
 
     @property
     @lru_cache
@@ -163,6 +164,11 @@ class Lattice(AbstractLattice):
 @dataclass(frozen=True)
 class ReciprocalLattice(AbstractLattice):
     lattice: Lattice
+    
+    @property
+    @lru_cache
+    def shape(self) -> Tuple[int, ...]:
+        return self.lattice.shape
 
     @property
     @lru_cache
@@ -201,7 +207,7 @@ class Offset(Spatial, HasBase[Lattice]):
         """Get the `Lattice` this `Offset` is expressed in."""
         return self.space
 
-    def rebase(self, space: Lattice) -> "Offset": # TODO: need to check if it consist with boundary conditions (urgent)
+    def rebase(self, space: Lattice) -> "Offset":
         """
         Re-express this Offset in a different Lattice.
 
