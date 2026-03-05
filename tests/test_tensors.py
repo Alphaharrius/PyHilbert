@@ -15,6 +15,7 @@ from pyhilbert.tensors import (
     equal,
     kernel_tensor,
     matmul,
+    nonzero,
     one_hot,
     ones,
     union_dims,
@@ -1772,6 +1773,44 @@ def test_where_rejects_non_bool_condition():
 
     with pytest.raises(TypeError, match="torch.bool"):
         _ = where(condition)
+
+
+def test_nonzero_as_tuple_true_matches_torch():
+    a = IndexSpace.linear(2)
+    b = IndexSpace.linear(3)
+    condition = Tensor(
+        data=torch.tensor(
+            [[True, False, True], [False, True, False]], dtype=torch.bool
+        ),
+        dims=(a, b),
+    )
+
+    out = nonzero(condition, as_tuple=True)
+    expected = torch.nonzero(condition.data, as_tuple=True)
+
+    assert len(out) == len(expected)
+    for actual, exp in zip(out, expected):
+        assert actual.dims == (IndexSpace.linear(exp.numel()),)
+        assert torch.equal(actual.data, exp)
+
+
+def test_tensor_nonzero_as_tuple_true_matches_torch():
+    a = IndexSpace.linear(2)
+    b = IndexSpace.linear(3)
+    condition = Tensor(
+        data=torch.tensor(
+            [[True, False, True], [False, True, False]], dtype=torch.bool
+        ),
+        dims=(a, b),
+    )
+
+    out = condition.nonzero(as_tuple=True)
+    expected = torch.nonzero(condition.data, as_tuple=True)
+
+    assert len(out) == len(expected)
+    for actual, exp in zip(out, expected):
+        assert actual.dims == (IndexSpace.linear(exp.numel()),)
+        assert torch.equal(actual.data, exp)
 
 
 def test_where_uses_symmetric_broadcast_dims():

@@ -314,6 +314,30 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
             )
         return where(self, input, other)
 
+    def nonzero(self, as_tuple: bool = True) -> Tuple["Tensor", ...]:
+        """
+        Return indices of non-zero / `True` entries for this tensor.
+
+        Currently supports only `as_tuple=True`, matching
+        `torch.nonzero(..., as_tuple=True)`.
+
+        Parameters
+        ----------
+        `as_tuple` : `bool`, optional
+            Must be `True`.
+
+        Returns
+        -------
+        `Tuple[Tensor, ...]`
+            Tuple of 1D index tensors, one per axis.
+
+        Raises
+        ------
+        `NotImplementedError`
+            If `as_tuple` is `False`.
+        """
+        return nonzero(self, as_tuple=as_tuple)
+
     def unsqueeze(self, dim: int) -> "Tensor":
         """
         Unsqueeze the specified dimension.
@@ -2496,6 +2520,39 @@ def where(condition: Tensor[torch.BoolTensor]) -> Tuple[Tensor, ...]:
         raise TypeError("where expects condition.data to have dtype torch.bool")
 
     indices = torch.where(condition.data)
+    nnz = indices[0].numel() if len(indices) > 0 else 0
+    index_dim = IndexSpace.linear(nnz)
+    return tuple(Tensor(data=idx, dims=(index_dim,)) for idx in indices)
+
+
+def nonzero(condition: Tensor, as_tuple: bool = True) -> Tuple[Tensor, ...]:
+    """
+    Return indices of non-zero / `True` entries.
+
+    This currently supports only `as_tuple=True` and follows
+    `torch.nonzero(condition.data, as_tuple=True)` semantics.
+
+    Parameters
+    ----------
+    `condition` : `Tensor`
+        Input tensor.
+    `as_tuple` : `bool`, optional
+        Must be `True`.
+
+    Returns
+    -------
+    `Tuple[Tensor, ...]`
+        Tuple of index tensors, one per input axis.
+
+    Raises
+    ------
+    `NotImplementedError`
+        If `as_tuple` is `False`.
+    """
+    if not as_tuple:
+        raise NotImplementedError("nonzero currently supports only as_tuple=True")
+
+    indices = torch.nonzero(condition.data, as_tuple=True)
     nnz = indices[0].numel() if len(indices) > 0 else 0
     index_dim = IndexSpace.linear(nnz)
     return tuple(Tensor(data=idx, dims=(index_dim,)) for idx in indices)
