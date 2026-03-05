@@ -842,9 +842,12 @@ def _tensor_getitem_advanced(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
     # Drop `None` entries first; they insert output axes but do not consume source axes.
     core_key = tuple(k for k in key if k is not None)
     # Record where advanced (pyhilbert Tensor) indices appear in the core key.
-    tensor_positions = [i for i, k in enumerate(core_key) if isinstance(k, Tensor)]
+    tensor_positions_core = [i for i, k in enumerate(core_key) if isinstance(k, Tensor)]
+    # Track advanced index positions in the original key as well.
+    # `None` is a basic index separator for torch advanced indexing semantics.
+    tensor_positions_full = [i for i, k in enumerate(key) if isinstance(k, Tensor)]
     # Guard: this helper must only run when at least one advanced index is present.
-    if not tensor_positions:
+    if not tensor_positions_core:
         raise ValueError("_tensor_getitem_advanced requires at least one Tensor index")
 
     # Collect advanced index tensors in key order.
@@ -864,15 +867,14 @@ def _tensor_getitem_advanced(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
         # Basic token (currently `:`) is kept unchanged.
         else:
             aligned_core_key.append(k)
-    # Final core key used for shape/rank inference.
+    # Final core key used for data indexing when no `None` is present.
     torch_core_key = tuple(aligned_core_key)
-    # Run core indexing once (without `None`) to infer advanced-axis placement.
-    core_data = tensor.data[torch_core_key]
+    has_none = any(k is None for k in key)
 
     # Fast path: if no `None` axes are inserted, core and full keys are equivalent.
     # Use identity checks to avoid dispatching Tensor.__eq__(None).
-    if not any(k is None for k in key):
-        data = core_data
+    if not has_none:
+        data = tensor.data[torch_core_key]
     else:
         # Rebuild full key including `None` entries for the actual indexing output.
         aligned_iter = iter(aligned_indices)
@@ -884,53 +886,42 @@ def _tensor_getitem_advanced(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
         data = tensor.data[torch_key_full]
 
     # Set form for contiguous advanced-block detection.
-    tensor_pos_set = set(tensor_positions)
-    # True if all advanced index positions form one contiguous block in `core_key`.
-    contiguous_advanced = max(tensor_pos_set) - min(tensor_pos_set) + 1 == len(
-        tensor_pos_set
-    )
+    tensor_pos_set_core = set(tensor_positions_core)
+    tensor_pos_set_full = set(tensor_positions_full)
+    # True if all advanced indices form one contiguous block in the original key.
+    # Using full key positions ensures `None` acts as a separator.
+    contiguous_advanced = max(tensor_pos_set_full) - min(
+        tensor_pos_set_full
+    ) + 1 == len(tensor_pos_set_full)
 
-    # Count basic preserved axes (`:`) in core key.
+    # Count basic preserved axes (`:`) and inserted `None` axes.
     num_basic = sum(
         1 for k in core_key if isinstance(k, slice) and k == slice(None, None, None)
     )
+    num_none = sum(1 for k in key if k is None)
+    # Infer advanced rank from final indexed data layout.
+    advanced_rank = data.ndim - num_basic - num_none
+    if advanced_rank < 0:
+        raise ValueError("Invalid advanced indexing rank produced by torch indexing")
     # Contiguous advanced-index case: advanced axes stay at block position.
     if contiguous_advanced:
-        # First and last positions of the advanced block.
-        first = min(tensor_pos_set)
-        last = max(tensor_pos_set)
-        # Number of preserved basic axes before the advanced block.
-        basic_before = sum(
+        # Number of output axes emitted before the advanced block.
+        # Both `:` and `None` contribute one output axis before advanced dims.
+        first_full = min(tensor_pos_set_full)
+        output_axes_before_advanced = sum(
             1
-            for idx, k in enumerate(core_key)
-            if idx < first and isinstance(k, slice) and k == slice(None, None, None)
+            for idx, k in enumerate(key)
+            if idx < first_full
+            and (k is None or (isinstance(k, slice) and k == slice(None, None, None)))
         )
-        # Number of preserved basic axes after the advanced block.
-        basic_after = sum(
-            1
-            for idx, k in enumerate(core_key)
-            if idx > last and isinstance(k, slice) and k == slice(None, None, None)
-        )
-        # Infer advanced rank in the core output.
-        advanced_rank = core_data.ndim - basic_before - basic_after
-        # Sanity guard against invalid inference.
-        if advanced_rank < 0:
-            raise ValueError(
-                "Invalid advanced indexing rank produced by torch indexing"
-            )
-        # Extract expected advanced output shape segment from core output.
-        expected_shape = core_data.shape[basic_before : basic_before + advanced_rank]
+        # Extract expected advanced output shape segment from final output.
+        expected_shape = data.shape[
+            output_axes_before_advanced : output_axes_before_advanced + advanced_rank
+        ]
     # Separated advanced-index case: advanced axes are moved to front by torch.
     else:
-        # Infer advanced rank in separated layout.
-        advanced_rank = core_data.ndim - num_basic
-        # Sanity guard against invalid inference.
-        if advanced_rank < 0:
-            raise ValueError(
-                "Invalid advanced indexing rank produced by torch indexing"
-            )
         # In separated case, advanced shape is the leading segment.
-        expected_shape = core_data.shape[:advanced_rank]
+        expected_shape = data.shape[:advanced_rank]
 
     # Safety fallback: if metadata dims and actual torch shape diverge, use linear dims.
     if tuple(dim.dim for dim in advanced_dims) != tuple(int(s) for s in expected_shape):
@@ -939,7 +930,7 @@ def _tensor_getitem_advanced(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
     # Build per-core-axis dim contributions before re-inserting `None` axes.
     segments: list[Tuple[StateSpace, ...]] = []
     # Anchor where advanced dims should appear for contiguous case.
-    first_tensor_pos = min(tensor_pos_set)
+    first_tensor_pos = min(tensor_pos_set_core)
     # Map each core key token to output dims contribution.
     for axis, axis_key in enumerate(core_key):
         # `:` preserves the corresponding source axis dim.

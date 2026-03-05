@@ -83,6 +83,25 @@ class TestTensorAdvancedGetitem:
         assert torch.equal(out.data, expected)
         assert out.dims == (IndexSpace.linear(2), BroadcastSpace(), b)
 
+    def test_getitem_with_tensor_advanced_index_separated_by_none(self):
+        a = IndexSpace.linear(5)
+        b = IndexSpace.linear(3)
+        c = IndexSpace.linear(4)
+        sel = IndexSpace.linear(2)
+        data = torch.arange(60, dtype=torch.float64).reshape(5, 3, 4)
+        tensor = Tensor(data=data, dims=(a, b, c))
+
+        i = Tensor(data=torch.tensor([1, 0], dtype=torch.long), dims=(sel,))
+        j = Tensor(data=torch.tensor([3, 1], dtype=torch.long), dims=(sel,))
+        out = tensor[:, i, None, j]
+
+        expected = data[:, i.data, None, j.data]
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        # `None` separates advanced indices, so torch uses separated layout:
+        # advanced dims are moved to the front.
+        assert out.dims == (sel, a, BroadcastSpace())
+
     def test_getitem_with_tensor_advanced_index_rejects_invalid_mix(self):
         a = IndexSpace.linear(3)
         b = IndexSpace.linear(4)
