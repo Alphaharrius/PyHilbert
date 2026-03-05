@@ -1017,8 +1017,8 @@ def operator_add(left: Number, right: Tensor) -> Tensor:
     `Tensor`
         The result of adding the scalar to the diagonal.
     """
-    eye = identity(right.dims)
-    return left * eye + right
+    iden = eye(right.dims)
+    return left * iden + right
 
 
 @dispatch(Tensor, Number)  # type: ignore[no-redef]
@@ -1040,8 +1040,8 @@ def operator_add(left: Tensor, right: Number) -> Tensor:
     `Tensor`
         The result of adding the scalar to the diagonal.
     """
-    eye = identity(left.dims)
-    return left + right * eye
+    iden = eye(left.dims)
+    return left + right * iden
 
 
 @dispatch(Number, Tensor)  # type: ignore[no-redef]
@@ -1063,8 +1063,8 @@ def operator_sub(left: Number, right: Tensor) -> Tensor:
     `Tensor`
         The result of the subtraction.
     """
-    eye = identity(right.dims)
-    return left * eye + (-right)
+    iden = eye(right.dims)
+    return left * iden + (-right)
 
 
 @dispatch(Tensor, Number)  # type: ignore[no-redef]
@@ -1086,8 +1086,8 @@ def operator_sub(left: Tensor, right: Number) -> Tensor:
     `Tensor`
         The result of the subtraction.
     """
-    eye = identity(left.dims)
-    return left + (-right) * eye
+    iden = eye(left.dims)
+    return left + (-right) * iden
 
 
 @dispatch(Tensor, Number)
@@ -1730,7 +1730,7 @@ def mapping_matrix(
     return Tensor(data=mat, dims=(from_space, to_space))
 
 
-def identity(dims: Tuple[StateSpace, ...]) -> Tensor:
+def eye(dims: Tuple[StateSpace, ...]) -> Tensor:
     """
     Create an identity tensor based on the last two dimensions.
     Returns a rank-2 Tensor corresponding to the identity of the matrix part.
