@@ -1,4 +1,5 @@
 import pytest
+from typing import Dict, Tuple
 import torch
 import sympy as sy
 from dataclasses import dataclass
@@ -32,15 +33,42 @@ from pyhilbert.tensors import unsqueeze
 
 @dataclass(frozen=True)
 class MockMode:
-    count: int
     attr: FrozenDict
-
-    @property
-    def dim(self) -> int:
-        return self.count
 
     def unit(self):
         return self
+
+
+_MOCK_MODE_SIZES: Dict[MockMode, int] = {}
+
+
+def make_mode(name: str, size: int) -> MockMode:
+    mode = MockMode(attr=FrozenDict({"name": name}))
+    _MOCK_MODE_SIZES[mode] = size
+    return mode
+
+
+@dataclass(frozen=True)
+class MockModeElement:
+    mode: MockMode
+    index: int
+
+    @property
+    def dim(self) -> int:
+        return 1
+
+    def unit(self):
+        return self
+
+
+def _mode_elements(mode: MockMode) -> Tuple[MockModeElement, ...]:
+    size = _MOCK_MODE_SIZES[mode]
+    return tuple(MockModeElement(mode=mode, index=i) for i in range(size))
+
+
+def _space_from_modes(*modes: MockMode) -> HilbertSpace:
+    elements = tuple(el for mode in modes for el in _mode_elements(mode))
+    return HilbertSpace(OrderedDict((el, i) for i, el in enumerate(elements)))
 
 
 @pytest.fixture
@@ -48,27 +76,22 @@ def matmul_ctx():
     class Context:
         def __init__(self):
             # Define some dummy modes
-            self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-            self.mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
-            self.mode_c = MockMode(count=4, attr=FrozenDict({"name": "c"}))
+            self.mode_a = make_mode("a", 2)
+            self.mode_b = make_mode("b", 3)
+            self.mode_c = make_mode("c", 4)
+            self.space_a = _space_from_modes(self.mode_a)
+            self.space_b = _space_from_modes(self.mode_b)
+            self.space_c = _space_from_modes(self.mode_c)
 
             # Create StateSpaces
             # Space 1: A + B (dim 5)
-            structure1 = OrderedDict()
-            structure1[self.mode_a] = slice(0, 2)
-            structure1[self.mode_b] = slice(2, 5)
-            self.space1 = HilbertSpace(structure=structure1)
+            self.space1 = _space_from_modes(self.mode_a, self.mode_b)
 
             # Space 2: C (dim 4)
-            structure2 = OrderedDict()
-            structure2[self.mode_c] = slice(0, 4)
-            self.space2 = HilbertSpace(structure=structure2)
+            self.space2 = self.space_c
 
             # Space 3: B + A (dim 5) - Same span as Space 1 but different order
-            structure3 = OrderedDict()
-            structure3[self.mode_b] = slice(0, 3)
-            structure3[self.mode_a] = slice(3, 5)
-            self.space3 = HilbertSpace(structure=structure3)
+            self.space3 = _space_from_modes(self.mode_b, self.mode_a)
 
     return Context()
 
@@ -429,8 +452,8 @@ class TestMatmul:
             matmul(t1, t2)
 
     def test_singleton_vector_matmul(self):
-        mode_one = MockMode(count=1, attr=FrozenDict({"name": "one"}))
-        structure = OrderedDict([(mode_one, slice(0, 1))])
+        mode_one = make_mode("one", 1)
+        structure = OrderedDict([(mode_one, 0)])
         space_one = HilbertSpace(structure=structure)
 
         data_left = torch.randn(space_one.dim)
@@ -470,44 +493,20 @@ class TestMatmul:
 def tensor_add_ctx():
     class Context:
         def __init__(self):
-            self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-            self.mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
-            self.mode_c = MockMode(count=2, attr=FrozenDict({"name": "c"}))
-            self.mode_d = MockMode(count=4, attr=FrozenDict({"name": "d"}))
-            self.mode_m = MockMode(count=1, attr=FrozenDict({"name": "m"}))
+            self.mode_a = make_mode("a", 2)
+            self.mode_b = make_mode("b", 3)
+            self.mode_c = make_mode("c", 2)
+            self.mode_d = make_mode("d", 4)
+            self.mode_m = make_mode("m", 1)
 
-            self.space_a = HilbertSpace(
-                structure=OrderedDict([(self.mode_a, slice(0, 2))])
-            )
-            self.space_b = HilbertSpace(
-                structure=OrderedDict([(self.mode_b, slice(0, 3))])
-            )
-            self.space_c = HilbertSpace(
-                structure=OrderedDict([(self.mode_c, slice(0, 2))])
-            )
-            self.space_d = HilbertSpace(
-                structure=OrderedDict([(self.mode_d, slice(0, 4))])
-            )
-            self.space_m = HilbertSpace(
-                structure=OrderedDict([(self.mode_m, slice(0, 1))])
-            )
+            self.space_a = _space_from_modes(self.mode_a)
+            self.space_b = _space_from_modes(self.mode_b)
+            self.space_c = _space_from_modes(self.mode_c)
+            self.space_d = _space_from_modes(self.mode_d)
+            self.space_m = _space_from_modes(self.mode_m)
 
-            self.space_ab = HilbertSpace(
-                structure=OrderedDict(
-                    [
-                        (self.mode_a, slice(0, 2)),
-                        (self.mode_b, slice(2, 5)),
-                    ]
-                )
-            )
-            self.space_ba = HilbertSpace(
-                structure=OrderedDict(
-                    [
-                        (self.mode_b, slice(0, 3)),
-                        (self.mode_a, slice(3, 5)),
-                    ]
-                )
-            )
+            self.space_ab = _space_from_modes(self.mode_a, self.mode_b)
+            self.space_ba = _space_from_modes(self.mode_b, self.mode_a)
 
     return Context()
 
@@ -548,7 +547,7 @@ class TestTensorAdd:
 
         result = left + right
         perm = torch.tensor(
-            state_space.flat_permutation_order(
+            state_space.permutation_order(
                 tensor_add_ctx.space_ba, tensor_add_ctx.space_ab
             ),
             dtype=torch.long,
@@ -766,13 +765,13 @@ class TestTensorAdd:
 def tensor_error_ctx():
     class Context:
         def __init__(self):
-            self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-            self.space_a = HilbertSpace(
-                structure=OrderedDict([(self.mode_a, slice(0, 2))])
-            )
+            self.mode_a = make_mode("a", 2)
+            self.space_a = _space_from_modes(self.mode_a)
 
             # Create a MomentumSpace for type mismatch tests
-            self.space_mom = MomentumSpace(structure=OrderedDict([("k1", slice(0, 2))]))
+            self.space_mom = MomentumSpace(
+                structure=OrderedDict([("k1", 0), ("k2", 1)])
+            )
 
     return Context()
 
@@ -792,8 +791,8 @@ class TestTensorErrorConditions:
             t1.align(0, tensor_error_ctx.space_mom)
 
     def test_align_different_span(self, tensor_error_ctx):
-        mode_b = MockMode(count=2, attr=FrozenDict({"name": "b"}))
-        space_b = HilbertSpace(structure=OrderedDict([(mode_b, slice(0, 2))]))
+        mode_b = make_mode("b", 2)
+        space_b = _space_from_modes(mode_b)
 
         t1 = Tensor(torch.randn(2), dims=(tensor_error_ctx.space_a,))
         # space_a and space_b have different keys -> different span
@@ -834,10 +833,8 @@ class TestTensorErrorConditions:
 def tensor_ops_ctx():
     class Context:
         def __init__(self):
-            self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-            self.space_a = HilbertSpace(
-                structure=OrderedDict([(self.mode_a, slice(0, 2))])
-            )
+            self.mode_a = make_mode("a", 2)
+            self.space_a = _space_from_modes(self.mode_a)
             self.data = torch.randn(2)
             self.tensor = Tensor(self.data, (self.space_a,))
 
@@ -981,10 +978,8 @@ class TestTensorScaler:
     def scaler_ctx(self):
         class Context:
             def __init__(self):
-                self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-                self.space_a = HilbertSpace(
-                    structure=OrderedDict([(self.mode_a, slice(0, 2))])
-                )
+                self.mode_a = make_mode("a", 2)
+                self.space_a = _space_from_modes(self.mode_a)
                 # Rank-2 tensor (square matrix for identity ops)
                 self.data_sq = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
                 self.tensor_sq = Tensor(
@@ -1132,12 +1127,11 @@ class TestTensorGetitem:
     def getitem_ctx(self):
         class Context:
             def __init__(self):
-                self.mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-                self.mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
-                structure = OrderedDict()
-                structure[self.mode_a] = slice(0, 2)
-                structure[self.mode_b] = slice(2, 5)
-                self.space = HilbertSpace(structure=structure)
+                self.mode_a = make_mode("a", 2)
+                self.mode_b = make_mode("b", 3)
+                self.subspace_a = _space_from_modes(self.mode_a)
+                self.subspace_b = _space_from_modes(self.mode_b)
+                self.space = _space_from_modes(self.mode_a, self.mode_b)
 
                 self.data_mat = torch.arange(25, dtype=torch.float64).reshape(5, 5)
                 self.tensor_mat = Tensor(
@@ -1149,15 +1143,7 @@ class TestTensorGetitem:
                     data=self.data_3d, dims=(self.space, self.space, self.space)
                 )
 
-                sub_structure = OrderedDict()
-                sub_structure[self.mode_b] = slice(2, 5)
-                self.subspace = HilbertSpace(structure=sub_structure)
-                self.subspace_a = HilbertSpace(
-                    structure=OrderedDict({self.mode_a: slice(0, 2)})
-                )
-                self.subspace_b = HilbertSpace(
-                    structure=OrderedDict({self.mode_b: slice(2, 5)})
-                )
+                self.subspace = self.subspace_b
 
         return Context()
 
@@ -1177,21 +1163,14 @@ class TestTensorGetitem:
 
     def test_getitem_spatial(self, getitem_ctx):
         out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, getitem_ctx.subspace_b]
-        expected_dims = getitem_ctx.subspace_a
         assert isinstance(out, Tensor)
-        assert out.dims == (
-            expected_dims,
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
-        )
+        assert out.dims == (getitem_ctx.subspace_a, getitem_ctx.subspace_b)
         assert torch.equal(out.data, getitem_ctx.data_mat[0:2, 2:5])
 
     def test_getitem_statespace(self, getitem_ctx):
         out = getitem_ctx.tensor_mat[getitem_ctx.subspace, getitem_ctx.space]
-        expected_dims = HilbertSpace(
-            structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})
-        )
         assert isinstance(out, Tensor)
-        assert out.dims == (expected_dims, getitem_ctx.space)
+        assert out.dims == (getitem_ctx.subspace_b, getitem_ctx.space)
         expected = getitem_ctx.data_mat[2:5, :]
         assert torch.equal(out.data, expected)
 
@@ -1203,13 +1182,12 @@ class TestTensorGetitem:
         out = getitem_ctx.tensor_3d[
             getitem_ctx.subspace, getitem_ctx.subspace_a, getitem_ctx.space
         ]
-        expected_dims = (
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            getitem_ctx.subspace_b,
+            getitem_ctx.subspace_a,
             getitem_ctx.space,
         )
-        assert isinstance(out, Tensor)
-        assert out.dims == expected_dims
         expected = getitem_ctx.data_3d[2:5, 0:2, :]
         assert torch.equal(out.data, expected)
 
@@ -1217,104 +1195,82 @@ class TestTensorGetitem:
         out = getitem_ctx.tensor_mat[
             None, getitem_ctx.subspace_a, getitem_ctx.subspace_b
         ]
-        expected_dims = (
-            state_space.BroadcastSpace(),
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
-        )
         assert isinstance(out, Tensor)
-        assert out.dims == expected_dims
+        assert out.dims == (
+            state_space.BroadcastSpace(),
+            getitem_ctx.subspace_a,
+            getitem_ctx.subspace_b,
+        )
         expected = getitem_ctx.data_mat[0:2, 2:5].unsqueeze(0)
         assert torch.equal(out.data, expected)
 
     def test_getitem_hilbert_noncontiguous_subspace(self):
-        mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-        mode_b = MockMode(count=2, attr=FrozenDict({"name": "b"}))
-        mode_c = MockMode(count=2, attr=FrozenDict({"name": "c"}))
-        structure = OrderedDict()
-        structure[mode_a] = slice(0, 2)
-        structure[mode_b] = slice(2, 4)
-        structure[mode_c] = slice(4, 6)
-        space = HilbertSpace(structure=structure)
-
-        sub_structure = OrderedDict()
-        sub_structure[mode_a] = slice(0, 2)
-        sub_structure[mode_c] = slice(4, 6)
-        subspace = HilbertSpace(structure=sub_structure)
+        mode_a = make_mode("a", 2)
+        mode_b = make_mode("b", 2)
+        mode_c = make_mode("c", 2)
+        space = _space_from_modes(mode_a, mode_b, mode_c)
+        subspace = _space_from_modes(mode_a, mode_c)
 
         data = torch.arange(36, dtype=torch.float64).reshape(6, 6)
         tensor = Tensor(data=data, dims=(space, space))
         out = tensor[subspace, space]
         expected = data.index_select(0, torch.tensor([0, 1, 4, 5]))
 
-        expected_dims = (
-            HilbertSpace(
-                structure=OrderedDict({mode_a: slice(0, 2), mode_c: slice(2, 4)})
-            ),
-            space,
-        )
         assert isinstance(out, Tensor)
-        assert out.dims == expected_dims
+        assert out.dims == (subspace, space)
         assert torch.equal(out.data, expected)
 
     def test_getitem_hilbert_invalid_subspace(self, getitem_ctx):
-        mode_c = MockMode(count=1, attr=FrozenDict({"name": "c"}))
+        mode_c = make_mode("c", 1)
         sub_structure = OrderedDict()
-        sub_structure[mode_c] = slice(0, 1)
+        sub_structure[mode_c] = 0
         subspace = HilbertSpace(structure=sub_structure)
         with pytest.raises(ValueError, match="not a subspace"):
             _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
 
     def test_getitem_hilbert_spatial_missing(self, getitem_ctx):
-        mode_c = MockMode(count=1, attr=FrozenDict({"name": "c"}))
-        subspace = HilbertSpace(structure=OrderedDict({mode_c: slice(0, 1)}))
+        mode_c = make_mode("c", 1)
+        subspace = HilbertSpace(structure=OrderedDict({mode_c: 0}))
         with pytest.raises(ValueError, match="not a subspace"):
             _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
 
     def test_getitem_hilbert_colon_statespace_colon(self, getitem_ctx):
         out = getitem_ctx.tensor_3d[:, getitem_ctx.subspace, :]
-        expected_dims = (
+        assert isinstance(out, Tensor)
+        assert out.dims == (
             getitem_ctx.space,
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+            getitem_ctx.subspace_b,
             getitem_ctx.space,
         )
-        assert isinstance(out, Tensor)
-        assert out.dims == expected_dims
         expected = getitem_ctx.data_3d[:, 2:5, :]
         assert torch.equal(out.data, expected)
 
     def test_getitem_hilbert_ellipsis_colon_statespace_colon(self, getitem_ctx):
         out = getitem_ctx.tensor_3d[..., getitem_ctx.subspace, :]
-        expected_dims = (
+        assert isinstance(out, Tensor)
+        assert out.dims == (
             getitem_ctx.space,
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+            getitem_ctx.subspace_b,
             getitem_ctx.space,
         )
-        assert isinstance(out, Tensor)
-        assert out.dims == expected_dims
         expected = getitem_ctx.data_3d[:, 2:5, :]
         assert torch.equal(out.data, expected)
 
     def test_getitem_hilbert_ellipsis_allowed(self, getitem_ctx):
         out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, ...]
-        expected_dims = (
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
-            getitem_ctx.space,
-        )
         assert isinstance(out, Tensor)
-        assert out.dims == expected_dims
+        assert out.dims == (getitem_ctx.subspace_a, getitem_ctx.space)
         expected = getitem_ctx.data_mat[0:2, :]
         assert torch.equal(out.data, expected)
 
     def test_getitem_hilbert_short_key_allowed(self, getitem_ctx):
         out = getitem_ctx.tensor_3d[getitem_ctx.subspace_a]
-        expected_dims = (
-            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            getitem_ctx.subspace_a,
             getitem_ctx.space,
             getitem_ctx.space,
         )
-        assert isinstance(out, Tensor)
-        assert out.dims == expected_dims
         expected = getitem_ctx.data_3d[0:2, :, :]
         assert torch.equal(out.data, expected)
 
@@ -1341,29 +1297,25 @@ class TestTensorGetitem:
         )
 
         out = tensor[:, :, k1]
-        expected_dim = MomentumSpace(structure=OrderedDict({k1: slice(0, 1)}))
-        expected_slice = momentum_space.get_slice(k1)
+        expected_dim = MomentumSpace(structure=OrderedDict({k1: 0}))
+        expected_idx = momentum_space.structure[k1]
         assert isinstance(out, Tensor)
         assert out.dims == (momentum_space, momentum_space, expected_dim)
-        assert torch.equal(
-            out.data, data[:, :, expected_slice.start : expected_slice.stop]
-        )
+        assert torch.equal(out.data, data[:, :, expected_idx : expected_idx + 1])
 
     def test_getitem_with_indexspace_index(self):
         index_space = IndexSpace.linear(3)
         i1 = tuple(index_space.structure.keys())[1]
-        index_subspace = IndexSpace(structure=OrderedDict({i1: slice(0, 1)}))
+        index_subspace = IndexSpace(structure=OrderedDict({i1: 0}))
 
         data = torch.arange(27, dtype=torch.float64).reshape(3, 3, 3)
         tensor = Tensor(data=data, dims=(index_space, index_space, index_space))
 
         out = tensor[:, :, index_subspace]
-        expected_slice = index_space.get_slice(i1)
+        expected_idx = index_space.structure[i1]
         assert isinstance(out, Tensor)
         assert out.dims == (index_space, index_space, index_subspace)
-        assert torch.equal(
-            out.data, data[:, :, expected_slice.start : expected_slice.stop]
-        )
+        assert torch.equal(out.data, data[:, :, expected_idx : expected_idx + 1])
 
 
 def _simple_hilbert(tag: str, size: int, make_irrep=None) -> HilbertSpace:
@@ -1650,23 +1602,10 @@ def test_kernel_tensor_supports_scalar_kernel():
 
 
 def test_allclose_aligns_right_dims():
-    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
-
-    structure_ab = OrderedDict(
-        [
-            (mode_a, slice(0, 2)),
-            (mode_b, slice(2, 5)),
-        ]
-    )
-    structure_ba = OrderedDict(
-        [
-            (mode_b, slice(0, 3)),
-            (mode_a, slice(3, 5)),
-        ]
-    )
-    space_ab = HilbertSpace(structure=structure_ab)
-    space_ba = HilbertSpace(structure=structure_ba)
+    mode_a = make_mode("a", 2)
+    mode_b = make_mode("b", 3)
+    space_ab = _space_from_modes(mode_a, mode_b)
+    space_ba = _space_from_modes(mode_b, mode_a)
 
     a_data = torch.randn(space_ab.dim, dtype=torch.float64)
     b_data = torch.empty_like(a_data)
@@ -1704,14 +1643,10 @@ def test_allclose_matches_torch_behavior_for_dtype_mismatch():
 
 
 def test_align_all_aligns_dims():
-    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
-    space_ab = HilbertSpace(
-        structure=OrderedDict([(mode_a, slice(0, 2)), (mode_b, slice(2, 5))])
-    )
-    space_ba = HilbertSpace(
-        structure=OrderedDict([(mode_b, slice(0, 3)), (mode_a, slice(3, 5))])
-    )
+    mode_a = make_mode("a", 2)
+    mode_b = make_mode("b", 3)
+    space_ab = _space_from_modes(mode_a, mode_b)
+    space_ba = _space_from_modes(mode_b, mode_a)
 
     data = torch.arange(space_ab.dim, dtype=torch.float64)
     # data in BA order: [b0,b1,b2,a0,a1]
@@ -1735,14 +1670,10 @@ def test_align_all_raises_when_not_alignable():
 
 
 def test_equal_aligns_right_dims():
-    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
-    space_ab = HilbertSpace(
-        structure=OrderedDict([(mode_a, slice(0, 2)), (mode_b, slice(2, 5))])
-    )
-    space_ba = HilbertSpace(
-        structure=OrderedDict([(mode_b, slice(0, 3)), (mode_a, slice(3, 5))])
-    )
+    mode_a = make_mode("a", 2)
+    mode_b = make_mode("b", 3)
+    space_ab = _space_from_modes(mode_a, mode_b)
+    space_ba = _space_from_modes(mode_b, mode_a)
 
     a_data = torch.randn(space_ab.dim, dtype=torch.float64)
     b_data = torch.empty_like(a_data)
@@ -1814,15 +1745,11 @@ def test_tensor_astype_returns_new_tensor_with_converted_dtype():
 
 
 def test_all_over_tensor_equality_full_reduction():
-    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
-    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
+    mode_a = make_mode("a", 2)
+    mode_b = make_mode("b", 3)
     right = _simple_hilbert("right", 2)
-    space_ab = HilbertSpace(
-        structure=OrderedDict([(mode_a, slice(0, 2)), (mode_b, slice(2, 5))])
-    )
-    space_ba = HilbertSpace(
-        structure=OrderedDict([(mode_b, slice(0, 3)), (mode_a, slice(3, 5))])
-    )
+    space_ab = _space_from_modes(mode_a, mode_b)
+    space_ba = _space_from_modes(mode_b, mode_a)
 
     a_data = torch.randn(space_ab.dim, right.dim, dtype=torch.float64)
     b_data = torch.empty_like(a_data)

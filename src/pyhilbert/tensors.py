@@ -25,8 +25,8 @@ from .state_space import (
     BroadcastSpace,
     StateSpaceFactorization,
     embedding_order,
+    permutation_order,
     same_span,
-    flat_permutation_order,
     restructure,
 )
 
@@ -1286,7 +1286,7 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         raise ValueError(f"StateSpace at {dim} cannot be aligned to target StateSpace!")
 
     try:
-        target_order = flat_permutation_order(current_dim, target_dim)
+        target_order = permutation_order(current_dim, target_dim)
     except ValueError as e:
         raise ValueError(
             f"StateSpace at {dim} cannot be aligned to target StateSpace!"
@@ -1680,9 +1680,7 @@ def mapping_matrix(
     from_space: StateSpace,
     to_space: StateSpace,
     mapping: Dict[Any, Any],
-    factors: Optional[
-        Dict[Tuple[Any, Any], int | float | complex | torch.Tensor]
-    ] = None,
+    factors: Optional[Dict[Tuple[Any, Any], int | float | complex]] = None,
 ) -> Tensor:
     """
     Create a sector-wise mapping matrix between two state spaces.
@@ -1701,11 +1699,11 @@ def mapping_matrix(
     `mapping` : `Dict[Any, Any]`
         Dictionary mapping sector markers in `from_space` to sector markers in
         `to_space`. For each entry, a block is written between the slices
-        returned by `from_space.get_slice(...)` and `to_space.get_slice(...)`.
-    `factors` : `Optional[Dict[Tuple[Any, Any], int | float | complex | torch.Tensor]]`, optional
+        implied by the integer indices in `from_space.structure` and
+        `to_space.structure`.
+    `factors` : `Optional[Dict[Tuple[Any, Any], int | float | complex]]`, optional
         Optional per-entry factors. Keys are `(from_marker, to_marker)` tuples.
-        Scalar values scale an identity block; tensor values are inserted
-        directly as the block matrix. Missing keys default to `1`.
+        Scalar values scale entries. Missing keys default to `1`.
 
     Returns
     -------
@@ -1724,33 +1722,12 @@ def mapping_matrix(
     precision = get_precision_config()
     mat = torch.zeros((from_space.dim, to_space.dim), dtype=precision.torch_complex)
     for fm, tm in mapping.items():
-        fslice = from_space.get_slice(fm)
-        tslice = to_space.get_slice(tm)
-
-        flen = fslice.stop - fslice.start
-        tlen = tslice.stop - tslice.start
+        findex = from_space.structure[fm]
+        tindex = to_space.structure[tm]
         factor = factors.get((fm, tm), 1)
-        if torch.is_tensor(factor):
-            if tuple(factor.shape) != (flen, tlen):
-                raise ValueError(
-                    f"Cannot insert factor block with shape {tuple(factor.shape)} for sector shape {(flen, tlen)}"
-                )
-            mat[fslice, tslice] = factor.to(dtype=mat.dtype, device=mat.device)
-            continue
-
-        if flen != tlen:
-            raise ValueError(
-                f"Cannot create mapping matrix between sectors of different sizes: {flen} != {tlen}"
-            )
-
-        mat[fslice, tslice] = (
-            torch.eye(flen, dtype=mat.dtype, device=mat.device) * factor
-        )
+        mat[findex, tindex] = cast(Any, factor)
 
     return Tensor(data=mat, dims=(from_space, to_space))
-
-
-# TODO: Add hilbert_mapping(a: HilbertSpace, b: HilbertSpace) that map between two HilbertSpace, supports internal spans by flattening them.
 
 
 def identity(dims: Tuple[StateSpace, ...]) -> Tensor:

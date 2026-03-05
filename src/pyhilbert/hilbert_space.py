@@ -395,9 +395,9 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
 
     Parameters
     ----------
-    `structure` : `OrderedDict[U1Basis, slice]`
+    `structure` : `OrderedDict[U1Basis, int]`
         Ordered sector mapping inherited from `StateSpace`, where each key is a
-        `U1Basis` and each value is the sector slice in basis coordinates.
+        `U1Basis` and each value is the sector index in basis coordinates.
 
     Notes
     -----
@@ -419,8 +419,8 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
             return f"{self}: <empty>"
 
         body = "\n".join(
-            f"\t{n}: {s.start}:{s.stop} {str(el)}"
-            for n, (el, s) in enumerate(self.structure.items())
+            f"\t{n}: {idx}:{idx + 1} {str(el)}"
+            for n, (el, idx) in enumerate(self.structure.items())
         )
         return f"{self}:\n{body}"
 
@@ -805,11 +805,9 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
 
 
 def hilbert(itr: Iterable[U1Basis]) -> HilbertSpace:
-    structure: OrderedDict[U1Basis, slice] = OrderedDict()
-    base = 0
-    for el in itr:
-        structure[el] = slice(base, base + el.dim)
-        base += el.dim
+    structure: OrderedDict[U1Basis, int] = OrderedDict()
+    for i, el in enumerate(itr):
+        structure[el] = i
     return HilbertSpace(structure=structure)
 
 
