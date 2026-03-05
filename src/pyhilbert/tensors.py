@@ -2241,12 +2241,12 @@ def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
 
     current_size = tensor.data.shape[dim]
 
-    # Check size compatibility
-    # If new_dim is BroadcastSpace with no structure (size 0), it matches data dimension of size 1.
+    # Check size compatibility.
+    # BroadcastSpace represents a singleton axis and only matches size 1.
     if isinstance(new_dim, BroadcastSpace):
         if current_size != 1:
             raise ValueError(
-                f"Cannot replace dimension of size {current_size} with empty BroadcastSpace (expects size 1)."
+                f"Cannot replace dimension of size {current_size} with BroadcastSpace (expects size 1)."
             )
     elif new_dim.dim != current_size:
         raise ValueError(

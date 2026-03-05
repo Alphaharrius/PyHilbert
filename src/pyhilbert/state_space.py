@@ -212,8 +212,8 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
 
     This returns a per-sector permutation: each entry corresponds to a key in
     `dest.structure` and gives the index of the same key in `src.structure`.
-    It does not expand slices; use `flat_permutation_order` to get element-wise
-    indices for reordering a flattened tensor.
+    The mapping is directly index-based on the current `StateSpace` structure
+    and can be used to reorder sector-aligned data.
 
     Parameters
     ----------

@@ -380,7 +380,7 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
     `HilbertSpace` is the symbolic basis container used by tensor-network style
     operators in this module. It extends `StateSpace` with `U1Basis` sectors.
     The inherited `structure` mapping stores each sector together with its
-    contiguous slice in the basis.
+    integer index in basis order.
 
     The class provides helpers for common basis-management workflows:
     - `elements()` returns the flattened basis states as `Tuple[U1Basis, ...]`.
@@ -402,11 +402,11 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
     Notes
     -----
     - `dim` is inherited from `StateSpace` and equals the total flattened basis
-      size implied by the last slice stop.
+      size (the number of indexed basis sectors).
     - `group()` requires disjoint selectors; overlapping grouped spans raise
       `ValueError`.
-    - `permutation_order`, `flat_permutation_order`, and `embedding_order`
-      operate on current `structure` keys.
+    - `permutation_order` and `embedding_order` operate on current
+      `structure` keys.
     """
 
     __hash__ = StateSpace.__hash__
