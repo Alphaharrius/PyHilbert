@@ -1,13 +1,30 @@
+from dataclasses import dataclass
+
 import numpy as np
 import plotly.graph_objects as go
 import sympy as sy
 import torch
 
-from pyhilbert.hilbert import Mode, hilbert, brillouin_zone
+import plotly.graph_objects as go
+
+from pyhilbert.hilbert_space import U1Basis, hilbert
 from pyhilbert.spatials import Lattice, Offset
+from pyhilbert.state_space import brillouin_zone
 from pyhilbert.tensors import Tensor
-from pyhilbert.utils import FrozenDict
 from pyhilbert.fourier import fourier_transform
+
+
+@dataclass(frozen=True)
+class Orb:
+    name: str
+
+
+def _basis_state(name: str) -> U1Basis:
+    return U1Basis(u1=sy.Integer(1), rep=(Orb(name),))
+
+
+def _space(size: int, prefix: str):
+    return hilbert(_basis_state(f"{prefix}{i}") for i in range(size))
 
 
 def create_dummy_tensor(data_like):
@@ -17,9 +34,8 @@ def create_dummy_tensor(data_like):
     else:
         data = data_like
 
-    m = Mode(count=data.shape[0], attr=FrozenDict({"label": "dummy"}))
-    hspace = hilbert([m])
-    dims = (hspace,) * data.ndim
+    dims = tuple(_space(dim, f"d{axis}_") for axis, dim in enumerate(data.shape))
+
     return Tensor(data=data, dims=dims)
 
 
@@ -107,8 +123,8 @@ def test_bandstructure_plot():
     # 2. Define Unit Cell (Bloch Space)
     # Single s-orbital at origin (0,0)
     r_0 = Offset(rep=sy.ImmutableDenseMatrix([[0.0], [0.0]]), space=lat.affine)
-    mode_s = Mode.from_attr(count=1, r=r_0, label="s")
-    bloch_space = hilbert([mode_s])
+    basis_s = U1Basis.build(r_0, "s")
+    bloch_space = hilbert([basis_s])
 
     # 3. Define Region Space (Real Space Neighbors)
     neighbor_offsets = [
@@ -126,7 +142,7 @@ def test_bandstructure_plot():
         r_vec = sy.ImmutableDenseMatrix([[dx], [dy]])
         r_off = Offset(rep=r_vec, space=lat.affine)
         # Create a mode at this position based on the unit cell mode
-        m = mode_s.update(r=r_off)
+        m = basis_s.replace(r_off)
         region_modes.append(m)
         offset_to_idx[(dx, dy)] = i
 

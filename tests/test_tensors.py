@@ -1,15 +1,46 @@
 import pytest
 import torch
+import sympy as sy
+from dataclasses import dataclass
 from collections import OrderedDict
-from pyhilbert import hilbert
-from pyhilbert.tensors import Tensor, matmul
-from pyhilbert.hilbert import HilbertSpace, Mode, BroadcastSpace, MomentumSpace
+from sympy import ImmutableDenseMatrix
+from pyhilbert import state_space
+from pyhilbert.tensors import (
+    Tensor,
+    all as tensor_all,
+    align_all,
+    allclose,
+    astype,
+    equal,
+    kernel_tensor,
+    matmul,
+    one_hot,
+    ones,
+    zeros,
+)
+from pyhilbert.hilbert_space import HilbertSpace, U1Basis, hilbert
+from pyhilbert.state_space import (
+    BroadcastSpace,
+    FactorSpace,
+    MomentumSpace,
+    brillouin_zone,
+)
+from pyhilbert.spatials import Lattice
 from pyhilbert.utils import FrozenDict
 from pyhilbert.tensors import unsqueeze
 
 
-class MockMode(Mode):
-    pass
+@dataclass(frozen=True)
+class MockMode:
+    count: int
+    attr: FrozenDict
+
+    @property
+    def dim(self) -> int:
+        return self.count
+
+    def unit(self):
+        return self
 
 
 @pytest.fixture
@@ -517,7 +548,7 @@ class TestTensorAdd:
 
         result = left + right
         perm = torch.tensor(
-            hilbert.flat_permutation_order(
+            state_space.flat_permutation_order(
                 tensor_add_ctx.space_ba, tensor_add_ctx.space_ab
             ),
             dtype=torch.long,
@@ -814,6 +845,22 @@ def tensor_ops_ctx():
 
 
 class TestTensorOperations:
+    def test_zeros_helper(self, tensor_ops_ctx):
+        dims = (tensor_ops_ctx.space_a, tensor_ops_ctx.space_a)
+        out = zeros(dims)
+        assert isinstance(out, Tensor)
+        assert out.dims == dims
+        assert out.data.shape == (2, 2)
+        assert torch.equal(out.data, torch.zeros(2, 2))
+
+    def test_ones_helper(self, tensor_ops_ctx):
+        dims = (tensor_ops_ctx.space_a, tensor_ops_ctx.space_a)
+        out = ones(dims)
+        assert isinstance(out, Tensor)
+        assert out.dims == dims
+        assert out.data.shape == (2, 2)
+        assert torch.equal(out.data, torch.ones(2, 2))
+
     def test_neg(self, tensor_ops_ctx):
         res = -tensor_ops_ctx.tensor
         assert torch.allclose(res.data, -tensor_ops_ctx.data)
@@ -1105,6 +1152,12 @@ class TestTensorGetitem:
                 sub_structure = OrderedDict()
                 sub_structure[self.mode_b] = slice(2, 5)
                 self.subspace = HilbertSpace(structure=sub_structure)
+                self.subspace_a = HilbertSpace(
+                    structure=OrderedDict({self.mode_a: slice(0, 2)})
+                )
+                self.subspace_b = HilbertSpace(
+                    structure=OrderedDict({self.mode_b: slice(2, 5)})
+                )
 
         return Context()
 
@@ -1123,10 +1176,8 @@ class TestTensorGetitem:
         assert out2.shape == (1, 5, 5)
 
     def test_getitem_spatial(self, getitem_ctx):
-        out = getitem_ctx.tensor_mat[getitem_ctx.mode_a, getitem_ctx.mode_b]
-        expected_dims = HilbertSpace(
-            structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})
-        )
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, getitem_ctx.subspace_b]
+        expected_dims = getitem_ctx.subspace_a
         assert isinstance(out, Tensor)
         assert out.dims == (
             expected_dims,
@@ -1146,11 +1197,11 @@ class TestTensorGetitem:
 
     def test_getitem_no_mix(self, getitem_ctx):
         with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_mat[getitem_ctx.mode_a, 0]
+            _ = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, 0]
 
     def test_getitem_3d_hilbert(self, getitem_ctx):
         out = getitem_ctx.tensor_3d[
-            getitem_ctx.subspace, getitem_ctx.mode_a, getitem_ctx.space
+            getitem_ctx.subspace, getitem_ctx.subspace_a, getitem_ctx.space
         ]
         expected_dims = (
             HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
@@ -1163,9 +1214,11 @@ class TestTensorGetitem:
         assert torch.equal(out.data, expected)
 
     def test_getitem_hilbert_none_inserts_dim(self, getitem_ctx):
-        out = getitem_ctx.tensor_mat[None, getitem_ctx.mode_a, getitem_ctx.mode_b]
+        out = getitem_ctx.tensor_mat[
+            None, getitem_ctx.subspace_a, getitem_ctx.subspace_b
+        ]
         expected_dims = (
-            hilbert.BroadcastSpace(),
+            state_space.BroadcastSpace(),
             HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
             HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
         )
@@ -1214,13 +1267,775 @@ class TestTensorGetitem:
 
     def test_getitem_hilbert_spatial_missing(self, getitem_ctx):
         mode_c = MockMode(count=1, attr=FrozenDict({"name": "c"}))
-        with pytest.raises(KeyError, match="Spatial index not found"):
-            _ = getitem_ctx.tensor_mat[mode_c, getitem_ctx.space]
+        subspace = HilbertSpace(structure=OrderedDict({mode_c: slice(0, 1)}))
+        with pytest.raises(ValueError, match="not a subspace"):
+            _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
 
-    def test_getitem_hilbert_ellipsis_not_allowed(self, getitem_ctx):
-        with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_mat[getitem_ctx.mode_a, ...]
+    def test_getitem_hilbert_colon_statespace_colon(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[:, getitem_ctx.subspace, :]
+        expected_dims = (
+            getitem_ctx.space,
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_3d[:, 2:5, :]
+        assert torch.equal(out.data, expected)
 
-    def test_getitem_hilbert_short_key_not_allowed(self, getitem_ctx):
-        with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_3d[getitem_ctx.mode_a]
+    def test_getitem_hilbert_ellipsis_colon_statespace_colon(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[..., getitem_ctx.subspace, :]
+        expected_dims = (
+            getitem_ctx.space,
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_b: slice(0, 3)})),
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_3d[:, 2:5, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_ellipsis_allowed(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, ...]
+        expected_dims = (
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_mat[0:2, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_short_key_allowed(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[getitem_ctx.subspace_a]
+        expected_dims = (
+            HilbertSpace(structure=OrderedDict({getitem_ctx.mode_a: slice(0, 2)})),
+            getitem_ctx.space,
+            getitem_ctx.space,
+        )
+        assert isinstance(out, Tensor)
+        assert out.dims == expected_dims
+        expected = getitem_ctx.data_3d[0:2, :, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_with_u1basis_index(self):
+        b0 = U1Basis(u1=sy.Integer(0), rep=(sy.Integer(0),))
+        b1 = U1Basis(u1=sy.Integer(1), rep=(sy.Integer(1),))
+        space = hilbert((b0, b1))
+        data = torch.arange(8, dtype=torch.float64).reshape(2, 2, 2)
+        tensor = Tensor(data=data, dims=(space, space, space))
+
+        out = tensor[:, :, b1]
+        assert isinstance(out, Tensor)
+        assert out.dims == (space, space, hilbert((b1,)))
+        assert torch.equal(out.data, data[:, :, 1:2])
+
+    def test_getitem_with_momentum_index(self):
+        lattice = Lattice(basis=ImmutableDenseMatrix([[1]]), shape=(2,))
+        momentum_space = brillouin_zone(lattice.dual)
+        _k0, k1 = tuple(momentum_space.structure.keys())
+
+        data = torch.arange(8, dtype=torch.float64).reshape(2, 2, 2)
+        tensor = Tensor(
+            data=data, dims=(momentum_space, momentum_space, momentum_space)
+        )
+
+        out = tensor[:, :, k1]
+        expected_dim = MomentumSpace(structure=OrderedDict({k1: slice(0, 1)}))
+        expected_slice = momentum_space.get_slice(k1)
+        assert isinstance(out, Tensor)
+        assert out.dims == (momentum_space, momentum_space, expected_dim)
+        assert torch.equal(
+            out.data, data[:, :, expected_slice.start : expected_slice.stop]
+        )
+
+    def test_getitem_with_factorband_index(self):
+        factor_space = FactorSpace.from_band_counts((1, 2))
+        _b0, b1 = tuple(factor_space.structure.keys())
+
+        data = torch.arange(27, dtype=torch.float64).reshape(3, 3, 3)
+        tensor = Tensor(data=data, dims=(factor_space, factor_space, factor_space))
+
+        out = tensor[:, :, b1]
+        expected_dim = FactorSpace(structure=OrderedDict({b1: slice(0, b1.dim)}))
+        expected_slice = factor_space.get_slice(b1)
+        assert isinstance(out, Tensor)
+        assert out.dims == (factor_space, factor_space, expected_dim)
+        assert torch.equal(
+            out.data, data[:, :, expected_slice.start : expected_slice.stop]
+        )
+
+
+def _simple_hilbert(tag: str, size: int, make_irrep=None) -> HilbertSpace:
+    if make_irrep is None:
+
+        def make_irrep(n):
+            return (tag, n)
+
+    basis = tuple(U1Basis(u1=sy.Integer(1), rep=(make_irrep(n),)) for n in range(size))
+    return hilbert(basis)
+
+
+def test_factorize_dim_then_product_dims_roundtrip_hilbert():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 3)
+
+    factorizable = hilbert(
+        U1Basis(u1=sy.Integer(1), rep=(i, j)) for i in (0, 1) for j in ("a", "b", "c")
+    )
+
+    data = torch.arange(
+        left.dim * factorizable.dim * right.dim, dtype=torch.float64
+    ).reshape(left.dim, factorizable.dim, right.dim)
+    tensor = Tensor(data=data, dims=(left, factorizable, right))
+
+    rule = factorizable.factorize((int,), (str,))
+    factorized = tensor.factorize_dim(1, rule)
+    restored = factorized.product_dims((1, 2))
+
+    assert restored.dims == tensor.dims
+    assert torch.equal(restored.data, tensor.data)
+
+
+def test_product_dims_non_sequential_groups_hilbert():
+    irrep_makers = (
+        lambda n: n,  # int
+        lambda n: f"s{n}",  # str
+        lambda n: float(n),  # float
+        lambda n: complex(n, 0),  # complex
+        lambda n: (n,),  # tuple
+        lambda n: bytes([n]),  # bytes
+    )
+    spaces = tuple(
+        _simple_hilbert(f"s{n}", size, irrep_makers[n])
+        for n, size in enumerate((2, 3, 4, 2, 5, 3))
+    )
+    data = torch.arange(
+        spaces[0].dim
+        * spaces[1].dim
+        * spaces[2].dim
+        * spaces[3].dim
+        * spaces[4].dim
+        * spaces[5].dim,
+        dtype=torch.float64,
+    ).reshape(*(space.dim for space in spaces))
+    tensor = Tensor(data=data, dims=spaces)
+
+    out = tensor.product_dims((1, 4), (5, 2))
+
+    expected_dims = (spaces[0], spaces[1] @ spaces[4], spaces[5] @ spaces[2], spaces[3])
+    expected_data = data.permute(0, 1, 4, 5, 2, 3).reshape(
+        spaces[0].dim,
+        spaces[1].dim * spaces[4].dim,
+        spaces[5].dim * spaces[2].dim,
+        spaces[3].dim,
+    )
+
+    assert out.dims == expected_dims
+    assert torch.equal(out.data, expected_data)
+
+
+def test_tensor_mean_reduces_selected_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.mean(1)
+
+    assert out.dims == (left, right)
+    assert torch.allclose(out.data, data.mean(dim=1))
+
+
+def test_tensor_mean_supports_negative_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.mean(-1)
+
+    assert out.dims == (left, mid)
+    assert torch.allclose(out.data, data.mean(dim=-1))
+
+
+def test_tensor_mean_raises_for_out_of_range_dim():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 4)
+    tensor = Tensor(
+        data=torch.randn(left.dim, right.dim, dtype=torch.float64), dims=(left, right)
+    )
+
+    with pytest.raises(IndexError, match="out of range"):
+        _ = tensor.mean(2)
+
+
+def test_tensor_mean_supports_dim_none():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, right))
+
+    out = tensor.mean()
+
+    assert out.dims == ()
+    assert torch.allclose(out.data, data.mean())
+
+
+def test_tensor_mean_supports_tuple_dims():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.mean((0, 2))
+
+    assert out.dims == (mid,)
+    assert torch.allclose(out.data, data.mean(dim=(0, 2)))
+
+
+def test_tensor_argmax_reduces_selected_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmax(1)
+
+    assert out.dims == (left, right)
+    assert torch.equal(out.data, data.argmax(dim=1))
+
+
+def test_tensor_argmax_supports_negative_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmax(-1)
+
+    assert out.dims == (left, mid)
+    assert torch.equal(out.data, data.argmax(dim=-1))
+
+
+def test_tensor_argmax_raises_for_out_of_range_dim():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 4)
+    tensor = Tensor(
+        data=torch.randn(left.dim, right.dim, dtype=torch.float64), dims=(left, right)
+    )
+
+    with pytest.raises(IndexError, match="out of range"):
+        _ = tensor.argmax(2)
+
+
+def test_tensor_argmin_reduces_selected_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmin(1)
+
+    assert out.dims == (left, right)
+    assert torch.equal(out.data, data.argmin(dim=1))
+
+
+def test_tensor_argmin_supports_negative_dim():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 3)
+    right = _simple_hilbert("right", 4)
+    data = torch.randn(left.dim, mid.dim, right.dim, dtype=torch.float64)
+    tensor = Tensor(data=data, dims=(left, mid, right))
+
+    out = tensor.argmin(-1)
+
+    assert out.dims == (left, mid)
+    assert torch.equal(out.data, data.argmin(dim=-1))
+
+
+def test_tensor_argmin_raises_for_out_of_range_dim():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 4)
+    tensor = Tensor(
+        data=torch.randn(left.dim, right.dim, dtype=torch.float64), dims=(left, right)
+    )
+
+    with pytest.raises(IndexError, match="out of range"):
+        _ = tensor.argmin(2)
+
+
+def test_one_hot_appends_class_dim():
+    sample_space = _simple_hilbert("sample", 4)
+    class_space = _simple_hilbert("class", 5)
+    data = torch.tensor([0, 2, 4, 1], dtype=torch.long)
+    tensor = Tensor(data=data, dims=(sample_space,))
+
+    out = one_hot(tensor, class_space)
+
+    assert out.dims == (sample_space, class_space)
+    expected = torch.nn.functional.one_hot(data, num_classes=class_space.dim)
+    assert torch.equal(out.data, expected)
+
+
+def test_one_hot_rejects_non_integer_input():
+    sample_space = _simple_hilbert("sample", 3)
+    class_space = _simple_hilbert("class", 4)
+    tensor = Tensor(
+        data=torch.tensor([0.0, 1.0, 2.0], dtype=torch.float64), dims=(sample_space,)
+    )
+
+    with pytest.raises(TypeError, match="integer-valued"):
+        _ = one_hot(tensor, class_space)
+
+
+def test_one_hot_rejects_out_of_range_indices():
+    sample_space = _simple_hilbert("sample", 3)
+    class_space = _simple_hilbert("class", 4)
+    tensor = Tensor(
+        data=torch.tensor([0, 1, 4], dtype=torch.long), dims=(sample_space,)
+    )
+
+    with pytest.raises(ValueError, match="out of range"):
+        _ = one_hot(tensor, class_space)
+
+
+def test_kernel_tensor_builds_rank2_tensor_from_kernel():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 2)
+
+    out = kernel_tensor(lambda x, y: x.rep[0][1] - 10 * y.rep[0][1], (left, right))
+
+    expected = torch.tensor(
+        [[0, -10], [1, -9], [2, -8]],
+        dtype=out.data.dtype,
+    )
+    assert out.dims == (left, right)
+    assert out.data.shape == (left.dim, right.dim)
+    assert torch.equal(out.data, expected)
+
+
+def test_kernel_tensor_builds_rank3_tensor_from_kernel():
+    a = _simple_hilbert("a", 2)
+    b = _simple_hilbert("b", 3)
+    c = _simple_hilbert("c", 2)
+
+    out = kernel_tensor(
+        lambda x, y, z: x.rep[0][1] + 2 * y.rep[0][1] + 3 * z.rep[0][1],
+        (a, b, c),
+    )
+
+    expected = torch.empty((a.dim, b.dim, c.dim), dtype=out.data.dtype)
+    for i, x in enumerate(a.elements()):
+        for j, y in enumerate(b.elements()):
+            for k, z in enumerate(c.elements()):
+                expected[i, j, k] = x.rep[0][1] + 2 * y.rep[0][1] + 3 * z.rep[0][1]
+
+    assert out.dims == (a, b, c)
+    assert torch.equal(out.data, expected)
+
+
+def test_kernel_tensor_supports_scalar_kernel():
+    out = kernel_tensor(lambda: 2 + 3j, ())
+
+    assert out.dims == ()
+    assert out.data.shape == torch.Size([])
+    assert out.item() == 2 + 3j
+
+
+def test_allclose_aligns_right_dims():
+    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
+
+    structure_ab = OrderedDict(
+        [
+            (mode_a, slice(0, 2)),
+            (mode_b, slice(2, 5)),
+        ]
+    )
+    structure_ba = OrderedDict(
+        [
+            (mode_b, slice(0, 3)),
+            (mode_a, slice(3, 5)),
+        ]
+    )
+    space_ab = HilbertSpace(structure=structure_ab)
+    space_ba = HilbertSpace(structure=structure_ba)
+
+    a_data = torch.randn(space_ab.dim, dtype=torch.float64)
+    b_data = torch.empty_like(a_data)
+    perm = torch.tensor([3, 4, 0, 1, 2], dtype=torch.long)
+    b_data[perm] = a_data
+
+    a = Tensor(data=a_data, dims=(space_ab,))
+    b = Tensor(data=b_data, dims=(space_ba,))
+
+    assert allclose(a, b)
+    assert a.allclose(b)
+
+
+def test_allclose_returns_false_for_non_alignable_dims():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 3)
+    a = Tensor(data=torch.randn(left.dim), dims=(left,))
+    b = Tensor(data=torch.randn(right.dim), dims=(right,))
+
+    assert not allclose(a, b)
+    assert not a.allclose(b)
+
+
+def test_allclose_matches_torch_behavior_for_dtype_mismatch():
+    left = _simple_hilbert("left", 3)
+    a = Tensor(data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32), dims=(left,))
+    b = Tensor(data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64), dims=(left,))
+
+    with pytest.raises(RuntimeError, match="did not match"):
+        _ = torch.allclose(a.data, b.data)
+    with pytest.raises(RuntimeError, match="did not match"):
+        _ = allclose(a, b)
+    with pytest.raises(RuntimeError, match="did not match"):
+        _ = a.allclose(b)
+
+
+def test_align_all_aligns_dims():
+    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
+    space_ab = HilbertSpace(
+        structure=OrderedDict([(mode_a, slice(0, 2)), (mode_b, slice(2, 5))])
+    )
+    space_ba = HilbertSpace(
+        structure=OrderedDict([(mode_b, slice(0, 3)), (mode_a, slice(3, 5))])
+    )
+
+    data = torch.arange(space_ab.dim, dtype=torch.float64)
+    # data in BA order: [b0,b1,b2,a0,a1]
+    data_ba = data[torch.tensor([2, 3, 4, 0, 1], dtype=torch.long)]
+    tensor_ba = Tensor(data=data_ba, dims=(space_ba,))
+
+    out = align_all(tensor_ba, (space_ab,))
+
+    assert out.dims == (space_ab,)
+    assert torch.equal(out.data, data)
+    assert torch.equal(tensor_ba.align_all((space_ab,)).data, data)
+
+
+def test_align_all_raises_when_not_alignable():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 3)
+    tensor = Tensor(data=torch.randn(right.dim), dims=(right,))
+
+    with pytest.raises(ValueError, match="cannot be aligned|Cannot align"):
+        _ = align_all(tensor, (left,))
+
+
+def test_equal_aligns_right_dims():
+    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
+    space_ab = HilbertSpace(
+        structure=OrderedDict([(mode_a, slice(0, 2)), (mode_b, slice(2, 5))])
+    )
+    space_ba = HilbertSpace(
+        structure=OrderedDict([(mode_b, slice(0, 3)), (mode_a, slice(3, 5))])
+    )
+
+    a_data = torch.randn(space_ab.dim, dtype=torch.float64)
+    b_data = torch.empty_like(a_data)
+    perm = torch.tensor([3, 4, 0, 1, 2], dtype=torch.long)
+    b_data[perm] = a_data
+
+    a = Tensor(data=a_data, dims=(space_ab,))
+    b = Tensor(data=b_data, dims=(space_ba,))
+
+    assert equal(a, b)
+    assert a.equal(b)
+
+
+def test_equal_returns_false_for_non_alignable_dims():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 3)
+    a = Tensor(data=torch.randn(left.dim), dims=(left,))
+    b = Tensor(data=torch.randn(right.dim), dims=(right,))
+
+    assert not equal(a, b)
+    assert not a.equal(b)
+
+
+def test_equal_returns_false_when_values_differ():
+    left = _simple_hilbert("left", 3)
+    a = Tensor(data=torch.tensor([1.0, 2.0, 3.0]), dims=(left,))
+    b = Tensor(data=torch.tensor([1.0, 2.0, 4.0]), dims=(left,))
+
+    assert not equal(a, b)
+    assert not a.equal(b)
+
+
+def test_equal_matches_torch_behavior_for_dtype_mismatch():
+    left = _simple_hilbert("left", 3)
+    a = Tensor(data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32), dims=(left,))
+    b = Tensor(data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64), dims=(left,))
+
+    expected = torch.equal(a.data, b.data)
+    assert equal(a, b) == expected
+    assert a.equal(b) == expected
+
+
+def test_astype_module_returns_new_tensor_with_converted_dtype():
+    left = _simple_hilbert("left", 3)
+    tensor = Tensor(
+        data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32), dims=(left,)
+    )
+
+    out = astype(tensor, torch.float64)
+
+    assert out is not tensor
+    assert out.dims == tensor.dims
+    assert out.data.dtype == torch.float64
+    assert torch.allclose(out.data, tensor.data.to(dtype=torch.float64))
+
+
+def test_tensor_astype_returns_new_tensor_with_converted_dtype():
+    left = _simple_hilbert("left", 3)
+    tensor = Tensor(
+        data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64), dims=(left,)
+    )
+
+    out = tensor.astype(torch.float32)
+
+    assert out is not tensor
+    assert out.dims == tensor.dims
+    assert out.data.dtype == torch.float32
+    assert torch.allclose(out.data, tensor.data.to(dtype=torch.float32))
+
+
+def test_all_over_tensor_equality_full_reduction():
+    mode_a = MockMode(count=2, attr=FrozenDict({"name": "a"}))
+    mode_b = MockMode(count=3, attr=FrozenDict({"name": "b"}))
+    right = _simple_hilbert("right", 2)
+    space_ab = HilbertSpace(
+        structure=OrderedDict([(mode_a, slice(0, 2)), (mode_b, slice(2, 5))])
+    )
+    space_ba = HilbertSpace(
+        structure=OrderedDict([(mode_b, slice(0, 3)), (mode_a, slice(3, 5))])
+    )
+
+    a_data = torch.randn(space_ab.dim, right.dim, dtype=torch.float64)
+    b_data = torch.empty_like(a_data)
+    perm = torch.tensor([3, 4, 0, 1, 2], dtype=torch.long)
+    b_data[perm, :] = a_data
+
+    a = Tensor(data=a_data, dims=(space_ab, right))
+    b = Tensor(data=b_data, dims=(space_ba, right))
+
+    compared = a == b
+    reduced = tensor_all(compared)
+
+    assert compared.dims == (space_ab, right)
+    assert compared.data.dtype == torch.bool
+    assert reduced.dims == ()
+    assert reduced.data.item() is True
+
+
+def test_all_over_tensor_equality_dim_and_keepdim():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 2)
+
+    a = Tensor(
+        data=torch.tensor([[1.0, 2.0], [3.0, 4.0], [9.0, 6.0]], dtype=torch.float64),
+        dims=(left, right),
+    )
+    b = Tensor(
+        data=torch.tensor([[1.0, 2.0], [3.0, 0.0], [9.0, 6.0]], dtype=torch.float64),
+        dims=(left, right),
+    )
+
+    compared = a == b
+    reduced = tensor_all(compared, dim=0)
+    reduced_keepdim = compared.all(dim=0, keepdim=True)
+
+    assert reduced.dims == (right,)
+    assert torch.equal(reduced.data, torch.tensor([True, False]))
+    assert isinstance(reduced_keepdim.dims[0], BroadcastSpace)
+    assert reduced_keepdim.dims[1] == right
+    assert reduced_keepdim.data.shape == (1, right.dim)
+    assert torch.equal(reduced_keepdim.data, torch.tensor([[True, False]]))
+
+
+def test_all_supports_tuple_dims_without_keepdim():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor([[True, True], [True, False], [True, True]]),
+        dims=(left, right),
+    )
+
+    out = tensor_all(tensor, dim=(0, 1))
+
+    assert out.dims == ()
+    assert out.data.shape == ()
+    assert out.data.item() is False
+
+
+def test_all_supports_tuple_dims_with_keepdim():
+    left = _simple_hilbert("left", 3)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor([[True, True], [True, True], [True, True]]),
+        dims=(left, right),
+    )
+
+    out = tensor.all(dim=(0, 1), keepdim=True)
+
+    assert len(out.dims) == 2
+    assert isinstance(out.dims[0], BroadcastSpace)
+    assert isinstance(out.dims[1], BroadcastSpace)
+    assert out.data.shape == (1, 1)
+    assert out.data.item() is True
+
+
+def test_all_supports_negative_tuple_dims():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 2)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor(
+            [[[True, True], [True, True]], [[True, True], [True, False]]]
+        ),
+        dims=(left, mid, right),
+    )
+
+    out = tensor.all(dim=(-2, -1))
+
+    assert out.dims == (left,)
+    assert torch.equal(out.data, torch.tensor([True, False]))
+
+
+def test_all_raises_for_out_of_range_dim():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor([[True, True], [True, True]]),
+        dims=(left, right),
+    )
+
+    with pytest.raises(IndexError, match="out of range"):
+        _ = tensor.all(dim=2)
+
+
+def test_all_raises_for_out_of_range_dim_in_tuple():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor([[True, True], [True, True]]),
+        dims=(left, right),
+    )
+
+    with pytest.raises(IndexError, match="out of range"):
+        _ = tensor_all(tensor, dim=(0, 2))
+
+
+def test_all_matches_torch_behavior_dim_none():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 3)
+    tensor = Tensor(
+        data=torch.tensor([[True, True, True], [True, False, True]]),
+        dims=(left, right),
+    )
+
+    out = tensor_all(tensor)
+    expected = torch.all(tensor.data)
+
+    assert out.dims == ()
+    assert torch.equal(out.data, expected)
+
+
+def test_all_matches_torch_behavior_dim_int_keepdim_false():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 3)
+    tensor = Tensor(
+        data=torch.tensor([[True, True, True], [True, False, True]]),
+        dims=(left, right),
+    )
+
+    out = tensor_all(tensor, dim=1, keepdim=False)
+    expected = torch.all(tensor.data, dim=1, keepdim=False)
+
+    assert out.dims == (left,)
+    assert torch.equal(out.data, expected)
+
+
+def test_all_matches_torch_behavior_dim_int_keepdim_true():
+    left = _simple_hilbert("left", 2)
+    right = _simple_hilbert("right", 3)
+    tensor = Tensor(
+        data=torch.tensor([[True, True, True], [True, False, True]]),
+        dims=(left, right),
+    )
+
+    out = tensor.all(dim=1, keepdim=True)
+    expected = torch.all(tensor.data, dim=1, keepdim=True)
+
+    assert out.data.shape == expected.shape
+    assert isinstance(out.dims[1], BroadcastSpace)
+    assert torch.equal(out.data, expected)
+
+
+def test_all_matches_torch_behavior_dim_tuple_keepdim_false():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 2)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor(
+            [[[True, True], [True, True]], [[True, True], [True, False]]]
+        ),
+        dims=(left, mid, right),
+    )
+
+    out = tensor_all(tensor, dim=(1, 2), keepdim=False)
+    expected = torch.all(tensor.data, dim=(1, 2), keepdim=False)
+
+    assert out.dims == (left,)
+    assert torch.equal(out.data, expected)
+
+
+def test_all_matches_torch_behavior_dim_tuple_keepdim_true():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 2)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor(
+            [[[True, True], [True, True]], [[True, True], [True, False]]]
+        ),
+        dims=(left, mid, right),
+    )
+
+    out = tensor_all(tensor, dim=(0, 2), keepdim=True)
+    expected = torch.all(tensor.data, dim=(0, 2), keepdim=True)
+
+    assert out.data.shape == expected.shape
+    assert isinstance(out.dims[0], BroadcastSpace)
+    assert isinstance(out.dims[2], BroadcastSpace)
+    assert torch.equal(out.data, expected)
+
+
+def test_all_matches_torch_behavior_negative_tuple_dims():
+    left = _simple_hilbert("left", 2)
+    mid = _simple_hilbert("mid", 2)
+    right = _simple_hilbert("right", 2)
+    tensor = Tensor(
+        data=torch.tensor(
+            [[[True, True], [True, True]], [[True, True], [True, False]]]
+        ),
+        dims=(left, mid, right),
+    )
+
+    out = tensor.all(dim=(-2, -1), keepdim=False)
+    expected = torch.all(tensor.data, dim=(-2, -1), keepdim=False)
+
+    assert out.dims == (left,)
+    assert torch.equal(out.data, expected)

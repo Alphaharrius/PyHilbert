@@ -3,8 +3,8 @@ from collections import namedtuple
 
 import torch
 
-from .hilbert import FactorSpace
-from .hilbert import same_span
+from .state_space import FactorSpace
+from .state_space import same_span
 from .tensors import Tensor
 
 
