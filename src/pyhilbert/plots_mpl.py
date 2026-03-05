@@ -5,8 +5,8 @@ from typing import Optional, Union, Dict, Any, cast, Tuple
 from .spatials import Lattice
 from .tensors import Tensor
 from .utils import compute_bonds
-from .state_space import MomentumSpace
-from .hilbert_space import HilbertSpace, same_span
+from .state_space import MomentumSpace, same_span
+from .hilbert_space import HilbertSpace
 # --- Registered Plot Methods (Matplotlib Backend) ---
 
 

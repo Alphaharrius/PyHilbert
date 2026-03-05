@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+import plotly.graph_objects as go
 import sympy as sy
 import torch
 
@@ -10,6 +11,8 @@ from pyhilbert.hilbert_space import U1Basis, hilbert
 from pyhilbert.spatials import Lattice
 from pyhilbert.state_space import brillouin_zone
 from pyhilbert.tensors import Tensor
+from pyhilbert.utils import FrozenDict
+from pyhilbert.fourier import fourier_transform
 
 
 @dataclass(frozen=True)
@@ -111,23 +114,65 @@ def test_plot_structure_2d_and_3d():
 
 
 def test_bandstructure_plot():
+    # 1. Define Lattice (2D Square)
+    # Basis: [[a, 0], [0, a]]
     a = sy.Symbol("a")
-    basis = sy.ImmutableDenseMatrix([[a, 0], [0, a]])
+    basis = sy.ImmutableDenseMatrix([[a, 0.0], [0.0, a]])
+    # Small shape for test speed
     lat = Lattice(basis=basis, shape=(4, 4))
+
+    # 2. Define Unit Cell (Bloch Space)
+    # Single s-orbital at origin (0,0)
+    r_0 = Offset(rep=sy.ImmutableDenseMatrix([[0.0], [0.0]]), space=lat.affine)
+    mode_s = Mode.from_attr(count=1, r=r_0, label="s")
+    bloch_space = hilbert([mode_s])
+
+    # 3. Define Region Space (Real Space Neighbors)
+    neighbor_offsets = [
+        (0, 0),  # Center
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+    ]
+
+    region_modes = []
+    offset_to_idx = {}
+
+    for i, (dx, dy) in enumerate(neighbor_offsets):
+        r_vec = sy.ImmutableDenseMatrix([[dx], [dy]])
+        r_off = Offset(rep=r_vec, space=lat.affine)
+        # Create a mode at this position based on the unit cell mode
+        m = mode_s.update(r=r_off)
+        region_modes.append(m)
+        offset_to_idx[(dx, dy)] = i
+
+    region_space = hilbert(region_modes)
+
+    # 4. Construct Hamiltonian H_real
+    t_n = -1.0 + 0j
+
+    h_data = torch.zeros((region_space.dim, region_space.dim), dtype=torch.complex128)
+
+    origin_idx = offset_to_idx[(0, 0)]
+
+    nn_coords = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    for dx, dy in nn_coords:
+        idx = offset_to_idx[(dx, dy)]
+        h_data[origin_idx, idx] = t_n
+        h_data[idx, origin_idx] = np.conjugate(t_n)
+
+    h_real = Tensor(data=h_data, dims=(region_space, region_space))
+
+    # 5. Define Momentum Space (Grid)
     k_space = brillouin_zone(lat.dual)
-    bloch_space = _space(2, "orb_")
 
-    hk_data = torch.zeros((k_space.dim, 2, 2), dtype=torch.complex128)
-    for i, k in enumerate(k_space.elements()):
-        kvec = np.array(k.rep.subs({a: 1.0})).astype(float).flatten()
-        knorm = float(np.linalg.norm(kvec))
-        e0 = -2.0 * np.cos(knorm)
-        e1 = 1.0 + 2.0 * np.cos(knorm)
-        v = 0.1 + 0.2 * (i / max(1, k_space.dim - 1))
-        hk_data[i] = torch.tensor([[e0, v], [v, e1]], dtype=torch.complex128)
+    # 6. Compute H(k)
+    F = fourier_transform(k_space, bloch_space, region_space)
+    F_dag = F.h(1, 2)
+    h_k = F @ h_real @ F_dag
 
-    h_k = Tensor(data=hk_data, dims=(k_space, bloch_space, bloch_space))
-
+    # 7. Visualization
     fig = h_k.plot(
         "bandstructure",
         backend="plotly",
@@ -137,5 +182,8 @@ def test_bandstructure_plot():
     )
 
     assert isinstance(fig, go.Figure)
+    # Check if we have traces (surfaces for 2D or lines for 1D/path)
+    # Since we used brillouin_zone on a 2D lattice, it should produce a 2D grid plot (Surface)
     assert len(fig.data) >= 1
+    # Check title
     assert fig.layout.title.text == "Test Bandstructure"
