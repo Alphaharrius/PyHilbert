@@ -1,7 +1,7 @@
 from dataclasses import dataclass, replace, field
 from typing import Callable, NamedTuple, Tuple, TypeVar, Generic, Union, Self, cast
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from functools import lru_cache
 from itertools import chain, islice
 
@@ -16,11 +16,11 @@ from .spatials import (
 )
 
 
-TSpatial = TypeVar("TSpatial", bound=Spatial)
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
-class StateSpace(Spatial, Convertible, Generic[TSpatial]):
+class StateSpace(Spatial, Convertible, Generic[T]):
     """
     `StateSpace` is a collection of indices with additional information attached to the elements,
     for the case of TNS there are only two types of state spaces: `MomentumSpace` and `HilbertSpace`.
@@ -37,7 +37,7 @@ class StateSpace(Spatial, Convertible, Generic[TSpatial]):
         The total dimension of the state space, calculated as the count of elements regardless of their lengths.
     """
 
-    structure: OrderedDict[TSpatial, slice]
+    structure: OrderedDict[T, slice]
     """
     An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`) to a slice object that defines its 
     position and the range in the tensor. The slices should be contiguous and ordered.
@@ -50,11 +50,11 @@ class StateSpace(Spatial, Convertible, Generic[TSpatial]):
             return 0
         return self.structure[next(reversed(self.structure))].stop
 
-    def elements(self) -> Tuple[TSpatial, ...]:
+    def elements(self) -> Tuple[T, ...]:
         """Return the spatial elements as a tuple."""
         return tuple(k for k in self.structure.keys())
 
-    def get_slice(self, key: TSpatial) -> slice:
+    def get_slice(self, key: T) -> slice:
         """Get the slice associated with a given spatial key."""
         return self.structure[key]
 
@@ -62,7 +62,7 @@ class StateSpace(Spatial, Convertible, Generic[TSpatial]):
         """Return the number of spatial elements."""
         return len(self.structure)
 
-    def __iter__(self) -> Iterator[TSpatial]:
+    def __iter__(self) -> Iterator[T]:
         """Iterate over spatial elements."""
         return iter(k for k, _ in self.structure.items())
 
@@ -70,9 +70,7 @@ class StateSpace(Spatial, Convertible, Generic[TSpatial]):
         # TODO: Do we need to consider the order of the structure?
         return hash(tuple((k, s.start, s.stop) for k, s in self.structure.items()))
 
-    def __getitem__(
-        self, v: Union[int, slice, range]
-    ) -> Union[TSpatial, "StateSpace[TSpatial]"]:
+    def __getitem__(self, v: Union[int, slice, range]) -> Union[T, "StateSpace[T]"]:
         """
         Index into the state-space by element position.
 
@@ -134,18 +132,18 @@ class StateSpace(Spatial, Convertible, Generic[TSpatial]):
         """
         return same_span(self, other)
 
-    def map(self, func: Callable[[TSpatial], TSpatial]) -> "StateSpace[TSpatial]":
+    def map(self, func: Callable[[T], T]) -> "StateSpace[T]":
         """
         Map the spatial elements of this state space using a provided function.
 
         Parameters
         ----------
-        `func` : `Callable[[TSpatial], TSpatial]`
+        `func` : `Callable[[T], T]`
             A function that takes a spatial element and returns a transformed spatial element.
 
         Returns
         -------
-        `StateSpace[TSpatial]`
+        `StateSpace[T]`
             A new state space with the transformed spatial elements.
         """
         new_structure = OrderedDict()
@@ -183,8 +181,8 @@ def operator_matmul(a: StateSpace, b: StateSpace):
 
 
 def restructure(
-    structure: OrderedDict[TSpatial, slice],
-) -> OrderedDict[TSpatial, slice]:
+    structure: OrderedDict[T, slice],
+) -> OrderedDict[T, slice]:
     """
     Return a new `OrderedDict` with contiguous, ordered slices preserving lengths.
 
@@ -198,7 +196,7 @@ def restructure(
     `OrderedDict[Spatial, slice]`
         The restructured `OrderedDict` with contiguous, ordered slices.
     """
-    new_structure: OrderedDict[TSpatial, slice] = OrderedDict()
+    new_structure: OrderedDict[T, slice] = OrderedDict()
     base = 0
     for k, s in structure.items():
         L = s.stop - s.start
@@ -435,67 +433,45 @@ def operator_add(a: BroadcastSpace, b: StateSpace):
     return b
 
 
-@dataclass(frozen=True)
-class FactorBand(Spatial, Convertible):
+class IndexSpace(StateSpace[int]):
     """
-    A spectral band in an eigenvalue spectrum.
-
-    Attributes
-    ----------
-    idx : int
-        Zero-based band index.
-    count : int
-        Number of eigenvalues in the band.
+    A simple state space where the spatial elements are just integer indices.
+    This can be useful for representing generic tensor dimensions that don't
+    have a specific physical interpretation, such as the virtual bond dimension in a TNS.
     """
 
-    idx: int
-    count: int
-
-    @property
-    def dim(self) -> int:
-        """Return the band dimension (number of eigenvalues in the band)."""
-        return self.count
-
-
-@dataclass(frozen=True)
-class FactorSpace(StateSpace[FactorBand]):
-    """
-    State space describing a spectrum partitioned into spectral bands.
-
-    Each band corresponds to a contiguous block of eigenvalues, and the total
-    dimension equals the sum of all band sizes.
-    """
-
-    __hash__ = StateSpace.__hash__
-
-    def __str__(self):
-        band_count_repr = ", ".join([str(band.dim) for band in self])
-        return f"FactorSpace({band_count_repr})"
-
-    @classmethod
-    def from_band_counts(cls, band_counts: Iterable[int]) -> "FactorSpace":
+    @staticmethod
+    def linear(size: int) -> "IndexSpace":
         """
-        Construct a `FactorSpace` from per-band eigenvalue counts.
+        Build a contiguous index space of length `size`.
+
+        The resulting space contains integer keys `0..size-1`, each mapped to a
+        unit-length slice `(i, i+1)`.
 
         Parameters
         ----------
-        band_counts : Iterable[int]
-            Sizes of each band in order.
+        `size` : `int`
+            Number of indices in the space.
+
+        Returns
+        -------
+        `IndexSpace`
+            A contiguous `IndexSpace` with canonical linear ordering.
+
+        Raises
+        ------
+        `ValueError`
+            If `size` is negative.
         """
-        structure = OrderedDict()
-        base = 0
-        for idx, count in enumerate(band_counts):
-            band = FactorBand(idx=idx, count=count)
-            structure[band] = slice(base, base + count)
-            base += count
-        return cls(structure=structure)
+        if size < 0:
+            raise ValueError("IndexSpace size must be non-negative.")
+        return IndexSpace(OrderedDict((i, slice(i, i + 1)) for i in range(size)))
 
+    def __str__(self):
+        return f"IndexSpace({self.dim})"
 
-@FactorBand.add_conversion(StateSpace)
-def factorband_to_factorspace(band: FactorBand) -> StateSpace:
-    """Convert a `FactorBand` to a `FactorSpace` containing only that band."""
-    structure = OrderedDict({band: slice(0, band.dim)})
-    return FactorSpace(structure=structure)
+    def __repr__(self):
+        return str(self)
 
 
 class StateSpaceFactorization(NamedTuple):

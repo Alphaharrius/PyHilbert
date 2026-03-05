@@ -21,7 +21,7 @@ from pyhilbert.tensors import (
 from pyhilbert.hilbert_space import HilbertSpace, U1Basis, hilbert
 from pyhilbert.state_space import (
     BroadcastSpace,
-    FactorSpace,
+    IndexSpace,
     MomentumSpace,
     brillouin_zone,
 )
@@ -1349,18 +1349,18 @@ class TestTensorGetitem:
             out.data, data[:, :, expected_slice.start : expected_slice.stop]
         )
 
-    def test_getitem_with_factorband_index(self):
-        factor_space = FactorSpace.from_band_counts((1, 2))
-        _b0, b1 = tuple(factor_space.structure.keys())
+    def test_getitem_with_indexspace_index(self):
+        index_space = IndexSpace.linear(3)
+        i1 = tuple(index_space.structure.keys())[1]
+        index_subspace = IndexSpace(structure=OrderedDict({i1: slice(0, 1)}))
 
         data = torch.arange(27, dtype=torch.float64).reshape(3, 3, 3)
-        tensor = Tensor(data=data, dims=(factor_space, factor_space, factor_space))
+        tensor = Tensor(data=data, dims=(index_space, index_space, index_space))
 
-        out = tensor[:, :, b1]
-        expected_dim = FactorSpace(structure=OrderedDict({b1: slice(0, b1.dim)}))
-        expected_slice = factor_space.get_slice(b1)
+        out = tensor[:, :, index_subspace]
+        expected_slice = index_space.get_slice(i1)
         assert isinstance(out, Tensor)
-        assert out.dims == (factor_space, factor_space, expected_dim)
+        assert out.dims == (index_space, index_space, index_subspace)
         assert torch.equal(
             out.data, data[:, :, expected_slice.start : expected_slice.stop]
         )
