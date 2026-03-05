@@ -6,6 +6,7 @@ from sympy import ImmutableDenseMatrix
 from pyhilbert.hilbert_space import U1Basis, U1Span, HilbertSpace, hilbert
 from pyhilbert.state_space import MomentumSpace, brillouin_zone
 from pyhilbert.spatials import Lattice, Offset
+from pyhilbert.utils import FrozenDict
 
 
 @dataclass(frozen=True)
@@ -100,14 +101,29 @@ def test_hilbert_space_creation_and_operations():
     union = hs1 + hs2
     assert list(union.structure.keys()) == [s0, s1, s2]
 
+    union_pipe = hs1 | hs2
+    assert list(union_pipe.structure.keys()) == [s0, s1, s2]
+
     inter = hs1 & hs2
     assert list(inter.structure.keys()) == [s1]
 
     diff = hs1 - hs2
     assert list(diff.structure.keys()) == [s0]
 
+    union_with_state = hs1 | s2
+    assert list(union_with_state.structure.keys()) == [s0, s1, s2]
 
-def test_hilbert_space_group_with_kwargs_selector_and_mapping():
+    prepend_state = s2 | hs1
+    assert list(prepend_state.structure.keys()) == [s2, s0, s1]
+
+    sub_state = hs1 - s0
+    assert list(sub_state.structure.keys()) == [s1]
+
+    inter_state = hs1 & s1
+    assert list(inter_state.structure.keys()) == [s1]
+
+
+def test_hilbert_space_group_with_kwargs_selector():
     basis = ImmutableDenseMatrix([[1]])
     lat = Lattice(basis=basis, shape=(4,))
     r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
@@ -125,19 +141,10 @@ def test_hilbert_space_group_with_kwargs_selector_and_mapping():
         s_band=lambda el: el.irrep_of(Orb) == Orb("s"),
         p_band=Orb("p"),
     )
-    assert grouped.spans["s_band"].span == (s0, s2)
-    assert grouped.spans["p_band"].span == (p1,)
-
-    mapping = grouped.mapping
-    assert mapping.data.shape == (4, 4)
-    assert tuple(mapping.dims[0].elements()) == hs.elements()
-
-    grouped_space = mapping.dims[1]
-    assert isinstance(grouped_space, HilbertSpace)
-    grouped_keys = tuple(grouped_space.structure.keys())
-    assert grouped_keys[0] == d3.unit()
-    assert grouped_keys[1] == grouped.spans["s_band"].unit()
-    assert grouped_keys[2] == grouped.spans["p_band"].unit()
+    assert isinstance(grouped, FrozenDict)
+    assert set(grouped.keys()) == {"s_band", "p_band"}
+    assert tuple(grouped["s_band"].elements()) == (s0, s2)
+    assert tuple(grouped["p_band"].elements()) == (p1,)
 
 
 def test_hilbert_space_group_raises_on_overlap():
@@ -151,6 +158,30 @@ def test_hilbert_space_group_raises_on_overlap():
 
     with pytest.raises(ValueError, match="overlap"):
         hs.group(all_s=Orb("s"), first_only=lambda el: el.irrep_of(Offset) == r0)
+
+
+def test_hilbert_space_group_by_returns_tuple_of_hilbertspace():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(basis=basis, shape=(4,))
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine)
+    r2 = Offset(rep=ImmutableDenseMatrix([2]), space=lat.affine)
+    r3 = Offset(rep=ImmutableDenseMatrix([3]), space=lat.affine)
+
+    s0 = _state(r0, "s")
+    p1 = _state(r1, "p")
+    s2 = _state(r2, "s")
+    d3 = _state(r3, "d")
+    hs = hilbert([s0, p1, s2, d3])
+
+    groups = hs.group_by(Orb)
+
+    assert isinstance(groups, tuple)
+    assert all(isinstance(g, HilbertSpace) for g in groups)
+    assert len(groups) == 3
+    assert tuple(groups[0].elements()) == (s0, s2)
+    assert tuple(groups[1].elements()) == (p1,)
+    assert tuple(groups[2].elements()) == (d3,)
 
 
 def test_statespace_getitem_variants():

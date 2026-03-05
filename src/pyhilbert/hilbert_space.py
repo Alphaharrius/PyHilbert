@@ -11,7 +11,6 @@ from typing import (
     TypeVar,
     Generic,
     Union,
-    NamedTuple,
 )
 from typing import cast
 from typing_extensions import override
@@ -28,7 +27,7 @@ from multipledispatch import dispatch  # type: ignore[import-untyped]
 from .utils import FrozenDict, full_typename
 from .abstracts import AbstractKet, Convertible, Operable, Functional, Span, HasUnit
 from .spatials import Spatial
-from .state_space import StateSpace, StateSpaceFactorization, restructure
+from .state_space import StateSpace, StateSpaceFactorization
 from .tensors import Tensor
 from .precision import get_precision_config
 
@@ -379,44 +378,35 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
     Composite local Hilbert space built from states and state spans.
 
     `HilbertSpace` is the symbolic basis container used by tensor-network style
-    operators in this module. It extends `StateSpace` by allowing each sector
-    key to be either a single `U1Basis` or a grouped `U1Span`. The inherited
-    `structure` mapping stores each sector together with its contiguous slice in
-    the flattened basis.
+    operators in this module. It extends `StateSpace` with `U1Basis` sectors.
+    The inherited `structure` mapping stores each sector together with its
+    contiguous slice in the basis.
 
     The class provides helpers for common basis-management workflows:
-    - `flatten()` expands all `U1Span` sectors into explicit `U1Basis` sectors
-      while preserving first-seen order and returns a normalized structure.
     - `elements()` returns the flattened basis states as `Tuple[U1Basis, ...]`.
     - `lookup(query)` retrieves a unique basis state by exact typed-irrep match.
-    - `group(**groups)` partitions flattened elements into labeled `U1Span`
-      sectors and returns both the grouped spans and the basis-change mapping.
+    - `group(**groups)` partitions basis elements into labeled grouped
+      `HilbertSpace` values.
 
     As a `Span`, `HilbertSpace` supports overlap/mapping computations through
-    `gram`, which builds a `Tensor` map between two spaces using flattened
-    `U1Basis` overlap (`U1Span.gram`). As a `HasUnit`, `unit()` keeps basis
-    structure while replacing each element by its unit-normalized counterpart.
+    `gram`, which builds a `Tensor` map between two spaces using `U1Basis`
+    overlap (`U1Span.gram`). As a `HasUnit`, `unit()` keeps basis structure
+    while replacing each element by its unit-normalized counterpart.
 
     Parameters
     ----------
-    `structure` : `OrderedDict[U1Elements, slice]`
+    `structure` : `OrderedDict[U1Basis, slice]`
         Ordered sector mapping inherited from `StateSpace`, where each key is a
-        `U1Basis` or `U1Span` and each value is the sector slice in flattened
-        coordinates.
+        `U1Basis` and each value is the sector slice in basis coordinates.
 
     Notes
     -----
     - `dim` is inherited from `StateSpace` and equals the total flattened basis
       size implied by the last slice stop.
-    - `flatten()` is `@lru_cache`-backed, so repeated flattening of the same
-      immutable instance is O(1) after the first call.
     - `group()` requires disjoint selectors; overlapping grouped spans raise
       `ValueError`.
-    - Even if two `HilbertSpace` objects have the same flattened `U1Basis`
-      elements, `permutation_order`, `flat_permutation_order`, and
-      `embedding_order` may fail when `U1Span` sectors are present in one of
-      the spaces, because these utilities operate on current `structure` keys
-      rather than flattened basis elements.
+    - `permutation_order`, `flat_permutation_order`, and `embedding_order`
+      operate on current `structure` keys.
     """
 
     __hash__ = StateSpace.__hash__
@@ -460,9 +450,6 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
 
         matches: list[U1Basis] = []
         for el in self.elements():
-            if not isinstance(el, U1Basis):
-                continue
-
             is_match = True
             for T, expected in query.items():
                 try:
@@ -485,52 +472,15 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
         return matches[0]
 
     @lru_cache
-    def flatten(self) -> "HilbertSpace":
-        """
-        Return a new instance of `HilbertSpace` with all `HilbertSpan` flattened to its elements
-        respecting the original ordering.
-
-        Returns
-        -------
-        `HilbertSpace`
-            A new instance of `HilbertSpace` with all `HilbertSpan` flattened.
-        """
-        flattened_elements: OrderedDict[U1Basis, slice] = OrderedDict()
-        for el in self.structure.keys():
-            if issubclass(type(el), U1Span):
-                for m in cast(U1Span, el).elements():
-                    flattened_elements[m] = slice(0, m.dim)
-                continue
-            flattened_elements[el] = slice(0, el.dim)
-        return HilbertSpace(restructure(flattened_elements))
-
     def elements(self) -> Tuple[U1Basis, ...]:
-        """Get the flattened elements of this `HilbertSpace`."""
-        return cast(Tuple[U1Basis, ...], tuple(self.flatten().structure.keys()))
-
-    class GroupResult(NamedTuple):
-        """
-        Result payload returned by `HilbertSpace.group`.
-
-        Attributes
-        ----------
-        `spans` : `FrozenDict[str, U1Span]`
-            Mapping from user-provided group label to the generated span.
-        `mapping` : `Tensor`
-            Basis-change map from the original space to the regrouped
-            `HilbertSpace`.
-        """
-
-        spans: FrozenDict[str, U1Span]
-        """Mapping from user-provided group label to the generated span."""
-        mapping: Tensor
-        """Basis-change map from the original space to the regrouped `HilbertSpace`."""
+        """Get the basis elements of this `HilbertSpace` in stored order."""
+        return tuple(self.structure.keys())
 
     def group(
         self, **groups: Union[Callable[[U1Basis], bool], Any]
-    ) -> "HilbertSpace.GroupResult":
+    ) -> FrozenDict[str, "HilbertSpace"]:
         """
-        Group flattened basis elements into labeled spans.
+        Group basis elements into labeled subspaces.
 
         Parameters
         ----------
@@ -542,18 +492,14 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
 
         Returns
         -------
-        `HilbertSpace.GroupResult`
-            - `spans`: frozen mapping from labels to generated `U1Span`.
-              Each generated span is sorted in ascending `U1Basis` order.
-            - `mapping`: tensor with dims `(self, new_hilbert_space)` mapping
-              original flattened elements to a regrouped space with structure
-              `(ungrouped elements) + (generated spans)`.
+        `FrozenDict[str, HilbertSpace]`
+            Frozen mapping from labels to grouped `HilbertSpace` values.
+            Each grouped subspace is sorted in ascending `U1Basis` order.
         """
         elements = self.elements()
-        all_span = U1Span(elements)
 
-        spans_by_label: OrderedDict[str, U1Span] = OrderedDict()
-        grouped_union = U1Span(())
+        grouped_by_label: OrderedDict[str, HilbertSpace] = OrderedDict()
+        grouped_union: set[U1Basis] = set()
 
         for label, selector in groups.items():
             if callable(selector):
@@ -570,44 +516,19 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
                     except ValueError:
                         continue
                 selected = tuple(selected_list)
-            span = U1Span(tuple(sorted(selected)))
-            overlap = grouped_union & span
-            if overlap.dim > 0:
+            grouped_elements = tuple(sorted(selected))
+            overlap = tuple(el for el in grouped_elements if el in grouped_union)
+            if overlap:
                 raise ValueError(
-                    f"grouped spans overlap: state {overlap.span[0]!r} appears in multiple groups (including {label!r})."
+                    f"grouped spans overlap: state {overlap[0]!r} appears in multiple groups (including {label!r})."
                 )
 
-            grouped_union = grouped_union | span
-            spans_by_label[label] = span
+            grouped_union.update(grouped_elements)
+            grouped_by_label[label] = hilbert(grouped_elements)
 
-        ungrouped = (all_span - grouped_union).span
-        new_hilbert = hilbert((*ungrouped, *spans_by_label.values()))
+        return FrozenDict(grouped_by_label)
 
-        return HilbertSpace.GroupResult(
-            spans=FrozenDict(spans_by_label),
-            mapping=self.gram(new_hilbert),
-        )
-
-    class GroupByResult(NamedTuple):
-        """
-        Result payload returned by `HilbertSpace.group_by`.
-
-        Attributes
-        ----------
-        `groups` : `Tuple[U1Span, ...]`
-            Grouped spans in the order their irrep keys first appear in the
-            flattened basis.
-        `mapping` : `Tensor`
-            Basis-change map from the original space to the grouped
-            `HilbertSpace`.
-        """
-
-        groups: Tuple[U1Span, ...]
-        """Grouped spans in the order their irrep keys first appear in the flattened basis."""
-        mapping: Tensor
-        """Basis-change map from the original space to the grouped `HilbertSpace`."""
-
-    def group_by(self, *T: Type) -> "HilbertSpace.GroupByResult":
+    def group_by(self, *T: Type) -> Tuple["HilbertSpace", ...]:
         """
         Form groups by matching irrep types keyed by the irreps.
 
@@ -617,13 +538,15 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
         ----------
         `*T` : `Type`
             The irrep types to group by. The grouping will be performed in the order of the types specified.
-            For example `group_by(A, B)` will group the basis by `(A, B)`, the basis with the same irrep of `A` and `B`
-            will be within the same `U1Span`.
+            For example `group_by(A, B)` will group the basis by `(A, B)`, and
+            basis states with the same irrep of `A` and `B` will be in the same
+            grouped subspace.
 
         Returns
         -------
-        `HilbertSpace.GroupByResult`
-            The result of grouping the basis elements by the specified irrep types.
+        `Tuple[HilbertSpace, ...]`
+            Grouped subspaces in the order their irrep keys first appear in the
+            current basis order.
         """
         keys: OrderedDict[Tuple[Any, ...], None] = OrderedDict()
         for el in self.elements():
@@ -636,10 +559,7 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis, Tensor]):
             )
 
         result = self.group(**selectors)
-        return HilbertSpace.GroupByResult(
-            groups=tuple(result.spans.values()),
-            mapping=result.mapping,
-        )
+        return tuple(result[label] for label in selectors)
 
     def is_homogeneous(self) -> bool:
         """
@@ -1196,3 +1116,46 @@ def operator_and(a: U1Span, b: U1Span) -> U1Span:
     b_elements = set(b.span)
     new_states = tuple(s for s in a.span if s in b_elements)
     return U1Span(new_states)
+
+
+@dispatch(HilbertSpace, U1Basis)  # type: ignore[no-redef]
+def operator_or(space: HilbertSpace, state: U1Basis) -> HilbertSpace:
+    if state in space.structure:
+        return space
+    return hilbert((*space.elements(), state))
+
+
+@dispatch(U1Basis, HilbertSpace)  # type: ignore[no-redef]
+def operator_or(state: U1Basis, space: HilbertSpace) -> HilbertSpace:
+    if state in space.structure:
+        return space
+    return hilbert((state, *space.elements()))
+
+
+@dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]
+def operator_or(a: HilbertSpace, b: HilbertSpace) -> HilbertSpace:
+    existing = set(a.structure.keys())
+    new_elements = tuple(el for el in b if el not in existing)
+    return hilbert((*a.elements(), *new_elements))
+
+
+@dispatch(HilbertSpace, U1Basis)  # type: ignore[no-redef]
+def operator_sub(space: HilbertSpace, state: U1Basis) -> HilbertSpace:
+    return hilbert(el for el in space if el != state)
+
+
+@dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]
+def operator_sub(a: HilbertSpace, b: HilbertSpace) -> HilbertSpace:
+    b_elements = set(b.structure.keys())
+    return hilbert(el for el in a if el not in b_elements)
+
+
+@dispatch(HilbertSpace, U1Basis)  # type: ignore[no-redef]
+def operator_and(space: HilbertSpace, state: U1Basis) -> HilbertSpace:
+    return hilbert((state,)) if state in space.structure else hilbert(())
+
+
+@dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]
+def operator_and(a: HilbertSpace, b: HilbertSpace) -> HilbertSpace:
+    b_elements = set(b.structure.keys())
+    return hilbert(el for el in a if el in b_elements)
