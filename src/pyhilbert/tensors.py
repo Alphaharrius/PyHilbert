@@ -869,14 +869,19 @@ def _tensor_getitem_advanced(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
     # Run core indexing once (without `None`) to infer advanced-axis placement.
     core_data = tensor.data[torch_core_key]
 
-    # Rebuild full key including `None` entries for the actual indexing output.
-    aligned_iter = iter(aligned_indices)
-    # `None` stays as `None`; advanced Tensor tokens become aligned `.data`.
-    torch_key_full = tuple(
-        next(aligned_iter).data if isinstance(k, Tensor) else k for k in key
-    )
-    # Execute final torch indexing result data.
-    data = tensor.data[torch_key_full]
+    # Fast path: if no `None` axes are inserted, core and full keys are equivalent.
+    # Use identity checks to avoid dispatching Tensor.__eq__(None).
+    if not any(k is None for k in key):
+        data = core_data
+    else:
+        # Rebuild full key including `None` entries for the actual indexing output.
+        aligned_iter = iter(aligned_indices)
+        # `None` stays as `None`; advanced Tensor tokens become aligned `.data`.
+        torch_key_full = tuple(
+            next(aligned_iter).data if isinstance(k, Tensor) else k for k in key
+        )
+        # Execute final torch indexing result data.
+        data = tensor.data[torch_key_full]
 
     # Set form for contiguous advanced-block detection.
     tensor_pos_set = set(tensor_positions)
