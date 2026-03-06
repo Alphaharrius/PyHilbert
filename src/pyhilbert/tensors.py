@@ -1,4 +1,5 @@
 from typing import (
+    NamedTuple,
     Tuple,
     TypeVar,
     Generic,
@@ -10,15 +11,16 @@ from typing import (
     Optional,
     Callable,
     Literal,
+    TypeAlias,
 )
 from numbers import Number
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
+from types import EllipsisType
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
 from .precision import get_precision_config
 from functools import wraps, reduce
 from itertools import product
-import builtins
 
 from .abstracts import Convertible, Operable, Plottable
 from .state_space import (
@@ -29,7 +31,6 @@ from .state_space import (
     embedding_order,
     permutation_order,
     same_span,
-    restructure,
 )
 
 
@@ -612,94 +613,80 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
     def __getitem__(self, key):
         """
-        Index tensor data with one of three indexing conventions.
+        Index tensor data with `TensorIndexing` and return a new `Tensor`.
 
-        Supported conventions
-        ---------------------
-        - Normal indexing: when no `StateSpace`/`Convertible`/`Tensor` indices are present,
-          this returns a `Tensor` whose data matches `self.data[key]`.
-        - StateSpace indexing: when any `StateSpace`/`Convertible` index is present,
-          this returns a `Tensor` and applies StateSpace-aware selection rules.
-        - Advanced Tensor indexing: when any `Tensor` index is present, this
-          returns a `Tensor` and applies torch advanced-index semantics with
-          `Tensor` indices plus `:`, `...`, and `None`.
-
-        Convertible indices
+        Index normalization
         -------------------
-        Any index object implementing `Convertible` is accepted, as long as
-        `index.convert(StateSpace)` is defined and returns a `StateSpace`.
-        This allows domain-specific index types (for example, basis/momentum/band
-        objects) to be used directly in tensor indexing.
+        - A non-tuple key is treated as a 1-tuple.
+        - At most one ellipsis (`...`) is allowed.
+        - `...` expands to the required number of full slices (`:`) based on
+          source-axis-consuming tokens (all non-`None` entries).
+        - If fewer source-axis-consuming indices are provided than rank, missing
+          trailing full slices (`:`) are appended.
 
-        Notes
-        -----
-        - In StateSpace-aware mode, integer/range indices cannot be mixed in.
-        - Only full slices `:` are allowed alongside StateSpace-aware indices.
-        - In advanced Tensor mode, only `Tensor`, full slices `:`, `...`, and
-          `None` are supported.
+        Per-token semantics
+        -------------------
+        - `int`: selects one element along the current source axis and removes
+          that output dimension.
+        - `slice`:
+          - full slice `:` preserves the current `StateSpace`,
+          - non-full slice uses `self.dims[axis][slice]`.
+        - `None`: inserts a new output axis with `BroadcastSpace` and does not
+          consume a source axis.
+        - `StateSpace` / `Convertible`:
+          - if equal to current axis space: behaves like full slice,
+          - if same span: uses permutation indexing and output dim is the index
+            `StateSpace`,
+          - if contained subspace: uses embedding indexing and output dim is the
+            subspace,
+          - otherwise raises `IndexError`.
+        - `Tensor` index:
+          - `bool` dtype is not supported (`NotImplementedError`),
+          - index metadata is aligned to the union of all tensor-index dims.
+
+        Mode rules
+        ----------
+        - Mixing `Tensor` indices with `StateSpace`/`Convertible` indices is
+          rejected (`ValueError`).
+        - If at least one `Tensor` index is present, data indexing is executed
+          in one torch advanced-indexing call.
+        - Otherwise indexing is applied step-by-step per axis (including tuple
+          index_select steps), so per-axis `StateSpace` tuple indices are not
+          jointly broadcast by torch.
+
+        Output dim ordering for tensor advanced indexing
+        -----------------------------------------------
+        Let `tensor_union_dims` be the broadcast/union dims of all tensor index
+        tensors.
+        - If tensor index tokens form one contiguous block in the normalized key,
+          `tensor_union_dims` is inserted at that block position.
+        - If tensor index tokens are separated by non-tensor tokens,
+          `tensor_union_dims` is moved to the front of output dims.
         """
-        if key is Ellipsis:
-            key = (slice(None),) * len(self.dims)
-        elif not isinstance(key, tuple):
+        if not isinstance(key, tuple):
             key = (key,)
+        compiled = TensorIndexing(self.dims, key).compile()
+        if compiled.has_tensor_index:
+            data = self.data[compiled.indices]
+            return Tensor(data=data, dims=compiled.dims)
 
-        if sum(1 for k in key if k is Ellipsis) > 1:
-            raise IndexError("an index can only have a single ellipsis ('...')")
-
-        ellipsis_at = next((i for i, k in enumerate(key) if k is Ellipsis), -1)
-        if ellipsis_at != -1:
-            # `None` inserts an output axis and does not consume a source axis.
-            # Ellipsis should expand based only on source-axis-consuming tokens.
-            consumed = sum(1 for k in key if k is not None and k is not Ellipsis)
-            missing = len(self.dims) - consumed
-            key = key[:ellipsis_at] + (slice(None),) * missing + key[ellipsis_at + 1 :]
-
-        non_none = sum(1 for k in key if k is not None)
-        if non_none < len(self.dims):
-            key = key + (slice(None),) * (len(self.dims) - non_none)
-        if non_none > len(self.dims):
-            raise IndexError("Too many indices for tensor")
-
-        has_tensor_indices = any(isinstance(k, Tensor) for k in key)
-        has_hilbert_indices = any(
-            isinstance(k, StateSpace)
-            or (isinstance(k, Convertible) and not isinstance(k, Tensor))
-            for k in key
-        )
-        if has_tensor_indices:
-            if has_hilbert_indices:
-                raise ValueError(
-                    "Tensor advanced indexing cannot be mixed with StateSpace/Convertible indexing"
-                )
-            for k in key:
-                if k is None:
-                    continue
-                if isinstance(k, Tensor):
-                    continue
-                if isinstance(k, slice) and k == slice(None, None, None):
-                    continue
-                raise TypeError(
-                    "Advanced Tensor indexing only supports Tensor indices, full ':' slices, and None"
-                )
-            return _tensor_getitem_advanced(self, key)
-
-        if has_hilbert_indices:
-            if any(isinstance(k, (int, range)) for k in key if k is not None):
-                raise ValueError(
-                    "Hilbert indexing cannot be mixed with integer/range indexing"
-                )
-            if any(
-                isinstance(k, slice) and k != slice(None, None, None)
-                for k in key
-                if k is not None
-            ):
-                raise ValueError(
-                    "Hilbert indexing only allows full slices ':' when mixed with StateSpace/Convertible indices"
-                )
-        else:
-            return _tensor_getitem_basic(self, key)
-
-        return _tensor_getitem_hilbert(self, key)
+        data = self.data
+        axis = 0
+        for step in compiled.indices_steps:
+            if step is None:
+                data = data.unsqueeze(axis)
+                axis += 1
+                continue
+            if isinstance(step, tuple):
+                index_data = torch.tensor(step, dtype=torch.long, device=data.device)
+                data = data.index_select(axis, index_data)
+                axis += 1
+                continue
+            key_step = (slice(None),) * axis + (step,)
+            data = data[key_step]
+            if not isinstance(step, int):
+                axis += 1
+        return Tensor(data=data, dims=compiled.dims)
 
     def factorize_dim(self, dim: int, rule: StateSpaceFactorization) -> "Tensor":
         """
@@ -799,327 +786,6 @@ def auto_promote(func):
         return func(left, right, *args, **kwargs)
 
     return wrapper
-
-
-def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
-    data = tensor.data
-    new_dims = list(tensor.dims)
-    dim_index = 0
-    dim_pos = 0
-    for k in key:
-        if k is None:
-            data = data.unsqueeze(dim_index)
-            new_dims.insert(dim_index, BroadcastSpace())
-            dim_index += 1
-            continue
-        if dim_pos >= len(tensor.dims):
-            raise IndexError("Too many indices for tensor")
-        dim = tensor.dims[dim_pos]
-        dim_pos += 1
-        if not isinstance(k, slice) and isinstance(k, Convertible):
-            try:
-                converted = k.convert(StateSpace)
-            except NotImplementedError as e:
-                raise TypeError(
-                    f"{type(k).__name__} cannot be converted to StateSpace for tensor indexing"
-                ) from e
-            assert isinstance(converted, StateSpace), (
-                "Convertible.convert(StateSpace) must return a StateSpace"
-            )
-            k = converted
-        if isinstance(k, StateSpace):
-            if not set(k.structure.keys()).issubset(dim.structure.keys()):
-                raise ValueError("StateSpace index is not a subspace of tensor dim")
-            sub_space = replace(k, structure=restructure(k.structure))
-            idx = torch.tensor(
-                embedding_order(sub_space, dim),
-                dtype=torch.long,
-                device=data.device,
-            )
-            data = data.index_select(dim_index, idx)
-            new_dims[dim_index] = sub_space
-            dim_index += 1
-            continue
-        if isinstance(k, slice):
-            if k != slice(None, None, None):
-                raise TypeError(
-                    "Only full slice ':' is supported with StateSpace indexing"
-                )
-            dim_index += 1
-            continue
-        raise TypeError(f"Unsupported index type for StateSpace slicing: {type(k)}")
-
-    return Tensor(data=data, dims=tuple(new_dims))
-
-
-def _tensor_getitem_basic(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
-    """
-    Apply non-StateSpace/non-pyhilbert-Tensor indexing and return a `Tensor`.
-
-    For standard tokens (`int`, `slice`, `range`, `None`), preserves metadata for
-    inserted singleton axes and uses `StateSpace` slicing (`dim[k]`) where
-    available. For token types with more complex semantics, falls back to linear
-    dims.
-    """
-    data = tensor.data[key]
-
-    # If key contains token types with complex axis-reordering semantics
-    # (e.g. lists / raw torch tensors), keep output metadata shape-correct by
-    # assigning linear index spaces.
-    if not builtins.all(k is None or isinstance(k, (int, slice, range)) for k in key):
-        return Tensor(
-            data=data,
-            dims=tuple(IndexSpace.linear(int(size)) for size in data.shape),
-        )
-
-    specs: list[Tuple[str, Optional[StateSpace]]] = []
-    source_axis = 0
-    for k in key:
-        if k is None:
-            specs.append(("broadcast", None))
-            continue
-
-        dim = tensor.dims[source_axis]
-        source_axis += 1
-
-        if isinstance(k, int):
-            continue
-        if isinstance(k, slice):
-            try:
-                sliced_dim = dim[k]
-            except Exception:
-                specs.append(("linear", None))
-            else:
-                if isinstance(sliced_dim, StateSpace):
-                    specs.append(("preserve", sliced_dim))
-                else:
-                    specs.append(("linear", None))
-            continue
-        if isinstance(k, range):
-            try:
-                ranged_dim = dim[k]
-            except Exception:
-                specs.append(("linear", None))
-            else:
-                if isinstance(ranged_dim, StateSpace):
-                    specs.append(("preserve", ranged_dim))
-                else:
-                    specs.append(("linear", None))
-            continue
-
-    if source_axis != len(tensor.dims):
-        return Tensor(
-            data=data,
-            dims=tuple(IndexSpace.linear(int(size)) for size in data.shape),
-        )
-
-    result_dims: list[StateSpace] = []
-    out_axis = 0
-    for kind, spec_dim in specs:
-        if kind == "broadcast":
-            result_dims.append(BroadcastSpace())
-        elif kind == "preserve":
-            assert spec_dim is not None
-            result_dims.append(spec_dim)
-        else:
-            result_dims.append(IndexSpace.linear(int(data.shape[out_axis])))
-        out_axis += 1
-
-    if out_axis != data.ndim:
-        return Tensor(
-            data=data,
-            dims=tuple(IndexSpace.linear(int(size)) for size in data.shape),
-        )
-
-    return Tensor(data=data, dims=tuple(result_dims))
-
-
-def _tensor_getitem_advanced(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
-    # Drop `None` entries first; they insert output axes but do not consume source axes.
-    core_key = tuple(k for k in key if k is not None)
-    # Record where advanced (pyhilbert Tensor) indices appear in the core key.
-    tensor_positions_core = [i for i, k in enumerate(core_key) if isinstance(k, Tensor)]
-    # Track advanced index positions in the original key as well.
-    # `None` is a basic index separator for torch advanced indexing semantics.
-    tensor_positions_full = [i for i, k in enumerate(key) if isinstance(k, Tensor)]
-    # Guard: this helper must only run when at least one advanced index is present.
-    if not tensor_positions_core:
-        raise ValueError("_tensor_getitem_advanced requires at least one Tensor index")
-
-    # Collect advanced index tensors in key order.
-    tensor_indices = [cast(Tensor, k) for k in core_key if isinstance(k, Tensor)]
-    # Broadcast/align all advanced index tensors for both data and metadata dims.
-    aligned_indices, advanced_dims = _broadcast_advanced_index_tensors(tensor_indices)
-
-    # Replace advanced indices in the core key with aligned raw torch tensors.
-    aligned_iter = iter(aligned_indices)
-    # Build a torch-compatible key without `None` entries.
-    aligned_core_key: list[object] = []
-    # Walk each token and substitute `.data` for advanced index tensors.
-    for k in core_key:
-        # Advanced index token -> consume next aligned tensor index.
-        if isinstance(k, Tensor):
-            aligned_core_key.append(next(aligned_iter).data)
-        # Basic token (currently `:`) is kept unchanged.
-        else:
-            aligned_core_key.append(k)
-    # Final core key used for data indexing when no `None` is present.
-    torch_core_key = tuple(aligned_core_key)
-    has_none = any(k is None for k in key)
-
-    # Fast path: if no `None` axes are inserted, core and full keys are equivalent.
-    # Use identity checks to avoid dispatching Tensor.__eq__(None).
-    if not has_none:
-        data = tensor.data[torch_core_key]
-    else:
-        # Rebuild full key including `None` entries for the actual indexing output.
-        aligned_iter = iter(aligned_indices)
-        # `None` stays as `None`; advanced Tensor tokens become aligned `.data`.
-        torch_key_full = tuple(
-            next(aligned_iter).data if isinstance(k, Tensor) else k for k in key
-        )
-        # Execute final torch indexing result data.
-        data = tensor.data[torch_key_full]
-
-    # Set form for contiguous advanced-block detection.
-    tensor_pos_set_core = set(tensor_positions_core)
-    tensor_pos_set_full = set(tensor_positions_full)
-    # True if all advanced indices form one contiguous block in the original key.
-    # Using full key positions ensures `None` acts as a separator.
-    contiguous_advanced = max(tensor_pos_set_full) - min(
-        tensor_pos_set_full
-    ) + 1 == len(tensor_pos_set_full)
-
-    # Count basic preserved axes (`:`) and inserted `None` axes.
-    num_basic = sum(
-        1 for k in core_key if isinstance(k, slice) and k == slice(None, None, None)
-    )
-    num_none = sum(1 for k in key if k is None)
-    # Infer advanced rank from final indexed data layout.
-    advanced_rank = data.ndim - num_basic - num_none
-    if advanced_rank < 0:
-        raise ValueError("Invalid advanced indexing rank produced by torch indexing")
-    # Contiguous advanced-index case: advanced axes stay at block position.
-    if contiguous_advanced:
-        # Number of output axes emitted before the advanced block.
-        # Both `:` and `None` contribute one output axis before advanced dims.
-        first_full = min(tensor_pos_set_full)
-        output_axes_before_advanced = sum(
-            1
-            for idx, k in enumerate(key)
-            if idx < first_full
-            and (k is None or (isinstance(k, slice) and k == slice(None, None, None)))
-        )
-        # Extract expected advanced output shape segment from final output.
-        expected_shape = data.shape[
-            output_axes_before_advanced : output_axes_before_advanced + advanced_rank
-        ]
-    # Separated advanced-index case: advanced axes are moved to front by torch.
-    else:
-        # In separated case, advanced shape is the leading segment.
-        expected_shape = data.shape[:advanced_rank]
-
-    # Safety fallback: if metadata dims and actual torch shape diverge, use linear dims.
-    if tuple(dim.dim for dim in advanced_dims) != tuple(int(s) for s in expected_shape):
-        advanced_dims = tuple(IndexSpace.linear(int(size)) for size in expected_shape)
-
-    # Build per-core-axis dim contributions before re-inserting `None` axes.
-    segments: list[Tuple[StateSpace, ...]] = []
-    # Anchor where advanced dims should appear for contiguous case.
-    first_tensor_pos = min(tensor_pos_set_core)
-    # Map each core key token to output dims contribution.
-    for axis, axis_key in enumerate(core_key):
-        # `:` preserves the corresponding source axis dim.
-        if isinstance(axis_key, slice):
-            segments.append((tensor.dims[axis],))
-            continue
-        # In contiguous mode, only the first advanced token emits advanced dims.
-        if contiguous_advanced and axis == first_tensor_pos:
-            segments.append(advanced_dims)
-        # Other advanced tokens do not contribute extra output axes.
-        else:
-            segments.append(tuple())
-
-    # In separated mode, advanced dims appear at the very front.
-    result_dims: list[StateSpace] = (
-        list(advanced_dims) if not contiguous_advanced else []
-    )
-    # Pointer through core segments while replaying original key (with `None`).
-    non_none_axis = 0
-    # Reconstruct final output dims in original key order.
-    for axis_key in key:
-        # `None` inserts a size-1 broadcast axis.
-        if axis_key is None:
-            result_dims.append(BroadcastSpace())
-            continue
-        # Non-None token consumes one core-axis segment.
-        result_dims.extend(segments[non_none_axis])
-        non_none_axis += 1
-
-    # Return wrapped Tensor with torch-indexed data and computed output dims.
-    return Tensor(data=data, dims=tuple(result_dims))
-
-
-def _broadcast_advanced_index_tensors(
-    indices: list[Tensor],
-) -> Tuple[list[Tensor], Tuple[StateSpace, ...]]:
-    # Guard: advanced indexing requires at least one tensor index.
-    if not indices:
-        raise ValueError("At least one advanced index tensor is required")
-
-    # Determine broadcast working rank (left-pad all indices to this rank).
-    max_rank = max(idx.rank() for idx in indices)
-
-    # Left-pad each index tensor with leading BroadcastSpace axes.
-    padded_indices: list[Tensor] = []
-    # Process each raw advanced index tensor.
-    for idx in indices:
-        # Start from original index tensor.
-        padded = idx
-        # Insert leading singleton axes until ranks match.
-        for _ in range(max_rank - idx.rank()):
-            padded = padded.unsqueeze(0)
-        # Save rank-normalized tensor.
-        padded_indices.append(padded)
-
-    # Use torch broadcast rules on raw data shapes to validate index broadcastability.
-    try:
-        target_shape = tuple(
-            int(s)
-            for s in torch.broadcast_shapes(*(idx.data.shape for idx in padded_indices))
-        )
-    # Convert torch runtime broadcast failure into package-level ValueError.
-    except RuntimeError as e:
-        raw_shapes = ", ".join(str(tuple(idx.data.shape)) for idx in padded_indices)
-        raise ValueError(
-            f"Advanced index tensors are not broadcastable in shape: shapes=[{raw_shapes}]"
-        ) from e
-
-    # Merge StateSpace metadata axis-wise across padded index tensors.
-    try:
-        base_union = union_dims(*(idx.dims for idx in padded_indices))
-    # Convert metadata merge failure into advanced-index specific ValueError.
-    except ValueError as e:
-        dim_sigs = ", ".join(_format_dims(idx.dims) for idx in padded_indices)
-        raise ValueError(
-            f"Advanced index tensor dims are incompatible for broadcast: dims=[{dim_sigs}]"
-        ) from e
-
-    # If union metadata is still BroadcastSpace on an axis but torch's data
-    # broadcast shape is concrete (>1), materialize that axis as IndexSpace.
-    target_dims = tuple(
-        IndexSpace.linear(size)
-        if isinstance(dim, BroadcastSpace) and size != 1
-        else dim
-        for dim, size in zip(base_union, target_shape)
-    )
-
-    # Reorder/align each index tensor metadata to merged target dims.
-    aligned = [idx.align_all(target_dims) for idx in padded_indices]
-    # Realize data broadcasting to the merged target shape where needed.
-    expanded = [expand_to_union(idx, list(target_dims)) for idx in aligned]
-    # Return fully broadcasted advanced indices and their merged dims.
-    return expanded, target_dims
 
 
 def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
@@ -2649,3 +2315,283 @@ def nonzero(condition: Tensor, as_tuple: bool = True) -> Tuple[Tensor, ...]:
     nnz = indices[0].numel() if len(indices) > 0 else 0
     index_dim = IndexSpace.linear(nnz)
     return tuple(Tensor(data=idx, dims=(index_dim,)) for idx in indices)
+
+
+TensorIndexType: TypeAlias = Union[
+    int, slice, EllipsisType, None, Convertible, StateSpace, Tensor
+]
+"""
+Public key token types accepted by `TensorIndexing` input keys.
+
+This includes pyhilbert-level index forms (`StateSpace`, `Convertible`,
+`Tensor`) and Python indexing tokens (`int`, `slice`, `None`, `...`).
+"""
+
+TorchIndexType: TypeAlias = Union[
+    int, slice, EllipsisType, None, torch.Tensor, Tuple[int, ...]
+]
+"""
+Low-level compiled index token types that can be executed against torch tensors.
+
+In addition to standard tokens, `Tuple[int, ...]` is used for
+permutation/embedding style StateSpace indexing steps.
+"""
+
+
+class TensorIndexing:
+    """
+    Compile mixed indexing keys into torch indices plus `StateSpace` metadata.
+
+    This class is the single indexing compiler used by `Tensor.__getitem__`.
+    It accepts raw key tokens (including `...`) and produces:
+
+    - `indices`: a tuple consumable by torch indexing for one-shot execution.
+    - `dims`: output `StateSpace` metadata after indexing.
+    - `indices_steps`: per-token executable steps for sequential indexing.
+    - `has_tensor_index`: whether advanced tensor-index mode is active.
+
+    Key token types
+    ---------------
+    Supported input tokens in `indices`:
+    - `int`
+    - `slice`
+    - `None`
+    - `Ellipsis`
+    - `StateSpace`
+    - `Convertible` (converted to `StateSpace`)
+    - `Tensor` (pyhilbert tensor index)
+
+    Normalization rules
+    -------------------
+    1. Expand at most one ellipsis (`...`) into the required number of full
+       slices `:`, where only non-`None` tokens consume source axes.
+    2. Append trailing full slices when fewer source-axis-consuming tokens than
+       tensor rank are provided.
+    3. Reject keys with too many source-axis-consuming tokens.
+
+    Per-token compile rules
+    -----------------------
+    - `int`: consumes one source axis; removes that axis from output metadata.
+    - `slice`:
+      - full `:` preserves the source axis `StateSpace`,
+      - non-full uses `dim[slice]`.
+    - `None`: inserts one `BroadcastSpace` axis; consumes no source axis.
+    - `StateSpace` / `Convertible`:
+      - equal space -> full-slice behavior,
+      - same span -> permutation index (`Tuple[int, ...]`),
+      - contained subspace -> embedding index (`Tuple[int, ...]`),
+      - otherwise raises `IndexError`.
+    - `Tensor`:
+      - bool dtype is unsupported (`NotImplementedError`),
+      - aligns to `tensor_union_dims` (union over all tensor-index dims),
+      - consumes one source axis and contributes advanced metadata dims.
+
+    Mode and compatibility rules
+    ----------------------------
+    - Mixed `Tensor` with `StateSpace`/`Convertible` in one key is rejected
+      (`ValueError`).
+    - Tensor-index mode:
+      - uses torch advanced indexing semantics for data access,
+      - output metadata places `tensor_union_dims` at contiguous tensor block
+        position, or at the front if tensor indices are separated.
+    - Non-tensor mode:
+      - preserves per-axis semantics using `indices_steps`, allowing caller-side
+        sequential execution to avoid unintended cross-axis advanced broadcast.
+
+    Notes
+    -----
+    This class compiles indexing intent; execution strategy (one-shot vs
+    stepwise) is chosen by `Tensor.__getitem__` using `has_tensor_index`.
+    """
+
+    def __init__(
+        self, dims: Tuple[StateSpace, ...], indices: Tuple[TensorIndexType, ...]
+    ):
+        self.dims = dims
+        self.rank = len(dims)
+        self.indices = indices
+        self.non_none_indices = tuple(idx for idx in indices if idx is not None)
+
+        tensor_indices = tuple(
+            cast(Tensor, idx) for idx in indices if isinstance(idx, Tensor)
+        )
+        self.tensor_union_dims = (
+            union_dims(*(idx.dims for idx in tensor_indices), allow_merge=False)
+            if tensor_indices
+            else ()
+        )
+
+    def _normalize(self) -> Tuple[TensorIndexType, ...]:
+        return self._pad_missing_slices(self._expand_ellipsis())
+
+    def _expand_ellipsis(self) -> Tuple[TensorIndexType, ...]:
+        if not any(idx is Ellipsis for idx in self.indices):
+            # No need to expand if ellipsis is not present
+            return self.indices
+        ellipsis_count = sum(idx is Ellipsis for idx in self.indices)
+        if ellipsis_count > 1:
+            raise IndexError("an index can only have a single ellipsis ('...')")
+
+        # Split the indices around the ellipsis
+        ellipsis_pos = next(i for i, idx in enumerate(self.indices) if idx is Ellipsis)
+        left_indices = self.indices[:ellipsis_pos]
+        right_indices = self.indices[ellipsis_pos + 1 :]
+
+        # None inserts output axes and does not consume source axes.
+        consumed = sum(idx is not None for idx in left_indices + right_indices)
+        # Calculate how many dimensions the ellipsis should expand to
+        num_full_slices = self.rank - consumed
+        return left_indices + (slice(None),) * num_full_slices + right_indices
+
+    def _pad_missing_slices(
+        self, indices: Tuple[TensorIndexType, ...]
+    ) -> Tuple[TensorIndexType, ...]:
+        non_none = sum(idx is not None for idx in indices)
+        if non_none > self.rank:
+            raise IndexError("Too many indices for tensor")
+        if non_none < self.rank:
+            return indices + (slice(None),) * (self.rank - non_none)
+        return indices
+
+    @dispatch(int, int)  # type: ignore[no-redef]
+    def _compile(self, idx: int, v: int) -> Tuple[int, Tuple[StateSpace, ...], int]:
+        return idx + 1, tuple(), v
+
+    @dispatch(int, slice)  # type: ignore[no-redef]
+    def _compile(self, idx: int, v: slice) -> Tuple[int, Tuple[StateSpace, ...], slice]:
+        # Check if its a full slice `:`
+        if v.start is None and v.stop is None and v.step is None:
+            return idx + 1, (self.dims[idx],), v
+        return idx + 1, (self.dims[idx][v],), v
+
+    @dispatch(int, type(None))  # type: ignore[no-redef]
+    def _compile(self, idx: int, _: None) -> Tuple[int, Tuple[StateSpace, ...], None]:
+        return idx, (BroadcastSpace(),), None
+
+    @dispatch(int, (Convertible, StateSpace))  # type: ignore[no-redef]
+    def _compile(
+        self, idx: int, v: Union[Convertible, StateSpace]
+    ) -> Tuple[int, Tuple[StateSpace, ...], Union[Tuple[int, ...], slice]]:
+        if isinstance(v, Convertible) and not isinstance(v, StateSpace):
+            v = v.convert(StateSpace)
+        dim = self.dims[idx]
+        if dim == v:
+            return idx + 1, (dim,), slice(None)
+        if same_span(dim, v):
+            return idx + 1, (v,), permutation_order(dim, v)
+        if dim.contains(v):
+            return idx + 1, (v,), embedding_order(v, dim)
+
+        raise IndexError(
+            f"Unable to index dimension with {v} that is not contained in {dim}"
+        )
+
+    @dispatch(int, Tensor)  # type: ignore[no-redef]
+    def _compile(
+        self, idx: int, v: Tensor
+    ) -> Tuple[int, Tuple[StateSpace, ...], torch.Tensor]:
+        if v.data.dtype == torch.bool:
+            raise NotImplementedError("Boolean Tensor indexing is not supported yet")
+        v = v.align_all(self.tensor_union_dims)
+        return idx + 1, self.tensor_union_dims, v.data
+
+    class CompiledIndices(NamedTuple):
+        indices: Tuple[TorchIndexType, ...]
+        dims: Tuple[StateSpace, ...]
+        indices_steps: Tuple[Union[int, slice, None, Tuple[int, ...]], ...]
+        has_tensor_index: bool
+
+    def _compile_entries(
+        self, normalized_indices: Tuple[TensorIndexType, ...]
+    ) -> Tuple[
+        list[Tuple[TensorIndexType, Tuple[StateSpace, ...], TorchIndexType]],
+        Tuple[TorchIndexType, ...],
+    ]:
+        entries: list[
+            Tuple[TensorIndexType, Tuple[StateSpace, ...], TorchIndexType]
+        ] = []
+        torch_indices: Tuple[TorchIndexType, ...] = tuple()
+        n = 0
+        for idx in normalized_indices:
+            n, compiled_dim, compiled_idx = self._compile(n, idx)
+            entries.append((idx, compiled_dim, compiled_idx))
+            torch_indices += (compiled_idx,)
+        return entries, torch_indices
+
+    def _compose_compiled_dims(
+        self,
+        entries: list[Tuple[TensorIndexType, Tuple[StateSpace, ...], TorchIndexType]],
+    ) -> Tuple[StateSpace, ...]:
+        tensor_positions = [
+            i for i, (idx, _, _) in enumerate(entries) if isinstance(idx, Tensor)
+        ]
+        if len(tensor_positions) == 0:
+            return tuple(dim for _, dims, _ in entries for dim in dims)
+
+        first_tensor_pos = tensor_positions[0]
+        last_tensor_pos = tensor_positions[-1]
+        if last_tensor_pos - first_tensor_pos + 1 != len(tensor_positions):
+            non_tensor_dims = tuple(
+                dim
+                for idx, dims, _ in entries
+                if not isinstance(idx, Tensor)
+                for dim in dims
+            )
+            return self.tensor_union_dims + non_tensor_dims
+
+        compiled_dims: Tuple[StateSpace, ...] = tuple()
+        for i, (idx, dims, _) in enumerate(entries):
+            if i == first_tensor_pos:
+                compiled_dims += self.tensor_union_dims
+            if isinstance(idx, Tensor):
+                continue
+            compiled_dims += dims
+        return compiled_dims
+
+    def compile(self) -> CompiledIndices:
+        """
+        Compile the raw key into executable indices and output metadata.
+
+        Returns
+        -------
+        `CompiledIndices`
+            A tuple-like record containing:
+            - `indices`: torch-compatible index tuple for one-shot execution.
+            - `dims`: output `StateSpace` tuple after indexing.
+            - `indices_steps`: per-token steps for sequential execution.
+            - `has_tensor_index`: whether tensor advanced-index mode is active.
+
+        Raises
+        ------
+        `ValueError`
+            If `Tensor` indices are mixed with `StateSpace`/`Convertible`
+            indices in the same key.
+        `IndexError`
+            If normalization fails (e.g. too many indices) or a `StateSpace`
+            index is not compatible with the corresponding source dimension.
+        `NotImplementedError`
+            If boolean `Tensor` index masking is requested.
+        """
+        normalized_indices = self._normalize()
+        has_tensor_index = any(isinstance(idx, Tensor) for idx in normalized_indices)
+        has_statespace_index = any(
+            isinstance(idx, StateSpace)
+            or (isinstance(idx, Convertible) and not isinstance(idx, Tensor))
+            for idx in normalized_indices
+        )
+        if has_tensor_index and has_statespace_index:
+            raise ValueError(
+                "Tensor advanced indexing cannot be mixed with StateSpace/Convertible indexing"
+            )
+        entries, torch_indices = self._compile_entries(normalized_indices)
+        compiled_dims = self._compose_compiled_dims(entries)
+        indices_steps = tuple(
+            cast(Union[int, slice, None, Tuple[int, ...]], compiled_idx)
+            for _, _, compiled_idx in entries
+        )
+        return self.CompiledIndices(
+            indices=torch_indices,
+            dims=compiled_dims,
+            indices_steps=indices_steps,
+            has_tensor_index=has_tensor_index,
+        )

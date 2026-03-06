@@ -87,9 +87,12 @@ class TestTensorGetitem:
         expected = getitem_ctx.data_mat[2:5, :]
         assert torch.equal(out.data, expected)
 
-    def test_getitem_no_mix(self, getitem_ctx):
-        with pytest.raises(ValueError, match="cannot be mixed"):
-            _ = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, 0]
+    def test_getitem_statespace_int_mix_allowed(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, 0]
+        assert isinstance(out, Tensor)
+        assert out.dims == (getitem_ctx.subspace_a,)
+        expected = getitem_ctx.data_mat[0:2, 0]
+        assert torch.equal(out.data, expected)
 
     def test_getitem_3d_hilbert(self, getitem_ctx):
         out = getitem_ctx.tensor_3d[
@@ -132,12 +135,12 @@ class TestTensorGetitem:
 
     def test_getitem_hilbert_invalid_subspace(self, getitem_ctx):
         subspace = IndexSpace(structure=OrderedDict({99: 0}))
-        with pytest.raises(ValueError, match="not a subspace"):
+        with pytest.raises(IndexError, match="not contained in"):
             _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
 
     def test_getitem_hilbert_spatial_missing(self, getitem_ctx):
         subspace = IndexSpace(structure=OrderedDict({99: 0}))
-        with pytest.raises(ValueError, match="not a subspace"):
+        with pytest.raises(IndexError, match="not contained in"):
             _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
 
     def test_getitem_hilbert_colon_statespace_colon(self, getitem_ctx):
@@ -344,7 +347,7 @@ class TestTensorAdvancedGetitem:
         with pytest.raises(ValueError, match="cannot be mixed"):
             _ = tensor[state_index, tensor_idx]
 
-    def test_getitem_with_tensor_advanced_index_rejects_int_and_non_full_slice(self):
+    def test_getitem_with_tensor_advanced_index_allows_int_and_non_full_slice(self):
         a = IndexSpace.linear(3)
         b = IndexSpace.linear(4)
         data = torch.arange(12, dtype=torch.float64).reshape(3, 4)
@@ -353,11 +356,15 @@ class TestTensorAdvancedGetitem:
             data=torch.tensor([1, 0], dtype=torch.long), dims=(IndexSpace.linear(2),)
         )
 
-        with pytest.raises(TypeError, match="only supports Tensor indices"):
-            _ = tensor[idx, 1]
+        out_int = tensor[idx, 1]
+        expected_int = data[idx.data, 1]
+        assert isinstance(out_int, Tensor)
+        assert torch.equal(out_int.data, expected_int)
 
-        with pytest.raises(TypeError, match="only supports Tensor indices"):
-            _ = tensor[idx, 1:3]
+        out_slice = tensor[idx, 1:3]
+        expected_slice = data[idx.data, 1:3]
+        assert isinstance(out_slice, Tensor)
+        assert torch.equal(out_slice.data, expected_slice)
 
     def test_getitem_with_tensor_advanced_index_preserves_broadcasted_dims(self):
         row_src = IndexSpace.linear(4)
@@ -403,7 +410,7 @@ class TestTensorAdvancedGetitem:
             dims=(a, c.map(lambda n: n + 10)),
         )
 
-        with pytest.raises(ValueError, match="incompatible for broadcast"):
+        with pytest.raises((ValueError, IndexError)):
             _ = tensor[i, j]
 
     def test_getitem_with_three_advanced_indices_broadcasted(self):
@@ -481,10 +488,8 @@ class TestTensorAdvancedGetitem:
         assert torch.equal(out.data, expected)
         assert out.dims == (a, b, c)
 
-    def test_getitem_with_tensor_advanced_bool_mask(self):
+    def test_getitem_with_tensor_advanced_bool_mask_raises_not_implemented(self):
         src = IndexSpace.linear(5)
-        keep = IndexSpace.linear(3)
-
         data = torch.arange(5, dtype=torch.float64)
         tensor = Tensor(data=data, dims=(src,))
 
@@ -492,12 +497,10 @@ class TestTensorAdvancedGetitem:
             data=torch.tensor([True, False, True, False, True], dtype=torch.bool),
             dims=(src,),
         )
-        out = tensor[mask]
-        expected = data[mask.data]
-
-        assert isinstance(out, Tensor)
-        assert torch.equal(out.data, expected)
-        assert out.dims == (keep,)
+        with pytest.raises(
+            NotImplementedError, match="Boolean Tensor indexing is not supported yet"
+        ):
+            _ = tensor[mask]
 
     def test_getitem_with_tensor_advanced_ellipsis_at_end(self):
         a = IndexSpace.linear(2)
@@ -572,7 +575,7 @@ class TestTensorAdvancedGetitem:
         i = Tensor(data=torch.tensor([0, 1], dtype=torch.long), dims=(a,))
         j = Tensor(data=torch.tensor([0, 1, 2], dtype=torch.long), dims=(b,))
 
-        with pytest.raises(ValueError, match="not broadcastable in shape"):
+        with pytest.raises((ValueError, IndexError)):
             _ = tensor[i, j]
 
     def test_getitem_with_tensor_advanced_raises_for_out_of_bounds(self):
@@ -649,25 +652,6 @@ class TestTensorAdvancedGetitem:
         )
         with pytest.raises((IndexError, TypeError, RuntimeError)):
             _ = tensor[bad_idx, :]
-
-    def test_getitem_with_tensor_advanced_bool_mask_with_slice(self):
-        row_src = IndexSpace.linear(5)
-        col_src = IndexSpace.linear(4)
-        keep = IndexSpace.linear(3)
-
-        data = torch.arange(20, dtype=torch.float64).reshape(5, 4)
-        tensor = Tensor(data=data, dims=(row_src, col_src))
-
-        mask = Tensor(
-            data=torch.tensor([True, False, True, False, True], dtype=torch.bool),
-            dims=(row_src,),
-        )
-        out = tensor[mask, :]
-        expected = data[mask.data, :]
-
-        assert isinstance(out, Tensor)
-        assert torch.equal(out.data, expected)
-        assert out.dims == (keep, col_src)
 
     def test_getitem_with_tensor_advanced_empty_index(self):
         row_src = IndexSpace.linear(3)
