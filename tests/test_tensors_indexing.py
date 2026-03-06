@@ -1,11 +1,21 @@
 import pytest
 import torch
+from itertools import product
 
 from pyhilbert.tensors import Tensor, where
 from pyhilbert.state_space import BroadcastSpace, IndexSpace
 
 
 class TestTensorAdvancedGetitem:
+    def test_getitem_rejects_multiple_ellipsis_in_normal_indexing(self):
+        a = IndexSpace.linear(2)
+        b = IndexSpace.linear(3)
+        data = torch.arange(6, dtype=torch.float64).reshape(2, 3)
+        tensor = Tensor(data=data, dims=(a, b))
+
+        with pytest.raises(IndexError, match="single ellipsis"):
+            _ = tensor[..., ...]
+
     def test_getitem_with_tensor_advanced_index_contiguous(self):
         a = IndexSpace.linear(3)
         b = IndexSpace.linear(4)
@@ -311,6 +321,27 @@ class TestTensorAdvancedGetitem:
         assert torch.equal(out.data, expected)
         assert out.dims == (sel, b, c)
 
+    def test_getitem_with_tensor_advanced_ellipsis_none_then_index(self):
+        a = IndexSpace.linear(2)
+        b = IndexSpace.linear(3)
+        c = IndexSpace.linear(4)
+        d = IndexSpace.linear(5)
+        sel = IndexSpace.linear(2)
+
+        data = torch.arange(2 * 3 * 4 * 5, dtype=torch.float64).reshape(2, 3, 4, 5)
+        tensor = Tensor(data=data, dims=(a, b, c, d))
+
+        # Value 4 is valid for axis `d` (size 5), but invalid for axis `c` (size 4).
+        # If `...` is expanded too short when `None` is present, this incorrectly
+        # targets axis `c` and raises IndexError.
+        idx = Tensor(data=torch.tensor([4, 1], dtype=torch.long), dims=(sel,))
+        out = tensor[..., None, idx]
+        expected = data[..., None, idx.data]
+
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (a, b, c, BroadcastSpace(), sel)
+
     def test_getitem_with_tensor_advanced_raises_for_shape_mismatch(self):
         row_src = IndexSpace.linear(4)
         col_src = IndexSpace.linear(5)
@@ -384,3 +415,67 @@ class TestTensorAdvancedGetitem:
         assert isinstance(out, Tensor)
         assert torch.equal(out.data, expected)
         assert out.dims == (IndexSpace.linear(int(mask.data.sum().item())),)
+
+    def test_getitem_with_tensor_advanced_matches_torch_ellipsis_none_patterns(self):
+        # Differential test focused on risky forms involving:
+        # Tensor-index, full slice (:), ellipsis (...), and None.
+        rank = 4
+        axis_size = 5
+        dims = tuple(IndexSpace.linear(axis_size) for _ in range(rank))
+        data = torch.arange(axis_size**rank, dtype=torch.float64).reshape(
+            *(axis_size for _ in range(rank))
+        )
+        tensor = Tensor(data=data, dims=dims)
+        idx = Tensor(
+            data=torch.tensor([4, 1], dtype=torch.long),
+            dims=(IndexSpace.linear(2),),
+        )
+
+        token_alphabet = ("A", "S", "N", "E")  # Tensor, :, None, Ellipsis
+        max_key_len = rank + 2
+        for key_len in range(1, max_key_len + 1):
+            for token_pattern in product(token_alphabet, repeat=key_len):
+                if token_pattern.count("E") > 1:
+                    continue
+                # Focus this sweep on ellipsis+None+advanced interactions.
+                if (
+                    "A" not in token_pattern
+                    or "E" not in token_pattern
+                    or "N" not in token_pattern
+                ):
+                    continue
+
+                key = tuple(
+                    idx
+                    if t == "A"
+                    else slice(None)
+                    if t == "S"
+                    else None
+                    if t == "N"
+                    else Ellipsis
+                    for t in token_pattern
+                )
+                torch_key = tuple(k.data if isinstance(k, Tensor) else k for k in key)
+
+                # Compare only valid torch indexing forms.
+                try:
+                    expected = data[torch_key]
+                except Exception:
+                    continue
+
+                out = tensor[key]
+                assert isinstance(out, Tensor)
+                assert torch.equal(out.data, expected)
+                assert tuple(dim.dim for dim in out.dims) == tuple(expected.shape)
+
+    def test_getitem_rejects_multiple_ellipsis_in_advanced_indexing(self):
+        a = IndexSpace.linear(2)
+        b = IndexSpace.linear(3)
+        data = torch.arange(6, dtype=torch.float64).reshape(2, 3)
+        tensor = Tensor(data=data, dims=(a, b))
+        idx = Tensor(
+            data=torch.tensor([1, 0], dtype=torch.long), dims=(IndexSpace.linear(2),)
+        )
+
+        with pytest.raises(IndexError, match="single ellipsis"):
+            _ = tensor[..., idx, ...]

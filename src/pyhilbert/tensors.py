@@ -635,9 +635,15 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         elif not isinstance(key, tuple):
             key = (key,)
 
+        if sum(1 for k in key if k is Ellipsis) > 1:
+            raise IndexError("an index can only have a single ellipsis ('...')")
+
         ellipsis_at = next((i for i, k in enumerate(key) if k is Ellipsis), -1)
         if ellipsis_at != -1:
-            missing = len(self.dims) - (len(key) - 1)
+            # `None` inserts an output axis and does not consume a source axis.
+            # Ellipsis should expand based only on source-axis-consuming tokens.
+            consumed = sum(1 for k in key if k is not None and k is not Ellipsis)
+            missing = len(self.dims) - consumed
             key = key[:ellipsis_at] + (slice(None),) * missing + key[ellipsis_at + 1 :]
 
         non_none = sum(1 for k in key if k is not None)
