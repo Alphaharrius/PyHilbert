@@ -1,9 +1,227 @@
 import pytest
 import torch
 from itertools import product
+from collections import OrderedDict
+import sympy as sy
+from sympy import ImmutableDenseMatrix
 
 from pyhilbert.tensors import Tensor, where
-from pyhilbert.state_space import BroadcastSpace, IndexSpace
+from pyhilbert.state_space import (
+    BroadcastSpace,
+    IndexSpace,
+    MomentumSpace,
+    brillouin_zone,
+)
+from pyhilbert.hilbert_space import U1Basis, hilbert
+from pyhilbert.spatials import Lattice
+
+
+class TestTensorGetitem:
+    @pytest.fixture
+    def getitem_ctx(self):
+        class Context:
+            def __init__(self):
+                self.space = IndexSpace.linear(5)
+                self.subspace_a = self.space[0:2]
+                self.subspace_b = self.space[2:5]
+                self.subspace = self.subspace_b
+
+                self.data_mat = torch.arange(25, dtype=torch.float64).reshape(5, 5)
+                self.tensor_mat = Tensor(
+                    data=self.data_mat, dims=(self.space, self.space)
+                )
+
+                self.data_3d = torch.arange(125, dtype=torch.float64).reshape(5, 5, 5)
+                self.tensor_3d = Tensor(
+                    data=self.data_3d, dims=(self.space, self.space, self.space)
+                )
+
+        return Context()
+
+    def test_getitem_normal_returns_tensor(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[1:4, 2:5]
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, getitem_ctx.data_mat[1:4, 2:5])
+        assert out.dims == (getitem_ctx.space[1:4], getitem_ctx.space[2:5])
+
+    def test_getitem_normal_range_and_none(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[1:5, 0:4]
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, getitem_ctx.data_mat[1:5, 0:4])
+        assert out.dims == (getitem_ctx.space[1:5], getitem_ctx.space[0:4])
+
+        out2 = getitem_ctx.tensor_mat[None, :, :]
+        assert isinstance(out2, Tensor)
+        assert out2.data.shape == (1, 5, 5)
+        assert out2.dims == (
+            BroadcastSpace(),
+            getitem_ctx.space,
+            getitem_ctx.space,
+        )
+
+    def test_getitem_normal_ellipsis_returns_tensor(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[..., :]
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, getitem_ctx.data_mat[..., :])
+        assert out.dims == (getitem_ctx.space, getitem_ctx.space)
+
+        out2 = getitem_ctx.tensor_mat[..., :, None]
+        assert isinstance(out2, Tensor)
+        assert torch.equal(out2.data, getitem_ctx.data_mat[..., :, None])
+        assert out2.dims == (
+            getitem_ctx.space,
+            getitem_ctx.space,
+            BroadcastSpace(),
+        )
+
+    def test_getitem_spatial(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, getitem_ctx.subspace_b]
+        assert isinstance(out, Tensor)
+        assert out.dims == (getitem_ctx.subspace_a, getitem_ctx.subspace_b)
+        assert torch.equal(out.data, getitem_ctx.data_mat[0:2, 2:5])
+
+    def test_getitem_statespace(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace, getitem_ctx.space]
+        assert isinstance(out, Tensor)
+        assert out.dims == (getitem_ctx.subspace_b, getitem_ctx.space)
+        expected = getitem_ctx.data_mat[2:5, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_no_mix(self, getitem_ctx):
+        with pytest.raises(ValueError, match="cannot be mixed"):
+            _ = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, 0]
+
+    def test_getitem_3d_hilbert(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[
+            getitem_ctx.subspace, getitem_ctx.subspace_a, getitem_ctx.space
+        ]
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            getitem_ctx.subspace_b,
+            getitem_ctx.subspace_a,
+            getitem_ctx.space,
+        )
+        expected = getitem_ctx.data_3d[2:5, 0:2, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_none_inserts_dim(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[
+            None, getitem_ctx.subspace_a, getitem_ctx.subspace_b
+        ]
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            BroadcastSpace(),
+            getitem_ctx.subspace_a,
+            getitem_ctx.subspace_b,
+        )
+        expected = getitem_ctx.data_mat[0:2, 2:5].unsqueeze(0)
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_noncontiguous_subspace(self):
+        space = IndexSpace.linear(6)
+        subspace = IndexSpace(structure=OrderedDict({0: 0, 1: 1, 4: 2, 5: 3}))
+
+        data = torch.arange(36, dtype=torch.float64).reshape(6, 6)
+        tensor = Tensor(data=data, dims=(space, space))
+        out = tensor[subspace, space]
+        expected = data.index_select(0, torch.tensor([0, 1, 4, 5]))
+
+        assert isinstance(out, Tensor)
+        assert out.dims == (subspace, space)
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_invalid_subspace(self, getitem_ctx):
+        subspace = IndexSpace(structure=OrderedDict({99: 0}))
+        with pytest.raises(ValueError, match="not a subspace"):
+            _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
+
+    def test_getitem_hilbert_spatial_missing(self, getitem_ctx):
+        subspace = IndexSpace(structure=OrderedDict({99: 0}))
+        with pytest.raises(ValueError, match="not a subspace"):
+            _ = getitem_ctx.tensor_mat[subspace, getitem_ctx.space]
+
+    def test_getitem_hilbert_colon_statespace_colon(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[:, getitem_ctx.subspace, :]
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            getitem_ctx.space,
+            getitem_ctx.subspace_b,
+            getitem_ctx.space,
+        )
+        expected = getitem_ctx.data_3d[:, 2:5, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_ellipsis_colon_statespace_colon(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[..., getitem_ctx.subspace, :]
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            getitem_ctx.space,
+            getitem_ctx.subspace_b,
+            getitem_ctx.space,
+        )
+        expected = getitem_ctx.data_3d[:, 2:5, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_ellipsis_allowed(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, ...]
+        assert isinstance(out, Tensor)
+        assert out.dims == (getitem_ctx.subspace_a, getitem_ctx.space)
+        expected = getitem_ctx.data_mat[0:2, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_hilbert_short_key_allowed(self, getitem_ctx):
+        out = getitem_ctx.tensor_3d[getitem_ctx.subspace_a]
+        assert isinstance(out, Tensor)
+        assert out.dims == (
+            getitem_ctx.subspace_a,
+            getitem_ctx.space,
+            getitem_ctx.space,
+        )
+        expected = getitem_ctx.data_3d[0:2, :, :]
+        assert torch.equal(out.data, expected)
+
+    def test_getitem_with_u1basis_index(self):
+        b0 = U1Basis(u1=sy.Integer(0), rep=(sy.Integer(0),))
+        b1 = U1Basis(u1=sy.Integer(1), rep=(sy.Integer(1),))
+        space = hilbert((b0, b1))
+        data = torch.arange(8, dtype=torch.float64).reshape(2, 2, 2)
+        tensor = Tensor(data=data, dims=(space, space, space))
+
+        out = tensor[:, :, b1]
+        assert isinstance(out, Tensor)
+        assert out.dims == (space, space, hilbert((b1,)))
+        assert torch.equal(out.data, data[:, :, 1:2])
+
+    def test_getitem_with_momentum_index(self):
+        lattice = Lattice(basis=ImmutableDenseMatrix([[1]]), shape=(2,))
+        momentum_space = brillouin_zone(lattice.dual)
+        _k0, k1 = tuple(momentum_space.structure.keys())
+
+        data = torch.arange(8, dtype=torch.float64).reshape(2, 2, 2)
+        tensor = Tensor(
+            data=data, dims=(momentum_space, momentum_space, momentum_space)
+        )
+
+        out = tensor[:, :, k1]
+        expected_dim = MomentumSpace(structure=OrderedDict({k1: 0}))
+        expected_idx = momentum_space.structure[k1]
+        assert isinstance(out, Tensor)
+        assert out.dims == (momentum_space, momentum_space, expected_dim)
+        assert torch.equal(out.data, data[:, :, expected_idx : expected_idx + 1])
+
+    def test_getitem_with_indexspace_index(self):
+        index_space = IndexSpace.linear(3)
+        i1 = tuple(index_space.structure.keys())[1]
+        index_subspace = IndexSpace(structure=OrderedDict({i1: 0}))
+
+        data = torch.arange(27, dtype=torch.float64).reshape(3, 3, 3)
+        tensor = Tensor(data=data, dims=(index_space, index_space, index_space))
+
+        out = tensor[:, :, index_subspace]
+        expected_idx = index_space.structure[i1]
+        assert isinstance(out, Tensor)
+        assert out.dims == (index_space, index_space, index_subspace)
+        assert torch.equal(out.data, data[:, :, expected_idx : expected_idx + 1])
 
 
 class TestTensorAdvancedGetitem:
@@ -371,6 +589,86 @@ class TestTensorAdvancedGetitem:
         with pytest.raises(IndexError):
             _ = tensor[i, j]
 
+    def test_getitem_with_tensor_advanced_negative_indices_in_bounds(self):
+        row_src = IndexSpace.linear(3)
+        col_src = IndexSpace.linear(4)
+        sel = IndexSpace.linear(3)
+
+        data = torch.arange(12, dtype=torch.float64).reshape(3, 4)
+        tensor = Tensor(data=data, dims=(row_src, col_src))
+
+        i = Tensor(data=torch.tensor([-1, -2, 0], dtype=torch.long), dims=(sel,))
+        j = Tensor(data=torch.tensor([1, -1, 2], dtype=torch.long), dims=(sel,))
+
+        out = tensor[i, j]
+        expected = data[i.data, j.data]
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (sel,)
+
+    def test_getitem_with_tensor_advanced_duplicate_indices(self):
+        row_src = IndexSpace.linear(3)
+        col_src = IndexSpace.linear(4)
+        sel = IndexSpace.linear(4)
+
+        data = torch.arange(12, dtype=torch.float64).reshape(3, 4)
+        tensor = Tensor(data=data, dims=(row_src, col_src))
+
+        i = Tensor(data=torch.tensor([1, 1, 2, 1], dtype=torch.long), dims=(sel,))
+        j = Tensor(data=torch.tensor([0, 0, 3, 0], dtype=torch.long), dims=(sel,))
+
+        out = tensor[i, j]
+        expected = data[i.data, j.data]
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (sel,)
+
+    def test_getitem_with_tensor_advanced_scalar_index_tensor(self):
+        row_src = IndexSpace.linear(3)
+        col_src = IndexSpace.linear(4)
+        data = torch.arange(12, dtype=torch.float64).reshape(3, 4)
+        tensor = Tensor(data=data, dims=(row_src, col_src))
+
+        scalar_idx = Tensor(data=torch.tensor(1, dtype=torch.long), dims=())
+        out = tensor[scalar_idx, :]
+        expected = data[scalar_idx.data, :]
+
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (col_src,)
+
+    def test_getitem_with_tensor_advanced_float_index_raises(self):
+        row_src = IndexSpace.linear(3)
+        col_src = IndexSpace.linear(4)
+        bad = IndexSpace.linear(2)
+        data = torch.arange(12, dtype=torch.float64).reshape(3, 4)
+        tensor = Tensor(data=data, dims=(row_src, col_src))
+
+        bad_idx = Tensor(
+            data=torch.tensor([0.0, 1.0], dtype=torch.float64), dims=(bad,)
+        )
+        with pytest.raises((IndexError, TypeError, RuntimeError)):
+            _ = tensor[bad_idx, :]
+
+    def test_getitem_with_tensor_advanced_bool_mask_with_slice(self):
+        row_src = IndexSpace.linear(5)
+        col_src = IndexSpace.linear(4)
+        keep = IndexSpace.linear(3)
+
+        data = torch.arange(20, dtype=torch.float64).reshape(5, 4)
+        tensor = Tensor(data=data, dims=(row_src, col_src))
+
+        mask = Tensor(
+            data=torch.tensor([True, False, True, False, True], dtype=torch.bool),
+            dims=(row_src,),
+        )
+        out = tensor[mask, :]
+        expected = data[mask.data, :]
+
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (keep, col_src)
+
     def test_getitem_with_tensor_advanced_empty_index(self):
         row_src = IndexSpace.linear(3)
         col_src = IndexSpace.linear(4)
@@ -479,3 +777,15 @@ class TestTensorAdvancedGetitem:
 
         with pytest.raises(IndexError, match="single ellipsis"):
             _ = tensor[..., idx, ...]
+
+    def test_getitem_advanced_too_many_indices_raises(self):
+        a = IndexSpace.linear(2)
+        b = IndexSpace.linear(3)
+        data = torch.arange(6, dtype=torch.float64).reshape(2, 3)
+        tensor = Tensor(data=data, dims=(a, b))
+        idx = Tensor(
+            data=torch.tensor([1, 0], dtype=torch.long), dims=(IndexSpace.linear(2),)
+        )
+
+        with pytest.raises(IndexError, match="Too many indices"):
+            _ = tensor[:, :, idx]
