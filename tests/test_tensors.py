@@ -659,6 +659,29 @@ class TestTensorAdd:
         assert result.dims == expected_dims
         assert torch.allclose(result.data, torch.full_like(result.data, 2.0))
 
+    def test_add_broadcastspace_unsqueeze_both_operands(self, tensor_add_ctx):
+        # Regression: both operands carry the same BroadcastSpace axis via unsqueeze.
+        # This path should still add elementwise on the singleton axis.
+        left_base = Tensor(
+            data=torch.arange(tensor_add_ctx.space_a.dim, dtype=torch.float32),
+            dims=(tensor_add_ctx.space_a,),
+        )
+        right_base = Tensor(
+            data=torch.full((tensor_add_ctx.space_a.dim,), 3.0, dtype=torch.float32),
+            dims=(tensor_add_ctx.space_a,),
+        )
+
+        left = left_base.unsqueeze(0)
+        right = right_base.unsqueeze(0)
+
+        result = left + right
+
+        assert len(result.dims) == 2
+        assert isinstance(result.dims[0], BroadcastSpace)
+        assert result.dims[1] == tensor_add_ctx.space_a
+        assert result.data.shape == (1, tensor_add_ctx.space_a.dim)
+        assert torch.allclose(result.data, left.data + right.data)
+
     def test_add_disjoint_matrices(self, tensor_add_ctx):
         # Test adding two matrices with disjoint spaces on both axes
         # M1: (A, B)

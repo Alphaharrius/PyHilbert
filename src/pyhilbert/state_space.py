@@ -364,7 +364,12 @@ def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
 
 
 @dataclass(frozen=True)
-class BroadcastSpace(StateSpace[Spatial]):
+class _BAxis:
+    pass
+
+
+@dataclass(frozen=True)
+class BroadcastSpace(StateSpace[_BAxis]):
     """
     Metadata marker for singleton/broadcast tensor axes.
 
@@ -375,19 +380,22 @@ class BroadcastSpace(StateSpace[Spatial]):
     `unsqueeze`, `None` indexing, or other operations where data may be
     expanded without introducing a concrete physical basis.
 
-    `dim` behavior
-    --------------
-    `BroadcastSpace.dim` is intentionally defined as `1`.
-    This means code that derives expected tensor shapes from
-    `tuple(dim.dim for dim in dims)` will naturally treat broadcast axes as
-    singleton axes.
-
     Structure semantics
     -------------------
-    The inherited `structure` remains empty (`OrderedDict()`), because a
-    broadcast axis has no concrete basis elements of its own. In other words:
-    - `structure` encodes basis content (none for broadcast axes)
-    - `dim` encodes broadcast shape semantics (singleton axis => `1`)
+    `BroadcastSpace` stores a private singleton marker in `structure`:
+    `OrderedDict({_BAxis(): 0})`.
+    This keeps the axis dimension at `1` while still providing a stable
+    coordinate for structure-based index mapping helpers.
+
+    Implication for index mapping
+    -----------------------------
+    For `BroadcastSpace -> BroadcastSpace`, `embedding_order(...)` resolves to
+    `(0,)`. This is intentional and allows consumers that build runtime index
+    coordinates from structure mappings to treat broadcast axes as a singleton
+    axis at position `0`.
+
+    The `_BAxis` marker is internal implementation detail. It is not a physical
+    basis element and should not be relied on outside broadcast-axis plumbing.
 
     Compatibility rules
     -------------------
@@ -402,17 +410,14 @@ class BroadcastSpace(StateSpace[Spatial]):
     concrete state space during alignment/broadcast operations.
     """
 
-    structure: OrderedDict = field(default_factory=OrderedDict)
+    # Internal singleton marker so structure-based mappings can emit index 0.
+    structure: OrderedDict = field(
+        default_factory=lambda: OrderedDict({_BAxis(): 0}), init=False
+    )
 
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.
     __hash__ = StateSpace.__hash__
-
-    @override
-    @property
-    def dim(self) -> int:
-        # BroadcastSpace is modeled as a singleton axis for shape semantics.
-        return 1
 
     def __repr__(self):
         return "BroadcastSpace"
