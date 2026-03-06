@@ -485,7 +485,7 @@ class IndexSpace(StateSpace[int]):
         return IndexSpace(OrderedDict((i, i) for i in range(size)))
 
     def __str__(self):
-        return f"IndexSpace({self.dim})"
+        return f"IndexSpace(size={self.dim})"
 
     def __repr__(self):
         return str(self)

@@ -1152,19 +1152,41 @@ class TestTensorGetitem:
 
         return Context()
 
-    def test_getitem_normal_returns_torch_tensor(self, getitem_ctx):
+    def test_getitem_normal_returns_tensor(self, getitem_ctx):
         out = getitem_ctx.tensor_mat[1:4, 2:5]
-        assert isinstance(out, torch.Tensor)
-        assert torch.equal(out, getitem_ctx.data_mat[1:4, 2:5])
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, getitem_ctx.data_mat[1:4, 2:5])
+        assert out.dims == (getitem_ctx.space[1:4], getitem_ctx.space[2:5])
 
     def test_getitem_normal_range_and_none(self, getitem_ctx):
         out = getitem_ctx.tensor_mat[1:5, 0:4]
-        assert isinstance(out, torch.Tensor)
-        assert torch.equal(out, getitem_ctx.data_mat[1:5, 0:4])
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, getitem_ctx.data_mat[1:5, 0:4])
+        assert out.dims == (getitem_ctx.space[1:5], getitem_ctx.space[0:4])
 
         out2 = getitem_ctx.tensor_mat[None, :, :]
-        assert isinstance(out2, torch.Tensor)
-        assert out2.shape == (1, 5, 5)
+        assert isinstance(out2, Tensor)
+        assert out2.data.shape == (1, 5, 5)
+        assert out2.dims == (
+            state_space.BroadcastSpace(),
+            getitem_ctx.space,
+            getitem_ctx.space,
+        )
+
+    def test_getitem_normal_ellipsis_returns_tensor(self, getitem_ctx):
+        out = getitem_ctx.tensor_mat[..., :]
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, getitem_ctx.data_mat[..., :])
+        assert out.dims == (getitem_ctx.space, getitem_ctx.space)
+
+        out2 = getitem_ctx.tensor_mat[..., :, None]
+        assert isinstance(out2, Tensor)
+        assert torch.equal(out2.data, getitem_ctx.data_mat[..., :, None])
+        assert out2.dims == (
+            getitem_ctx.space,
+            getitem_ctx.space,
+            state_space.BroadcastSpace(),
+        )
 
     def test_getitem_spatial(self, getitem_ctx):
         out = getitem_ctx.tensor_mat[getitem_ctx.subspace_a, getitem_ctx.subspace_b]

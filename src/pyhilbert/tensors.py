@@ -18,6 +18,7 @@ import torch
 from .precision import get_precision_config
 from functools import wraps, reduce
 from itertools import product
+import builtins
 
 from .abstracts import Convertible, Operable, Plottable
 from .state_space import (
@@ -609,7 +610,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         Supported conventions
         ---------------------
         - Normal indexing: when no `StateSpace`/`Convertible`/`Tensor` indices are present,
-          this forwards directly to `self.data[key]` and returns a `torch.Tensor`.
+          this returns a `Tensor` whose data matches `self.data[key]`.
         - StateSpace indexing: when any `StateSpace`/`Convertible` index is present,
           this returns a `Tensor` and applies StateSpace-aware selection rules.
         - Advanced Tensor indexing: when any `Tensor` index is present, this
@@ -689,7 +690,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
                     "Hilbert indexing only allows full slices ':' when mixed with StateSpace/Convertible indices"
                 )
         else:
-            return self.data[key]
+            return _tensor_getitem_basic(self, key)
 
         return _tensor_getitem_hilbert(self, key)
 
@@ -842,6 +843,88 @@ def _tensor_getitem_hilbert(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
         raise TypeError(f"Unsupported index type for StateSpace slicing: {type(k)}")
 
     return Tensor(data=data, dims=tuple(new_dims))
+
+
+def _tensor_getitem_basic(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
+    """
+    Apply non-StateSpace/non-pyhilbert-Tensor indexing and return a `Tensor`.
+
+    For standard tokens (`int`, `slice`, `range`, `None`), preserves metadata for
+    inserted singleton axes and uses `StateSpace` slicing (`dim[k]`) where
+    available. For token types with more complex semantics, falls back to linear
+    dims.
+    """
+    data = tensor.data[key]
+
+    # If key contains token types with complex axis-reordering semantics
+    # (e.g. lists / raw torch tensors), keep output metadata shape-correct by
+    # assigning linear index spaces.
+    if not builtins.all(k is None or isinstance(k, (int, slice, range)) for k in key):
+        return Tensor(
+            data=data,
+            dims=tuple(IndexSpace.linear(int(size)) for size in data.shape),
+        )
+
+    specs: list[Tuple[str, Optional[StateSpace]]] = []
+    source_axis = 0
+    for k in key:
+        if k is None:
+            specs.append(("broadcast", None))
+            continue
+
+        dim = tensor.dims[source_axis]
+        source_axis += 1
+
+        if isinstance(k, int):
+            continue
+        if isinstance(k, slice):
+            try:
+                sliced_dim = dim[k]
+            except Exception:
+                specs.append(("linear", None))
+            else:
+                if isinstance(sliced_dim, StateSpace):
+                    specs.append(("preserve", sliced_dim))
+                else:
+                    specs.append(("linear", None))
+            continue
+        if isinstance(k, range):
+            try:
+                ranged_dim = dim[k]
+            except Exception:
+                specs.append(("linear", None))
+            else:
+                if isinstance(ranged_dim, StateSpace):
+                    specs.append(("preserve", ranged_dim))
+                else:
+                    specs.append(("linear", None))
+            continue
+
+    if source_axis != len(tensor.dims):
+        return Tensor(
+            data=data,
+            dims=tuple(IndexSpace.linear(int(size)) for size in data.shape),
+        )
+
+    result_dims: list[StateSpace] = []
+    out_axis = 0
+    for kind, spec_dim in specs:
+        if kind == "broadcast":
+            result_dims.append(BroadcastSpace())
+        elif kind == "preserve":
+            assert spec_dim is not None
+            result_dims.append(spec_dim)
+        else:
+            result_dims.append(IndexSpace.linear(int(data.shape[out_axis])))
+        out_axis += 1
+
+    if out_axis != data.ndim:
+        return Tensor(
+            data=data,
+            dims=tuple(IndexSpace.linear(int(size)) for size in data.shape),
+        )
+
+    return Tensor(data=data, dims=tuple(result_dims))
 
 
 def _tensor_getitem_advanced(tensor: Tensor, key: Tuple[object, ...]) -> Tensor:
