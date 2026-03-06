@@ -647,6 +647,9 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
           - otherwise raises `IndexError`.
         - `Tensor` index:
           - `bool` dtype is not supported (`NotImplementedError`),
+          - lower-rank tensor indices are left-padded with singleton/broadcast
+            axes to match the maximum tensor-index rank before metadata
+            union/alignment,
           - index metadata is aligned to the union of all tensor-index dims.
 
         Mode rules
@@ -2373,6 +2376,9 @@ class TensorIndexing:
     2. Append trailing full slices when fewer source-axis-consuming tokens than
        tensor rank are provided.
     3. Reject keys with too many source-axis-consuming tokens.
+    4. In tensor-index mode, left-pad lower-rank tensor indices with leading
+       `BroadcastSpace` axes (via unsqueeze) so all tensor indices share one
+       rank before `tensor_union_dims` is computed.
 
     Per-token compile rules
     -----------------------
@@ -2392,6 +2398,8 @@ class TensorIndexing:
       - otherwise raises `IndexError`.
     - `Tensor`:
       - bool dtype is unsupported (`NotImplementedError`),
+      - lower-rank tensor indices are internally left-padded to the maximum
+        tensor-index rank before union/alignment,
       - aligns to `tensor_union_dims` (union over all tensor-index dims),
       - consumes one source axis and contributes advanced metadata dims.
 
@@ -2418,17 +2426,37 @@ class TensorIndexing:
     ):
         self.dims = dims
         self.rank = len(dims)
-        self.indices = indices
-        self.non_none_indices = tuple(idx for idx in indices if idx is not None)
+
+        promoted_indices: list[TensorIndexType] = self._promote_tensor_indices(indices)
+        self.indices = tuple(promoted_indices)
+        self.non_none_indices = tuple(idx for idx in self.indices if idx is not None)
 
         tensor_indices = tuple(
-            cast(Tensor, idx) for idx in indices if isinstance(idx, Tensor)
+            cast(Tensor, idx) for idx in self.indices if isinstance(idx, Tensor)
         )
         self.tensor_union_dims = (
             union_dims(*(idx.dims for idx in tensor_indices), allow_merge=False)
             if tensor_indices
             else ()
         )
+
+    @staticmethod
+    def _promote_tensor_indices(
+        indices: Tuple[TensorIndexType, ...],
+    ) -> list[TensorIndexType]:
+        promoted: list[TensorIndexType] = list(indices)
+        tensor_positions = [
+            i for i, idx in enumerate(indices) if isinstance(idx, Tensor)
+        ]
+        if tensor_positions:
+            tensor_entries = tuple(cast(Tensor, indices[i]) for i in tensor_positions)
+            max_tensor_rank = max(idx.rank() for idx in tensor_entries)
+            for pos in tensor_positions:
+                tensor_idx = cast(Tensor, indices[pos])
+                while tensor_idx.rank() < max_tensor_rank:
+                    tensor_idx = tensor_idx.unsqueeze(0)
+                promoted[pos] = tensor_idx
+        return promoted
 
     def _normalize(self) -> Tuple[TensorIndexType, ...]:
         return self._pad_missing_slices(self._expand_ellipsis())

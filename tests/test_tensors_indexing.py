@@ -291,6 +291,45 @@ class TestTensorAdvancedGetitem:
         assert torch.equal(out.data, expected)
         assert out.dims == (IndexSpace.linear(2), b)
 
+    def test_getitem_with_tensor_advanced_index_scalar_and_vector(self):
+        a = IndexSpace.linear(3)
+        b = IndexSpace.linear(4)
+        sel = IndexSpace.linear(2)
+        data = torch.arange(12, dtype=torch.float64).reshape(3, 4)
+        tensor = Tensor(data=data, dims=(a, b))
+
+        i = Tensor(data=torch.tensor(1, dtype=torch.long), dims=())
+        j = Tensor(data=torch.tensor([3, 1], dtype=torch.long), dims=(sel,))
+
+        out = tensor[i, j]
+        expected = data[i.data, j.data]
+
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (sel,)
+
+    def test_getitem_with_tensor_advanced_index_mixed_rank_broadcast(self):
+        row_src = IndexSpace.linear(4)
+        col_src = IndexSpace.linear(5)
+        a = IndexSpace.linear(2)
+        b = IndexSpace.linear(3)
+
+        data = torch.arange(20, dtype=torch.float64).reshape(4, 5)
+        tensor = Tensor(data=data, dims=(row_src, col_src))
+
+        i = Tensor(
+            data=torch.tensor([[0], [3]], dtype=torch.long),
+            dims=(a, BroadcastSpace()),
+        )
+        j = Tensor(data=torch.tensor([1, 4, 2], dtype=torch.long), dims=(b,))
+
+        out = tensor[i, j]
+        expected = data[i.data, j.data]
+
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (a, b)
+
     def test_getitem_with_tensor_advanced_index_separated(self):
         a = IndexSpace.linear(2)
         b = IndexSpace.linear(3)
