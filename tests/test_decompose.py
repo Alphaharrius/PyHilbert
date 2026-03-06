@@ -2,7 +2,7 @@ import torch
 import sympy as sy
 
 from pyhilbert.decompose import eig, eigh, eigvals, qr, svd
-from pyhilbert.state_space import FactorSpace
+from pyhilbert.state_space import IndexSpace
 from pyhilbert.hilbert_space import U1Basis, hilbert
 from pyhilbert.tensors import Tensor
 
@@ -22,7 +22,7 @@ def test_eigh_reconstructs_hermitian_matrix():
 
     eigvals, eigvecs = eigh(tensor)
 
-    assert isinstance(eigvals.dims[-1], FactorSpace)
+    assert isinstance(eigvals.dims[-1], IndexSpace)
     assert eigvecs.dims[-2] == space
     assert eigvecs.dims[-1] is eigvals.dims[-1]
 
@@ -41,7 +41,7 @@ def test_eig_reconstructs_general_matrix():
 
     eigvals, eigvecs = eig(tensor)
 
-    assert isinstance(eigvals.dims[-1], FactorSpace)
+    assert isinstance(eigvals.dims[-1], IndexSpace)
     assert eigvecs.dims[-2] == space
     assert eigvecs.dims[-1] is eigvals.dims[-1]
 
@@ -50,10 +50,9 @@ def test_eig_reconstructs_general_matrix():
     assert torch.allclose(recon, data, atol=1e-5, rtol=1e-5)
 
 
-def test_eigvals_band_groups_have_close_values():
+def test_eigvals_returns_index_space_without_band_grouping():
     space = _space("m", 4)
 
-    eps = 5e-4
     values = torch.tensor(
         [1.0 + 1.0e-4j, 1.0 + 2.0e-4j, 2.0 + 0.0j, 2.0 + 1.0e-6j],
         dtype=torch.complex64,
@@ -61,15 +60,11 @@ def test_eigvals_band_groups_have_close_values():
     data = torch.diag(values)
     tensor = Tensor(data=data, dims=(space, space))
 
-    vals = eigvals(tensor, group_band_eps=eps)
+    vals = eigvals(tensor)
 
-    factor = vals.dims[-1]
-    assert [band.count for band in factor] == [2, 2]
-    for band in factor:
-        s = factor.get_slice(band)
-        band_vals = vals.data[s]
-        max_delta = torch.max(torch.abs(band_vals - band_vals[0])).item()
-        assert max_delta <= eps
+    assert isinstance(vals.dims[-1], IndexSpace)
+    assert vals.dims[-1].dim == 4
+    assert torch.allclose(vals.data, values)
 
 
 def test_qr_reconstructs_tall_matrix():
@@ -84,7 +79,7 @@ def test_qr_reconstructs_tall_matrix():
     q, r = qr(tensor)
 
     assert q.dims[-2] == row_space
-    assert isinstance(q.dims[-1], FactorSpace)
+    assert isinstance(q.dims[-1], IndexSpace)
     assert r.dims[-1] == col_space
     assert r.dims[-2] is q.dims[-1]
 
@@ -104,7 +99,7 @@ def test_qr_reconstructs_wide_matrix():
     q, r = qr(tensor)
 
     assert q.dims[-2] == row_space
-    assert isinstance(q.dims[-1], FactorSpace)
+    assert isinstance(q.dims[-1], IndexSpace)
     assert r.dims[-1] == col_space
     assert r.dims[-2] is q.dims[-1]
 
@@ -124,7 +119,7 @@ def test_svd_reconstructs_tall_matrix():
     u, s, vh = svd(tensor)
 
     assert u.dims[-2] == row_space
-    assert isinstance(u.dims[-1], FactorSpace)
+    assert isinstance(u.dims[-1], IndexSpace)
     assert s.dims[-1] is u.dims[-1]
     assert vh.dims[-1] == col_space
     assert vh.dims[-2] is u.dims[-1]
@@ -144,9 +139,9 @@ def test_svd_matrix_values_no_band_grouping():
 
     u, s, vh = svd(tensor, values_as_matrix=True)
 
-    assert isinstance(s.dims[-1], FactorSpace)
+    assert isinstance(s.dims[-1], IndexSpace)
     assert s.dims[-2] is s.dims[-1]
-    assert [band.count for band in s.dims[-1]] == [3]
+    assert s.dims[-1].dim == 3
 
     recon = u.data @ s.data.to(u.data.dtype) @ vh.data
     assert torch.allclose(recon, data, atol=1e-6, rtol=1e-6)
@@ -164,10 +159,10 @@ def test_svd_full_matrices_reconstructs():
     u, s, vh = svd(tensor, full_matrices=True, values_as_matrix=True)
 
     assert u.dims[-2] == row_space
-    assert isinstance(u.dims[-1], FactorSpace)
-    assert isinstance(s.dims[-2], FactorSpace)
-    assert isinstance(s.dims[-1], FactorSpace)
-    assert isinstance(vh.dims[-2], FactorSpace)
+    assert isinstance(u.dims[-1], IndexSpace)
+    assert isinstance(s.dims[-2], IndexSpace)
+    assert isinstance(s.dims[-1], IndexSpace)
+    assert isinstance(vh.dims[-2], IndexSpace)
     assert vh.dims[-1] == col_space
 
     recon = u.data @ s.data.to(u.data.dtype) @ vh.data
