@@ -46,6 +46,13 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
     data: T
     dims: Tuple[StateSpace, ...]
 
+    def __post_init__(self) -> None:
+        shape = tuple(d.dim for d in self.dims)
+        if self.data.shape != shape:
+            raise ValueError(
+                f"Tensor data shape {self.data.shape} does not match expected shape {shape}"
+            )
+
     @dispatch(Number)
     @staticmethod
     def scalar(number: Number) -> "Tensor":
