@@ -54,7 +54,7 @@ def plot_structure(
         raise ValueError(f"Invalid plot_type '{plot_type}'. Options: {valid_types}")
 
     # Use method on Lattice object
-    coords = obj.coords(subs)
+    coords = obj.coords()
     coords_np = coords.numpy()
 
     x = coords_np[:, 0]

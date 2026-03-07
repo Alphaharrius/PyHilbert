@@ -55,7 +55,7 @@ def plot_structure_mpl(
     if plot_type not in valid_types:
         raise ValueError(f"Invalid plot_type '{plot_type}'. Options: {valid_types}")
 
-    coords = obj.coords(subs)
+    coords = obj.coords()
     coords_np = coords.numpy()
 
     x = coords_np[:, 0]

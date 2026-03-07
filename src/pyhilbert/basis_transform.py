@@ -10,6 +10,7 @@ import numpy as np
 from .abstracts import Functional
 from .utils import FrozenDict, matchby
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
+from .boundary import PeriodicBoundary
 from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
@@ -70,21 +71,37 @@ def lattice_transform(t: BasisTransform, lat: Lattice) -> Lattice:
         )
         items = [("0", default_offset)]
 
+    new_basis = t.M @ lat.basis
+
     for label, atom_offset in items:
         atom_vec = atom_offset.rep.reshape(1, lat.dim)
         for i, k in enumerate(shifts):
-            # Now both atom_vec and k are 1xN Matrices
-            # Formula: new_frac = (old_frac + shift) * M^-1
             new_frac = (atom_vec + k) @ M_inv
             new_frac = new_frac.applyfunc(lambda x: x - sy.floor(x))
 
-            # Generate new label
+            # Lattice.unit_cell expects Cartesian offsets, not fractional reps.
+            new_offset = ImmutableDenseMatrix(new_basis @ new_frac.T)
+
             new_label = f"{label}_{i}" if len(shifts) > 1 else label
-            new_unit_cell[new_label] = new_frac
-    new_basis = t.M @ lat.basis
-    new_shape = tuple(s // m for s, m in zip(lat.shape, t.M.diagonal()))
+            new_unit_cell[new_label] = new_offset
+
+    if not isinstance(lat.boundaries, PeriodicBoundary):
+        raise NotImplementedError(
+            f"BasisTransform currently supports PeriodicBoundary only, got {type(lat.boundaries).__name__}."
+        )
+
+    new_boundary_basis = ImmutableDenseMatrix(M_inv.T @ lat.boundaries.basis)
+    if any(x.q != 1 for x in new_boundary_basis):
+        raise ValueError(
+            "Transformed boundary basis must remain integral for PeriodicBoundary."
+        )
+    new_boundaries = PeriodicBoundary(
+        ImmutableDenseMatrix(new_boundary_basis.applyfunc(int))
+    )
     return Lattice(
-        basis=new_basis, shape=new_shape, unit_cell=FrozenDict(new_unit_cell)
+        basis=new_basis,
+        boundaries=new_boundaries,
+        unit_cell=FrozenDict(new_unit_cell),
     )
 
 
