@@ -1,12 +1,3 @@
-import numpy as np
-import plotly.graph_objects as go
-import torch
-
-from pyhilbert.hilbert import Mode, hilbert
-from pyhilbert.tensors import Tensor
-from pyhilbert.utils import FrozenDict
-
-
 # def create_dummy_tensor(data_like):
 #     """Create a Tensor with simple HilbertSpace dims for tests."""
 #     if isinstance(data_like, np.ndarray):

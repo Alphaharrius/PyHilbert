@@ -20,6 +20,7 @@ from pyhilbert.boundary import PeriodicBoundary
 from pyhilbert.tensors import Tensor
 from pyhilbert.utils import FrozenDict
 
+
 def _space_and_offset(dim: int):
     basis = ImmutableDenseMatrix.eye(dim)
     space = AffineSpace(basis=basis)

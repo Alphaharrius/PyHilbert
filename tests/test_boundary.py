@@ -21,6 +21,7 @@ def is_boundary_equivalent(
     coeffs = basis.inv() @ (left - right)
     return all(value.is_integer for value in coeffs)
 
+
 def test_periodic_boundary_rejects_non_square_basis():
     with pytest.raises(ValueError, match="boundary basis must be square"):
         PeriodicBoundary(ImmutableDenseMatrix([[1, 0, 0], [0, 1, 0]]))
@@ -46,7 +47,9 @@ def test_periodic_boundary_wrap_rejects_wrong_shape():
         (col(-1, -4), col(3, 2)),
     ],
 )
-def test_periodic_boundary_wrap_diagonal_basis(index: ImmutableDenseMatrix, expected: ImmutableDenseMatrix):
+def test_periodic_boundary_wrap_diagonal_basis(
+    index: ImmutableDenseMatrix, expected: ImmutableDenseMatrix
+):
     boundary = PeriodicBoundary(ImmutableDenseMatrix.diag(4, 3))
 
     assert boundary.wrap(index) == expected

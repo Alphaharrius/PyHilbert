@@ -5,10 +5,12 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix
 from sympy.matrices.normalforms import smith_normal_decomp
 
+
 class BoundaryCondition(ABC):
     """
     Abstract base class for boundary conditions in lattice systems.
     """
+
     @property
     @abstractmethod
     def basis(self) -> ImmutableDenseMatrix:
@@ -31,6 +33,7 @@ class PeriodicBoundary(BoundaryCondition):
     """
     Periodic boundary: wraps indices using modulo arithmetic via Smith Normal Form.
     """
+
     _basis: ImmutableDenseMatrix = field(repr=False)
     _U: ImmutableDenseMatrix = field(init=False, repr=False, compare=False)
     _U_inv: ImmutableDenseMatrix = field(init=False, repr=False, compare=False)
@@ -56,7 +59,9 @@ class PeriodicBoundary(BoundaryCondition):
     def wrap(self, index: ImmutableDenseMatrix) -> ImmutableDenseMatrix:
         expected_shape = (self.basis.rows, 1)
         if index.shape != expected_shape:
-            raise ValueError(f"index shape {index.shape} does not match expected {expected_shape}.")
+            raise ValueError(
+                f"index shape {index.shape} does not match expected {expected_shape}."
+            )
 
         if self.basis.is_diagonal():
             wrapped_entries = [
@@ -67,23 +72,25 @@ class PeriodicBoundary(BoundaryCondition):
 
         coordinates = ImmutableDenseMatrix(self._U @ index)
         wrapped_entries = [
-            sy.Mod(coordinates[i, 0], self._periods[i])
-            for i in range(self.basis.rows)
+            sy.Mod(coordinates[i, 0], self._periods[i]) for i in range(self.basis.rows)
         ]
         wrapped_coords = ImmutableDenseMatrix(self.basis.rows, 1, wrapped_entries)
         return ImmutableDenseMatrix(self._U_inv @ wrapped_coords)
 
     def representatives(self) -> tuple[ImmutableDenseMatrix, ...]:
         if self.basis.is_diagonal():
-            elements = product(*(range(int(self.basis[i, i])) for i in range(self.basis.rows)))
+            elements = product(
+                *(range(int(self.basis[i, i])) for i in range(self.basis.rows))
+            )
             return tuple(
-                ImmutableDenseMatrix(self.basis.rows, 1, el)
-                for el in elements
+                ImmutableDenseMatrix(self.basis.rows, 1, el) for el in elements
             )
 
         elements = product(*(range(period) for period in self._periods))
         return tuple(
-            ImmutableDenseMatrix(self._U_inv @ ImmutableDenseMatrix(self.basis.rows, 1, el))
+            ImmutableDenseMatrix(
+                self._U_inv @ ImmutableDenseMatrix(self.basis.rows, 1, el)
+            )
             for el in elements
         )
 
@@ -94,8 +101,12 @@ class PeriodicBoundary(BoundaryCondition):
             invariant = S[i, i]
             period = int(invariant)
             if period == 0:
-                raise ValueError("boundary basis must be full-rank (non-zero SNF invariants).")
+                raise ValueError(
+                    "boundary basis must be full-rank (non-zero SNF invariants)."
+                )
             if period < 0:
-                raise ValueError(f"SNF invariant factors must be positive, got {invariant}.")
+                raise ValueError(
+                    f"SNF invariant factors must be positive, got {invariant}."
+                )
             periods.append(period)
         return tuple(periods)

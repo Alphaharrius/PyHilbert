@@ -15,6 +15,7 @@ from .utils import FrozenDict
 from .abstracts import Operable, HasDual, HasBase, Plottable
 from .boundary import BoundaryCondition
 
+
 @dataclass(frozen=True)
 class Spatial(Operable, Plottable, ABC):
     @property
@@ -61,12 +62,19 @@ class Lattice(AbstractLattice):
         S = smith_normal_form(self.boundaries.basis, domain=sy.ZZ)
         return tuple(S.diagonal())
 
-    def __init__(self, basis: ImmutableDenseMatrix, boundaries: BoundaryCondition, unit_cell: Mapping[str, ImmutableDenseMatrix]):
+    def __init__(
+        self,
+        basis: ImmutableDenseMatrix,
+        boundaries: BoundaryCondition,
+        unit_cell: Mapping[str, ImmutableDenseMatrix],
+    ):
         object.__setattr__(self, "basis", basis)
         object.__setattr__(self, "boundaries", boundaries)
 
         if len(unit_cell) == 0:
-            raise ValueError("unit_cell is empty; define at least one site in unit_cell.")
+            raise ValueError(
+                "unit_cell is empty; define at least one site in unit_cell."
+            )
 
         processed_cell: dict[str, ImmutableDenseMatrix] = {}
         basis_inverse = self.basis.inv()
@@ -144,7 +152,7 @@ class ReciprocalLattice(AbstractLattice):
     @lru_cache
     def shape(self) -> Tuple[int, ...]:
         return self.lattice.shape
-    
+
     @property
     @lru_cache
     def size(self) -> int:

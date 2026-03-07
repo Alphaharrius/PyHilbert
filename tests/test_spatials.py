@@ -14,7 +14,6 @@ from pyhilbert.boundary import PeriodicBoundary
 from pyhilbert.utils import FrozenDict
 
 
-
 def test_lattice_creation_and_dual():
     # 2D square lattice
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])

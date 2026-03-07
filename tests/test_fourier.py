@@ -7,6 +7,7 @@ from pyhilbert.fourier import fourier_transform
 from pyhilbert.boundary import PeriodicBoundary
 from pyhilbert.utils import FrozenDict
 
+
 def test_fourier_kernel_1d():
     # 1D Lattice a=1
     basis = ImmutableDenseMatrix([[1]])

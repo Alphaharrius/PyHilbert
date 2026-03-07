@@ -15,6 +15,7 @@ from pyhilbert.basis_transform import bandfold, BasisTransform
 from pyhilbert.boundary import PeriodicBoundary
 from pyhilbert.utils import FrozenDict
 
+
 def test_bandfold_1d():
     # 1. Setup
     # 1a. Define a 1D lattice with 4 k-points
