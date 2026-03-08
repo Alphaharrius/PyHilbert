@@ -10,17 +10,18 @@ from typing import (
     Any,
     Optional,
     Callable,
-    Literal,
 )
 from numbers import Number
 from dataclasses import dataclass, replace
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
+from typing_extensions import override
 from .precision import get_precision_config
 from functools import wraps, reduce
 from itertools import product
 
 from .abstracts import Convertible, Operable, Plottable
+from .utils import Device, DeviceBounded
 from .state_space import (
     StateSpace,
     BroadcastSpace,
@@ -42,7 +43,7 @@ such as `torch.FloatTensor`, `torch.DoubleTensor`, etc.
 
 
 @dataclass(frozen=True, eq=False)
-class Tensor(Generic[T], Operable, Plottable, Convertible):
+class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     data: T
     dims: Tuple[StateSpace, ...]
 
@@ -388,60 +389,30 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         """
         return self.data.item()
 
-    def cpu(self) -> Self:
+    @override
+    @property
+    def device(self) -> Device:
         """
-        Copy the tensor data to CPU memory and create a new `Tensor` instance.
-
-        Returns
-        -------
-        `Self`
-            The new tensor of the same wrapper type with copied data on CPU.
+        Return the logical device associated with the tensor data.
         """
-        return replace(self, data=cast(T, self.data.cpu()))
+        torch_device = self.data.device
+        if torch_device.type == "cpu":
+            return Device("cpu")
+        if torch_device.type == "cuda":
+            return Device("gpu", torch_device.index)
+        if torch_device.type == "mps":
+            return Device("gpu")
+        raise ValueError(f"Unsupported tensor device type: {torch_device.type}")
 
-    def gpu(self) -> Self:
+    @override
+    def to_device(self, device: Device) -> Self:
         """
-        Copy the tensor data to GPU memory and create a new `Tensor` instance.
-
-        Returns
-        -------
-        `Self`
-            The new tensor of the same wrapper type with copied data on GPU.
-
-        Raises
-        ------
-        RuntimeError
-            If GPU is not available on this system.
+        Copy the tensor data to the specified logical device and return a new tensor.
         """
-        if torch.cuda.is_available():
-            return replace(self, data=cast(T, self.data.cuda()))
-        elif torch.backends.mps.is_available():
-            return replace(self, data=cast(T, self.data.to("mps")))
-        else:
-            raise RuntimeError(
-                "Only CUDA and MPS devices are supported for GPU operations!"
-            )
-
-    def device(
-        self, device: Optional[Literal["cpu", "gpu"]] = None
-    ) -> Self | Literal["cpu", "gpu"]:
-        """
-        ### Provided `device`
-        Copy the tensor data to the specified device and create a new `Tensor` instance.
-        See ``Tensor.cpu()`` and ``Tensor.gpu()`` for device-specific behavior and requirements.
-
-        ### No `device` argument
-        If `device` is `None`, this returns a string indicating the current device type of the tensor data:
-        - Returns `"gpu"` if the data is on a CUDA or MPS device.
-        - Returns `"cpu"` if the data is on a CPU device.
-        """
-        if device is None:
-            device_type = self.data.device.type
-            return "gpu" if device_type in {"cuda", "mps"} else "cpu"
-        elif device == "cpu":
-            return self.cpu()
-        elif device == "gpu":
-            return self.gpu()
+        target = device.torch_device()
+        if self.data.device == target:
+            return self
+        return replace(self, data=cast(T, self.data.to(target)))
 
     @property
     def requires_grad(self) -> bool:
@@ -454,6 +425,52 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
             True if the tensor data requires gradient tracking, False otherwise.
         """
         return self.data.requires_grad
+
+    @property
+    def grad(self) -> Optional[Self]:
+        """
+        Return the accumulated gradient wrapped as a PyHilbert tensor.
+
+        Returns
+        -------
+        `Optional[Self]`
+            The current gradient with the same dims, or `None` if no gradient
+            has been accumulated.
+        """
+        grad = self.data.grad
+        if grad is None:
+            return None
+        return replace(self, data=cast(T, grad))
+
+    def backward(
+        self,
+        gradient: Optional[Self] = None,
+        retain_graph: Optional[bool] = None,
+        create_graph: bool = False,
+        inputs: Optional[Sequence[Self]] = None,
+    ) -> None:
+        """
+        Run autograd backward from this tensor.
+
+        Parameters
+        ----------
+        `gradient` : `Optional[Self]`, optional
+            Upstream gradient for non-scalar tensors.
+        `retain_graph` : `Optional[bool]`, optional
+            Whether to retain the autograd graph after backward.
+        `create_graph` : `bool`, optional
+            Whether to construct the derivative graph.
+        `inputs` : `Optional[Sequence[Self]]`, optional
+            Restrict gradient accumulation to the specified leaf inputs.
+        """
+        grad_data = gradient.align_all(self.dims).data if gradient is not None else None
+        input_data = [tensor.data for tensor in inputs] if inputs is not None else None
+        self.data.backward(
+            gradient=grad_data,
+            retain_graph=retain_graph,
+            create_graph=create_graph,
+            inputs=input_data,
+        )
 
     def attach(self) -> Self:
         """

@@ -93,7 +93,7 @@ class TestTensorAutograd:
         # Target: [2.0, 3.0, 4.0]
         target = torch.tensor([2.0, 3.0, 4.0])
         diff = y.data - target
-        loss = (diff**2).sum()
+        loss = Tensor(data=(diff**2).sum(), dims=())
 
         # 5. Backward pass
         loss.backward()
@@ -107,16 +107,19 @@ class TestTensorAutograd:
         # grad = 2 * (-0.5) = -1.0
 
         expected_grad = torch.tensor([-1.0, -1.0, -1.0])
+        expected_grad_tensor = Tensor(data=expected_grad, dims=dims)
 
-        assert torch.allclose(w_param.data.grad, expected_grad), (
-            f"Expected grad {expected_grad}, got {w_param.data.grad}"
+        assert w_param.grad is not None
+        assert x_input.grad is not None
+        assert w_param.grad.equal(expected_grad_tensor), (
+            f"Expected grad {expected_grad_tensor}, got {w_param.grad}"
         )
-        assert torch.allclose(x_input.data.grad, expected_grad)
+        assert x_input.grad.equal(expected_grad_tensor)
 
         # 7. Test Detach
         w_detached = w_param.detach()
         y_val = x_input + w_detached
-        loss_val = y_val.data.sum()
+        loss_val = Tensor(data=y_val.data.sum(), dims=())
 
         # Zero gradients
         if x_input.data.grad is not None:
@@ -125,11 +128,12 @@ class TestTensorAutograd:
         loss_val.backward()
 
         # x_input should have grad 1.0 (derivative of sum(x))
-        assert torch.allclose(x_input.data.grad, torch.ones(3))
+        assert x_input.grad is not None
+        assert x_input.grad.equal(Tensor(data=torch.ones(3), dims=dims))
 
         # w_detached should not have grad
         assert not w_detached.requires_grad
-        assert w_detached.data.grad is None
+        assert w_detached.grad is None
 
     def test_clone_autograd(self):
         """Test that clone() preserves autograd history."""
@@ -141,8 +145,44 @@ class TestTensorAutograd:
 
         # Operation
         z = y.data * 2
-        loss = z.sum()
+        loss = Tensor(data=z.sum(), dims=())
         loss.backward()
 
         # d(2*y)/dx = 2 * dy/dx = 2 * 1 = 2
-        assert x.data.grad.item() == 2.0
+        assert x.grad is not None
+        assert x.grad.item() == 2.0
+
+    def test_backward_aligns_gradient_with_permuted_dimension_elements(self):
+        left = hilbert(_state("left", i) for i in range(2))
+        right = hilbert(_state("right", i) for i in range(3))
+        right_permuted = hilbert(_state("right", i) for i in (2, 0, 1))
+
+        x = Tensor(
+            data=torch.arange(6.0, dtype=torch.float32).reshape(2, 3),
+            dims=(left, right),
+        ).attach()
+        y = x.clone()
+        upstream = Tensor(
+            data=torch.tensor(
+                [
+                    [10.0, 20.0, 30.0],
+                    [40.0, 50.0, 60.0],
+                ]
+            ),
+            dims=(left, right_permuted),
+        )
+
+        y.backward(upstream)
+
+        assert x.grad is not None
+        assert x.grad.equal(
+            Tensor(
+                data=torch.tensor(
+                    [
+                        [20.0, 30.0, 10.0],
+                        [50.0, 60.0, 40.0],
+                    ]
+                ),
+                dims=(left, right),
+            )
+        )
