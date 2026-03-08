@@ -2,6 +2,7 @@ import torch
 import sympy as sy
 from pyhilbert.tensors import Tensor
 from pyhilbert.hilbert_space import U1Basis, hilbert
+from pyhilbert.state_space import IndexSpace
 
 
 def _state(tag: str, idx: int) -> U1Basis:
@@ -11,7 +12,7 @@ def _state(tag: str, idx: int) -> U1Basis:
 class TestTensorAutograd:
     def test_tensor_autograd_behavior(self):
         # Setup basic data
-        dims = ()  # Empty dimensions for simplicity
+        dims = (IndexSpace.linear(3), IndexSpace.linear(3))
         data = torch.randn(3, 3)
 
         # --- 1. Test requires_grad property ---
@@ -137,7 +138,7 @@ class TestTensorAutograd:
 
     def test_clone_autograd(self):
         """Test that clone() preserves autograd history."""
-        dims = ()
+        dims = (IndexSpace.linear(1),)
         x = Tensor(data=torch.tensor([1.0]), dims=dims).attach()
 
         # Clone
