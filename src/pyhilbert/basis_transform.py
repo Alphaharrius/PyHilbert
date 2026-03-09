@@ -9,6 +9,7 @@ import numpy as np
 
 from .abstracts import Functional
 from .utils import FrozenDict, matchby
+from .validations import Validator, Validatable, validate_by
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .state_space import MomentumSpace, brillouin_zone
 from .hilbert_space import HilbertSpace, U1Basis, hilbert
@@ -16,13 +17,36 @@ from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 
 
-@dataclass(frozen=True)
-class BasisTransform(Functional):
-    M: ImmutableDenseMatrix
+class ValidateInvertibility(Validator["BasisTransform"]):
+    """
+    Validate that a basis transform matrix is invertible.
 
-    def __post_init__(self):
-        if self.M.det() == 0:
+    `BasisTransform` operations require `M` to define a non-singular lattice
+    basis change, so zero-determinant matrices are rejected at construction.
+    """
+
+    def validate(self, transform: "BasisTransform") -> None:
+        """
+        Reject transforms whose matrix has zero determinant.
+
+        Parameters
+        ----------
+        `transform` : `BasisTransform`
+            Transform instance whose matrix is being validated.
+
+        Raises
+        ------
+        `ValueError`
+            If `transform.M` is singular.
+        """
+        if transform.M.det() == 0:
             raise ValueError("M must have non-zero determinant")
+
+
+@validate_by(ValidateInvertibility())
+@dataclass(frozen=True)
+class BasisTransform(Functional, Validatable):
+    M: ImmutableDenseMatrix
 
 
 @lru_cache

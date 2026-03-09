@@ -11,6 +11,7 @@ import torch
 from .precision import get_precision_config
 from sympy import ImmutableDenseMatrix, sympify
 from .utils import FrozenDict
+from .validations import Validator, Validatable, validate_by
 from .abstracts import Convertible, Operable, HasDual, HasBase, Plottable
 
 
@@ -168,8 +169,37 @@ _VecType = TypeVar("_VecType", bound=Union[np.ndarray, ImmutableDenseMatrix])
 """Type variable for vector types that can be returned by `Offset.to_vec()`."""
 
 
+class ValidateOffsetMatchesSpace(Validator["Offset"]):
+    """
+    Validate that an `Offset` representation is compatible with its affine space.
+
+    `Offset.rep` is required to be a column vector with one row per spatial
+    dimension in `Offset.space`.
+    """
+
+    @override
+    def validate(self, value: "Offset") -> None:
+        """
+        Reject offsets whose coordinate representation does not match the space.
+
+        Parameters
+        ----------
+        `value` : `Offset`
+            Offset instance whose representation/space compatibility is being
+            checked.
+
+        Raises
+        ------
+        `ValueError`
+            If `value.rep.shape` is not `(value.space.dim, 1)`.
+        """
+        if value.rep.shape != (value.space.dim, 1):
+            raise ValueError("Invalid Shape")
+
+
+@validate_by(ValidateOffsetMatchesSpace())
 @dataclass(frozen=True)
-class Offset(Spatial, HasBase[AffineSpace]):
+class Offset(Spatial, HasBase[AffineSpace], Validatable):
     """
     Offset vector in an affine basis.
 
@@ -208,10 +238,6 @@ class Offset(Spatial, HasBase[AffineSpace]):
 
     rep: ImmutableDenseMatrix
     space: AffineSpace
-
-    def __post_init__(self):
-        if self.rep.shape != (self.space.dim, 1):
-            raise ValueError("Invalid Shape")
 
     @property
     def dim(self) -> int:

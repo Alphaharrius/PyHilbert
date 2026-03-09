@@ -26,6 +26,7 @@ import torch
 from .abstracts import Convertible, Operable, Plottable
 from .precision import get_precision_config
 from .utils import Device, DeviceBounded
+from .validations import Validator, Validatable, validate_by
 from .state_space import (
     StateSpace,
     BroadcastSpace,
@@ -46,17 +47,43 @@ such as `torch.FloatTensor`, `torch.DoubleTensor`, etc.
 """
 
 
+class ValidateDataDimsCompatibility(Validator["Tensor"]):
+    """
+    Validate that tensor dimensions agree with the underlying data shape.
+
+    The symbolic `dims` tuple defines the expected extent of each tensor axis.
+    This validator ensures `tensor.data.shape` exactly matches that implied
+    shape so shape-dependent tensor operations can trust both representations.
+    """
+
+    @override
+    def validate(self, tensor: "Tensor") -> None:
+        """
+        Reject tensors whose data shape does not match the declared dimensions.
+
+        Parameters
+        ----------
+        `tensor` : `Tensor`
+            Tensor instance whose `data.shape` and `dims` are being checked.
+
+        Raises
+        ------
+        `ValueError`
+            If `tensor.data.shape` differs from the shape implied by
+            `tensor.dims`.
+        """
+        shape = tuple(d.dim for d in tensor.dims)
+        if tensor.data.shape != shape:
+            raise ValueError(
+                f"Tensor data shape {tensor.data.shape} does not match expected shape {shape}."
+            )
+
+
+@validate_by(ValidateDataDimsCompatibility())
 @dataclass(frozen=True, eq=False)
-class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
+class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded, Validatable):
     data: T
     dims: Tuple[StateSpace, ...]
-
-    def __post_init__(self) -> None:
-        shape = tuple(d.dim for d in self.dims)
-        if self.data.shape != shape:
-            raise ValueError(
-                f"Tensor data shape {self.data.shape} does not match expected shape {shape}"
-            )
 
     @staticmethod
     def scalar(number: Number) -> "Tensor":

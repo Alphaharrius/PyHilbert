@@ -9,6 +9,7 @@ from itertools import islice
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from .abstracts import Convertible, Span
+from .validations import Validator, Validatable, validate_by
 from .spatials import (
     Spatial,
     ReciprocalLattice,
@@ -20,8 +21,69 @@ from .spatials import (
 T = TypeVar("T")
 
 
+class ValidateIntegerIndices(Validator["StateSpace"]):
+    """
+    Validate that `StateSpace.structure` values are plain integer indices.
+
+    `StateSpace` uses these values as flattened sector positions, so they must
+    be concrete `int` values rather than arbitrary numeric types.
+    """
+
+    @override
+    def validate(self, value: "StateSpace") -> None:
+        """
+        Reject state spaces whose structure values are not plain integers.
+
+        Parameters
+        ----------
+        `value` : `StateSpace`
+            State space whose structure index values are being checked.
+
+        Raises
+        ------
+        `TypeError`
+            If any structure value is not an `int`.
+        """
+        if any(type(v) is not int for v in value.structure.values()):
+            raise TypeError("StateSpace.structure values must be integer indices.")
+
+
+class ValidateContiguousIndices(Validator["StateSpace"]):
+    """
+    Validate that `StateSpace.structure` indices match insertion order `0..n-1`.
+
+    This ensures the structure mapping is a compact, order-preserving index
+    table with no gaps or out-of-order assignments.
+    """
+
+    @override
+    def validate(self, value: "StateSpace") -> None:
+        """
+        Reject state spaces whose indices are not contiguous in insertion order.
+
+        Parameters
+        ----------
+        `value` : `StateSpace`
+            State space whose flattened index ordering is being checked.
+
+        Raises
+        ------
+        `ValueError`
+            If the structure values do not exactly equal `0, 1, ..., n-1` in
+            insertion order.
+        """
+        values = tuple(value.structure.values())
+        n = len(values)
+        if values != tuple(range(n)):
+            raise ValueError(
+                "StateSpace.structure values must match insertion order as contiguous "
+                "indices 0..n-1."
+            )
+
+
+@validate_by(ValidateIntegerIndices(), ValidateContiguousIndices())
 @dataclass(frozen=True)
-class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
+class StateSpace(Spatial, Convertible, Generic[T], Span[T], Validatable):
     """
     `StateSpace` is a collection of indices with additional information attached to the elements,
     for the case of TNS there are only two types of state spaces: `MomentumSpace` and `HilbertSpace`.
@@ -43,17 +105,6 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
     An ordered dictionary mapping each spatial component (e.g., `Offset`,
     `Momentum`) to its single flattened index.
     """
-
-    def __post_init__(self) -> None:
-        values = tuple(self.structure.values())
-        if any(type(v) is not int for v in values):
-            raise TypeError("StateSpace.structure values must be integer indices.")
-        n = len(values)
-        if values != tuple(range(n)):
-            raise ValueError(
-                "StateSpace.structure values must match insertion order as contiguous "
-                "indices 0..n-1."
-            )
 
     @property
     def dim(self) -> int:
