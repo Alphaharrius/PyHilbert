@@ -115,7 +115,7 @@ class U1Basis(Spatial, AbstractKet[sy.Expr], HasUnit, Convertible):
         )
 
     @staticmethod
-    def build(*rep: Any) -> "U1Basis":
+    def new(*rep: Any) -> "U1Basis":
         """
         Build a `U1Basis` with the given reps and a default U(1) value of `1`.
 
