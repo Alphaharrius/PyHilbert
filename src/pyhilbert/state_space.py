@@ -1,13 +1,14 @@
 from dataclasses import dataclass, replace, field
 from typing import Callable, NamedTuple, Tuple, TypeVar, Generic, Union, Self, cast
+from typing_extensions import override
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from functools import lru_cache
-from itertools import chain, islice
+from itertools import islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
-from .abstracts import Convertible
+from .abstracts import Convertible, Span
 from .spatials import (
     Spatial,
     ReciprocalLattice,
@@ -16,11 +17,11 @@ from .spatials import (
 )
 
 
-TSpatial = TypeVar("TSpatial", bound=Spatial)
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
-class StateSpace(Spatial, Convertible, Generic[TSpatial]):
+class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
     """
     `StateSpace` is a collection of indices with additional information attached to the elements,
     for the case of TNS there are only two types of state spaces: `MomentumSpace` and `HilbertSpace`.
@@ -29,50 +30,54 @@ class StateSpace(Spatial, Convertible, Generic[TSpatial]):
 
     Attributes
     ----------
-    structure : OrderedDict[Spatial, slice]
-        An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`) to a slice object that defines its
-        position and the range in the tensor. The slices should be contiguous and ordered.
+    structure : OrderedDict[Spatial, int]
+        An ordered dictionary mapping each spatial component (e.g., `Offset`,
+        `Momentum`) to its single flattened index.
 
     dim : int
         The total dimension of the state space, calculated as the count of elements regardless of their lengths.
     """
 
-    structure: OrderedDict[TSpatial, slice]
+    structure: OrderedDict[T, int]
     """
-    An ordered dictionary mapping each spatial component (e.g., `Offset`, `Momentum`) to a slice object that defines its 
-    position and the range in the tensor. The slices should be contiguous and ordered.
+    An ordered dictionary mapping each spatial component (e.g., `Offset`,
+    `Momentum`) to its single flattened index.
     """
+
+    def __post_init__(self) -> None:
+        values = tuple(self.structure.values())
+        if any(type(v) is not int for v in values):
+            raise TypeError("StateSpace.structure values must be integer indices.")
+        n = len(values)
+        if values != tuple(range(n)):
+            raise ValueError(
+                "StateSpace.structure values must match insertion order as contiguous "
+                "indices 0..n-1."
+            )
 
     @property
     def dim(self) -> int:
-        """The total size of the vector space (sum of all sector dimensions)."""
-        if not self.structure:
-            return 0
-        return self.structure[next(reversed(self.structure))].stop
+        """The total size of the vector space."""
+        return len(self.structure)
 
-    def elements(self) -> Tuple[TSpatial, ...]:
+    @override
+    def elements(self) -> Tuple[T, ...]:
         """Return the spatial elements as a tuple."""
-        return tuple(k for k in self.structure.keys())
-
-    def get_slice(self, key: TSpatial) -> slice:
-        """Get the slice associated with a given spatial key."""
-        return self.structure[key]
+        return tuple(self.structure.keys())
 
     def __len__(self) -> int:
         """Return the number of spatial elements."""
         return len(self.structure)
 
-    def __iter__(self) -> Iterator[TSpatial]:
+    def __iter__(self) -> Iterator[T]:
         """Iterate over spatial elements."""
-        return iter(k for k, _ in self.structure.items())
+        return iter(self.structure.keys())
 
     def __hash__(self):
         # TODO: Do we need to consider the order of the structure?
-        return hash(tuple((k, s.start, s.stop) for k, s in self.structure.items()))
+        return hash(tuple(self.structure.items()))
 
-    def __getitem__(
-        self, v: Union[int, slice, range]
-    ) -> Union[TSpatial, "StateSpace[TSpatial]"]:
+    def __getitem__(self, v: Union[int, slice, range]) -> Union[T, "StateSpace[T]"]:
         """
         Index into the state-space by element position.
 
@@ -134,18 +139,18 @@ class StateSpace(Spatial, Convertible, Generic[TSpatial]):
         """
         return same_span(self, other)
 
-    def map(self, func: Callable[[TSpatial], TSpatial]) -> "StateSpace[TSpatial]":
+    def map(self, func: Callable[[T], T]) -> "StateSpace[T]":
         """
         Map the spatial elements of this state space using a provided function.
 
         Parameters
         ----------
-        `func` : `Callable[[TSpatial], TSpatial]`
+        `func` : `Callable[[T], T]`
             A function that takes a spatial element and returns a transformed spatial element.
 
         Returns
         -------
-        `StateSpace[TSpatial]`
+        `StateSpace[T]`
             A new state space with the transformed spatial elements.
         """
         new_structure = OrderedDict()
@@ -183,28 +188,22 @@ def operator_matmul(a: StateSpace, b: StateSpace):
 
 
 def restructure(
-    structure: OrderedDict[TSpatial, slice],
-) -> OrderedDict[TSpatial, slice]:
+    structure: OrderedDict[T, int],
+) -> OrderedDict[T, int]:
     """
-    Return a new `OrderedDict` with contiguous, ordered slices preserving lengths.
+    Return a new `OrderedDict` with contiguous, ordered integer indices.
 
     Parameters
     ----------
-    structure : `OrderedDict[Spatial, slice]`
-        The original structure with possibly non-contiguous slices.
+    structure : `OrderedDict[Spatial, int]`
+        The original structure with possibly non-contiguous indices.
 
     Returns
     -------
-    `OrderedDict[Spatial, slice]`
-        The restructured `OrderedDict` with contiguous, ordered slices.
+    `OrderedDict[Spatial, int]`
+        The restructured `OrderedDict` with contiguous, ordered indices.
     """
-    new_structure: OrderedDict[TSpatial, slice] = OrderedDict()
-    base = 0
-    for k, s in structure.items():
-        L = s.stop - s.start
-        new_structure[k] = slice(base, base + L)
-        base += L
-    return new_structure
+    return OrderedDict((k, i) for i, k in enumerate(structure.keys()))
 
 
 @lru_cache
@@ -214,8 +213,8 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
 
     This returns a per-sector permutation: each entry corresponds to a key in
     `dest.structure` and gives the index of the same key in `src.structure`.
-    It does not expand slices; use `flat_permutation_order` to get element-wise
-    indices for reordering a flattened tensor.
+    The mapping is directly index-based on the current `StateSpace` structure
+    and can be used to reorder sector-aligned data.
 
     Parameters
     ----------
@@ -234,41 +233,16 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
     `ValueError`
         If a destination sector key is missing from the source state space.
     """
-    order_table = {k: n for n, k in enumerate(src.structure.keys())}
-    missing = [k for k in dest.structure.keys() if k not in order_table]
-    if missing:
+    src_indices = src.structure
+    dest_keys = dest.structure.keys()
+    try:
+        return tuple(src_indices[k] for k in dest_keys)
+    except KeyError:
+        missing = [k for k in dest_keys if k not in src_indices]
         raise ValueError(
             "Cannot build permutation order: destination contains keys not present "
             f"in source: {missing}"
-        )
-    return tuple(order_table[k] for k in dest.structure.keys())
-
-
-@lru_cache
-def flat_permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
-    """
-    Return the flattened index permutation that reorders `src` to match `dest`.
-
-    This expands each sector slice in `src` into its element indices, then
-    concatenates those groups according to `permutation_order(src, dest)`.
-    The result can be used to permute a flat vector or tensor axis from `src`
-    ordering into `dest` ordering.
-
-    Parameters
-    ----------
-    src : `StateSpace`
-        The source state space defining the original ordering.
-    dest : `StateSpace`
-        The destination state space defining the target ordering.
-
-    Returns
-    -------
-    `Tuple[int, ...]`
-        Flattened indices that map element positions in `src` to `dest`.
-    """
-    index_groups = [tuple(range(s.start, s.stop)) for s in src.structure.values()]
-    ordered_groups = (index_groups[i] for i in permutation_order(src, dest))
-    return tuple(chain.from_iterable(ordered_groups))
+        ) from None
 
 
 @lru_cache
@@ -288,14 +262,13 @@ def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
     `Tuple[int, ...]`
         Flattened indices mapping `sub` into `sup`.
     """
-    indices = []
-    sup_slices = sup.structure
+    indices: list[int] = []
+    sup_indices = sup.structure
     for key, _ in sub.structure.items():
-        if key not in sup_slices:
+        if key not in sup_indices:
             raise ValueError(f"Key {key} not found in superspace")
-        sup_slice = sup_slices[key]
-        indices.append(range(sup_slice.start, sup_slice.stop))
-    return tuple(chain.from_iterable(indices))
+        indices.append(sup_indices[key])
+    return tuple(indices)
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
@@ -373,7 +346,7 @@ class MomentumSpace(StateSpace[Momentum]):
 @Momentum.add_conversion(StateSpace)
 def momentum_to_momentumspace(k: Momentum) -> StateSpace:
     """Convert a `Momentum` to a `MomentumSpace` containing only that momentum."""
-    structure = OrderedDict({k: slice(0, 1)})
+    structure = OrderedDict({k: 0})
     return MomentumSpace(structure=structure)
 
 
@@ -386,13 +359,61 @@ Momentum.add_conversion(MomentumSpace)(
 @lru_cache
 def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
     elements = cartes(lattice)
-    structure = OrderedDict((el, slice(n, n + 1)) for n, el in enumerate(elements))
+    structure = OrderedDict((el, n) for n, el in enumerate(elements))
     return MomentumSpace(structure=structure)
 
 
 @dataclass(frozen=True)
-class BroadcastSpace(StateSpace[Spatial]):
-    structure: OrderedDict = field(default_factory=OrderedDict)
+class _BAxis:
+    pass
+
+
+@dataclass(frozen=True)
+class BroadcastSpace(StateSpace[_BAxis]):
+    """
+    Metadata marker for singleton/broadcast tensor axes.
+
+    Design intent
+    -------------
+    `BroadcastSpace` represents an axis that behaves like a size-1 axis under
+    tensor broadcasting. It is used to model dimensions introduced by
+    `unsqueeze`, `None` indexing, or other operations where data may be
+    expanded without introducing a concrete physical basis.
+
+    Structure semantics
+    -------------------
+    `BroadcastSpace` stores a private singleton marker in `structure`:
+    `OrderedDict({_BAxis(): 0})`.
+    This keeps the axis dimension at `1` while still providing a stable
+    coordinate for structure-based index mapping helpers.
+
+    Implication for index mapping
+    -----------------------------
+    For `BroadcastSpace -> BroadcastSpace`, `embedding_order(...)` resolves to
+    `(0,)`. This is intentional and allows consumers that build runtime index
+    coordinates from structure mappings to treat broadcast axes as a singleton
+    axis at position `0`.
+
+    The `_BAxis` marker is internal implementation detail. It is not a physical
+    basis element and should not be relied on outside broadcast-axis plumbing.
+
+    Compatibility rules
+    -------------------
+    Multipledispatch rules in this module treat `BroadcastSpace` as compatible
+    with any `StateSpace` in `same_span(...)`, and as neutral in
+    `operator_add(...)`:
+    - `BroadcastSpace + X -> X`
+    - `X + BroadcastSpace -> X`
+    - `BroadcastSpace + BroadcastSpace -> BroadcastSpace`
+
+    This makes it suitable as a placeholder axis that can be promoted to a
+    concrete state space during alignment/broadcast operations.
+    """
+
+    # Internal singleton marker so structure-based mappings can emit index 0.
+    structure: OrderedDict = field(
+        default_factory=lambda: OrderedDict({_BAxis(): 0}), init=False
+    )
 
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.
@@ -435,67 +456,45 @@ def operator_add(a: BroadcastSpace, b: StateSpace):
     return b
 
 
-@dataclass(frozen=True)
-class FactorBand(Spatial, Convertible):
+class IndexSpace(StateSpace[int]):
     """
-    A spectral band in an eigenvalue spectrum.
-
-    Attributes
-    ----------
-    idx : int
-        Zero-based band index.
-    count : int
-        Number of eigenvalues in the band.
+    A simple state space where the spatial elements are just integer indices.
+    This can be useful for representing generic tensor dimensions that don't
+    have a specific physical interpretation, such as the virtual bond dimension in a TNS.
     """
 
-    idx: int
-    count: int
-
-    @property
-    def dim(self) -> int:
-        """Return the band dimension (number of eigenvalues in the band)."""
-        return self.count
-
-
-@dataclass(frozen=True)
-class FactorSpace(StateSpace[FactorBand]):
-    """
-    State space describing a spectrum partitioned into spectral bands.
-
-    Each band corresponds to a contiguous block of eigenvalues, and the total
-    dimension equals the sum of all band sizes.
-    """
-
-    __hash__ = StateSpace.__hash__
-
-    def __str__(self):
-        band_count_repr = ", ".join([str(band.dim) for band in self])
-        return f"FactorSpace({band_count_repr})"
-
-    @classmethod
-    def from_band_counts(cls, band_counts: Iterable[int]) -> "FactorSpace":
+    @staticmethod
+    def linear(size: int) -> "IndexSpace":
         """
-        Construct a `FactorSpace` from per-band eigenvalue counts.
+        Build a contiguous index space of length `size`.
+
+        The resulting space contains integer keys `0..size-1`, each mapped to
+        the same integer index.
 
         Parameters
         ----------
-        band_counts : Iterable[int]
-            Sizes of each band in order.
+        `size` : `int`
+            Number of indices in the space.
+
+        Returns
+        -------
+        `IndexSpace`
+            A contiguous `IndexSpace` with canonical linear ordering.
+
+        Raises
+        ------
+        `ValueError`
+            If `size` is negative.
         """
-        structure = OrderedDict()
-        base = 0
-        for idx, count in enumerate(band_counts):
-            band = FactorBand(idx=idx, count=count)
-            structure[band] = slice(base, base + count)
-            base += count
-        return cls(structure=structure)
+        if size < 0:
+            raise ValueError("IndexSpace size must be non-negative.")
+        return IndexSpace(OrderedDict((i, i) for i in range(size)))
 
+    def __str__(self):
+        return f"IndexSpace(size={self.dim})"
 
-@FactorBand.add_conversion(StateSpace)
-def factorband_to_factorspace(band: FactorBand) -> StateSpace:
-    """Convert a `FactorBand` to a `FactorSpace` containing only that band."""
-    structure = OrderedDict({band: slice(0, band.dim)})
-    return FactorSpace(structure=structure)
+    def __repr__(self):
+        return str(self)
 
 
 class StateSpaceFactorization(NamedTuple):

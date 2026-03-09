@@ -5,8 +5,6 @@ from typing import (
     Callable,
     Dict,
     ClassVar,
-    Literal,
-    Set,
     Self,
     Tuple,
     Generic,
@@ -17,8 +15,6 @@ from typing import (
 from typing_extensions import final
 
 from multipledispatch import dispatch
-
-from .utils import subtypes
 
 
 @dataclass(frozen=True)
@@ -358,84 +354,60 @@ class AbstractKet(Generic[_InnerProductType], ABC):
         raise NotImplementedError()
 
 
-@dataclass(frozen=True)
 class Functional(ABC):
-    _registered_methods: ClassVar[Dict[Tuple[type, type], Tuple[Callable, ...]]] = {}
-    _overwrite_locked_by_subclass: ClassVar[Set[Tuple[type, type]]] = set()
+    _registered_methods: ClassVar[Dict[Tuple[type, type], Callable]] = {}
+    _resolved_methods: ClassVar[Dict[Tuple[type, type], Callable]] = {}
 
     @classmethod
-    def register(  # TODO: Rename to register
-        cls, obj_type: type, order: Literal["overwrite", "front", "back"] = "overwrite"
-    ):
+    def _invalidate_resolved_methods(cls, obj_type: type) -> None:
+        stale_keys = [
+            key
+            for key in cls._resolved_methods
+            if key[1] is cls and issubclass(key[0], obj_type)
+        ]
+        for key in stale_keys:
+            del cls._resolved_methods[key]
+
+    @classmethod
+    def register(cls, obj_type: type):
         """
         Register a function defining the action of the `Functional` on a specific object type.
-        Registration is applied to `obj_type` and all currently defined subclasses
-        of `obj_type`. For each affected type:
-        - `'overwrite'` replaces any existing function.
-        - `'front'` prepends the new function to the existing function chain.
-        - `'back'` appends the new function to the existing function chain.
-
-        At call time, chained functions are executed in front-to-end order, where each
-        function receives the output of the previous function as its `obj` input.
+        Dispatch is resolved at call time via MRO, so only the exact `(obj_type, cls)`
+        key is stored here.
 
         Parameters
         ----------
         `obj_type` : `type`
             The type of object the function applies to.
-        `order` : `Literal["overwrite", "front", "back"]`, optional
-            The order in which to register the function relative to existing functions.
-            By default, 'overwrite' which replaces any existing function.
-
         Returns
         -------
         `Callable`
             A decorator that registers the function for the specified object type.
         """
-        if order not in ("overwrite", "front", "back"):
-            raise ValueError(
-                f"Invalid registration order: {order}. "
-                "Expected one of 'overwrite', 'front', 'back'."
-            )
 
         def decorator(func: Callable):
-            chain: Tuple[Callable, ...] = tuple()
-            for target_type in (obj_type, *subtypes(obj_type)):
-                key = (target_type, cls)
-                is_superclass_propagation = target_type is not obj_type
-                if (
-                    is_superclass_propagation
-                    and key in cls._overwrite_locked_by_subclass
-                ):
-                    if order == "overwrite":
-                        raise ValueError(
-                            f"Cannot overwrite function for {target_type.__name__} via "
-                            f"superclass registration on {obj_type.__name__} because "
-                            "the subclass was previously registered with "
-                            "order='overwrite'."
-                        )
-                    continue
-
-                existing = cls._registered_methods.get(key)
-                if existing is None:
-                    existing_chain: Tuple[Callable, ...] = ()
-                elif isinstance(existing, tuple):
-                    existing_chain = existing
-                else:
-                    existing_chain = (existing,)
-
-                if order == "overwrite" or not existing_chain:
-                    chain = (func,)
-                elif order == "front":
-                    chain = (func,) + existing_chain
-                else:  # order == "back"
-                    chain = existing_chain + (func,)
-
-                cls._registered_methods[key] = chain
-                if not is_superclass_propagation and order == "overwrite":
-                    cls._overwrite_locked_by_subclass.add(key)
+            cls._registered_methods[(obj_type, cls)] = func
+            cls._invalidate_resolved_methods(obj_type)
             return func
 
         return decorator
+
+    @classmethod
+    def _resolve_method(
+        cls, obj_class: type, functional_class: type
+    ) -> Callable | None:
+        key = (obj_class, functional_class)
+        method = cls._resolved_methods.get(key)
+        if method is not None:
+            return method
+
+        table_get = cls._registered_methods.get
+        for obj_super in obj_class.__mro__:
+            method = table_get((obj_super, functional_class))
+            if method is not None:
+                cls._resolved_methods[key] = method
+                return method
+        return None
 
     @staticmethod
     def get_applicable_types(cls) -> Tuple[Type, ...]:
@@ -467,38 +439,29 @@ class Functional(ABC):
         bool
             True if this `Functional` can be applied on the object, False otherwise.
         """
+        return self._resolve_method(type(obj), type(self)) is not None
+
+    def invoke(self, obj: Any, **kwargs) -> Any:
         functional_class = type(self)
         obj_class = type(obj)
-        key = (obj_class, functional_class)
-        return key in self._registered_methods
+        method = self._resolve_method(obj_class, functional_class)
 
-    def apply(self, obj: Any, **kwargs) -> Any:
-        functional_class = type(self)
-        obj_class = type(obj)
-        key = (obj_class, functional_class)
-
-        chain = self._registered_methods.get(key)
-
-        if chain is None or not chain:
+        if method is None:
             raise NotImplementedError(
                 f"No function registered for {obj_class.__name__} "
                 f"with {functional_class.__name__}"
             )
 
-        out = obj
-        for func in chain:
-            out = func(self, out, **kwargs)
-        return out
+        return method(self, obj, **kwargs)
 
     def __call__(self, obj: Any, **kwargs) -> Any:
-        return self.apply(obj, **kwargs)
+        return self.invoke(obj, **kwargs)
 
 
 _ElementType = TypeVar("_ElementType")
-_MappingType = TypeVar("_MappingType")
 
 
-class Span(ABC, Generic[_ElementType, _MappingType]):
+class Span(ABC, Generic[_ElementType]):
     """
     An object representing the span of a set of elements.
 
@@ -510,8 +473,7 @@ class Span(ABC, Generic[_ElementType, _MappingType]):
     Implementations should define what it means to be an element and how to
     determine if an object is contained within the span.
 
-    The `_ElementType` type variable represents the type of elements that define the span,
-    while the `_MappingType` is the type of the mapping between spans of this type.
+    The `_ElementType` type variable represents the type of elements that define the span.
     """
 
     @abstractmethod
@@ -523,24 +485,6 @@ class Span(ABC, Generic[_ElementType, _MappingType]):
         -------
         `Tuple[_ElementType, ...]`
             Immutable tuple of elements represented by this span.
-        """
-        pass
-
-    @abstractmethod
-    def gram(self, another: Self) -> _MappingType:
-        """
-        Return the gram matrix of this span to `another` with the current span
-        at the row space and `another` as the col space.
-
-        Parameters
-        ----------
-        `another` : `Self`
-            The another span.
-
-        Returns
-        -------
-        `_MappingType`
-            The mapping between this span and `another`, typically represented as a matrix.
         """
         pass
 

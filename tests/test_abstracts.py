@@ -1,6 +1,6 @@
 import pytest
 from dataclasses import dataclass
-from pyhilbert.abstracts import Operable, Updatable, operator_eq
+from pyhilbert.abstracts import Functional, Operable, Updatable, operator_eq
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,24 @@ class MockUpdatable(Updatable["MockUpdatable"]):
 class BadUpdatable(Updatable["BadUpdatable"]):
     def _updated(self, **kwargs):
         return self
+
+
+class _BaseInput:
+    pass
+
+
+class _DerivedInput(_BaseInput):
+    pass
+
+
+@dataclass(frozen=True)
+class _MockFunctional(Functional):
+    pass
+
+
+@_MockFunctional.register(_BaseInput)
+def _apply_mock_functional_base(functional: _MockFunctional, obj: _BaseInput) -> str:
+    return "base"
 
 
 def test_operable_unimplemented():
@@ -93,3 +111,24 @@ def test_updatable_bad_implementation():
     b = BadUpdatable()
     with pytest.raises(RuntimeError, match="must not return self"):
         b.update(foo="bar")
+
+
+def test_functional_targeted_cache_invalidation():
+    functional = _MockFunctional()
+    obj = _DerivedInput()
+
+    assert functional(obj) == "base"
+    assert (
+        _MockFunctional._resolved_methods[(type(obj), type(functional))](
+            functional, obj
+        )
+        == "base"
+    )
+
+    @_MockFunctional.register(_DerivedInput)
+    def _apply_mock_functional_derived(
+        functional: _MockFunctional, obj: _DerivedInput
+    ) -> str:
+        return "derived"
+
+    assert functional(obj) == "derived"
