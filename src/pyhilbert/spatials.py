@@ -194,7 +194,10 @@ class ValidateOffsetMatchesSpace(Validator["Offset"]):
             If `value.rep.shape` is not `(value.space.dim, 1)`.
         """
         if value.rep.shape != (value.space.dim, 1):
-            raise ValueError("Invalid Shape")
+            raise ValueError(
+                f"Offset.rep must have shape {(value.space.dim, 1)} to match its affine space, "
+                f"got {value.rep.shape}."
+            )
 
 
 @validate_by(ValidateOffsetMatchesSpace())
