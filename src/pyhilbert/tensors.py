@@ -58,7 +58,6 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
                 f"Tensor data shape {self.data.shape} does not match expected shape {shape}"
             )
 
-    @dispatch(Number)
     @staticmethod
     def scalar(number: Number) -> "Tensor":
         """

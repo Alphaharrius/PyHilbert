@@ -123,7 +123,7 @@ def test_bandstructure_plot():
     # 2. Define Unit Cell (Bloch Space)
     # Single s-orbital at origin (0,0)
     r_0 = Offset(rep=sy.ImmutableDenseMatrix([[0.0], [0.0]]), space=lat.affine)
-    basis_s = U1Basis.build(r_0, "s")
+    basis_s = U1Basis.new(r_0, "s")
     bloch_space = hilbert([basis_s])
 
     # 3. Define Region Space (Real Space Neighbors)
