@@ -52,8 +52,24 @@ def validate(v: Any) -> None:
 
     Unlike construction-time validation, this function ignores ``no_validate``
     and always executes the validators attached to ``type(v)``.
+
+    Parameters
+    ----------
+    `v` : `Any`
+        The value to validate.
+
+    Raises
+    ------
+    `TypeError`
+        If the type of ``v`` is not configured for validation.
     """
-    for validator in _class_validators(type(v)):
+    cls = type(v)
+    if not hasattr(cls, "__validators__"):
+        raise TypeError(
+            f"{cls.__name__} is not configured for validation. "
+            "Decorate the dataclass with @need_validation(...) before calling validate()."
+        )
+    for validator in _class_validators(cls):
         validator(v)
 
 
