@@ -374,7 +374,7 @@ class DeviceBounded(ABC):
     @abstractmethod
     def to_device(self, device: Device) -> Self:
         """
-        Return a copy of this object residing on the specified device.
+        Return a copy or relocated object residing on the specified device.
 
         Parameters
         ----------
@@ -384,7 +384,7 @@ class DeviceBounded(ABC):
         Returns
         -------
         `Self`
-            A copy of this object on the specified device.
+            A copy or relocated object on the specified device.
         """
         pass
 
