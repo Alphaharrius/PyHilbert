@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
-from typing import Optional, Union, Dict, Tuple
+from typing import Optional, Union, Tuple
 from .spatials import Lattice
 from .tensors import Tensor
 from .utils import compute_bonds

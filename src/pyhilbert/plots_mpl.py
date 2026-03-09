@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional, Union, Dict, Any, cast, Tuple
+from typing import Optional, Union, Any, cast, Tuple
 from .spatials import Lattice
 from .tensors import Tensor
 from .utils import compute_bonds
