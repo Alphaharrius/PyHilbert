@@ -986,7 +986,7 @@ class U1Operator(Generic[_ObservableType], Functional, Operable, ABC):
         (`input == transformed_value`).
       In either branch, if closure fails, the observable must be `None`.
     - If no registration exists for `(type(input), type(operator))`,
-      :class:`NotImplementedError` is raised by `Functional.apply`.
+      :class:`NotImplementedError` is raised by `Functional.invoke`.
 
     Usage Pattern
     -------------
@@ -1058,16 +1058,16 @@ class U1Operator(Generic[_ObservableType], Functional, Operable, ABC):
         - Fail fast with `ValueError` if `state` is not an eigenstate.
         """
         op = copy(self)
-        apply = op.invoke
+        invoke = op.invoke
 
-        def eigen_apply(v: U1Basis, **kwargs) -> Tuple[_ObservableType, U1Basis]:
+        def eigen_invoke(v: U1Basis, **kwargs) -> Tuple[_ObservableType, U1Basis]:
             """
             Apply the copied operator and enforce closure-preserving output.
 
             This wrapper delegates to the copied operator's original
-            :meth:`apply` implementation, then validates that the transformed
+            :meth:`invoke` implementation, then validates that the transformed
             output remains closed with the input under the same semantics used by
-            :meth:`Operator.apply`:
+            :meth:`Operator.invoke`:
 
             - If both input and output are `U1Basis`, closure is checked
               by span membership with `same_span(v, ov)`.
@@ -1078,7 +1078,7 @@ class U1Operator(Generic[_ObservableType], Functional, Operable, ABC):
             `v` : `U1Basis`
                 Input object to transform.
             `**kwargs`
-                Keyword arguments forwarded to the wrapped :meth:`apply` call.
+                Keyword arguments forwarded to the wrapped :meth:`invoke` call.
 
             Returns
             -------
@@ -1092,7 +1092,7 @@ class U1Operator(Generic[_ObservableType], Functional, Operable, ABC):
                 If the transformed output is not closure-preserving with respect
                 to `v` under the branch-specific rule above.
             """
-            o, ov = apply(v, **kwargs)
+            o, ov = invoke(v, **kwargs)
             if isinstance(v, U1Basis) and isinstance(ov, U1Basis):
                 is_closed = same_span(v, ov)
             else:
@@ -1104,7 +1104,7 @@ class U1Operator(Generic[_ObservableType], Functional, Operable, ABC):
                 )
             return o, ov
 
-        object.__setattr__(op, "invoke", eigen_apply)
+        object.__setattr__(op, "invoke", eigen_invoke)
         return op
 
 
