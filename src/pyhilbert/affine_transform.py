@@ -9,7 +9,7 @@ import sympy as sy
 import torch
 
 from .abstracts import HasBase, Functional, Gaugable, GaugeBasis, Gauged, GaugeInvariant
-from .spatials import Lattice, Spatial, Offset, Momentum
+from .spatials import Lattice, Spatial, Offset, Momentum, AffineSpace
 from .hilbert import Mode, MomentumSpace, HilbertSpace, hilbert
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
@@ -84,7 +84,7 @@ class AbelianIrrepSet(Gaugable, GaugeBasis):
 
 
 @dataclass(frozen=True)
-class AffineGroupElement(Functional, HasBase[Lattice]):
+class AffineGroupElement(Functional, HasBase[AffineSpace]):
     """
     Affine group element acting on polynomial coordinate functions.
 
@@ -223,13 +223,13 @@ class AffineGroupElement(Functional, HasBase[Lattice]):
 
         return FrozenDict(tbl)
 
-    def base(self) -> Lattice:
+    def base(self) -> AffineSpace:
         """Get the acting space of this affine group element."""
         return self.offset.space
 
-    def rebase(self, new_base: Lattice) -> "AffineGroupElement":
+    def rebase(self, new_base: AffineSpace) -> "AffineGroupElement":
         """
-        Change the acting space of this affine group element to a new `Lattice`.
+        Change the acting space of this affine group element to a new `AffineSpace`.
         """
         return AffineGroupElement(
             irrep=self.irrep,
@@ -1020,10 +1020,8 @@ def pointgroup(query: str) -> AffineGroupElement:
             f"Unsupported group '{group}'. Supported groups are cyclic and mirror."
         )
 
-    space = Lattice(
-        basis=sy.ImmutableDenseMatrix.eye(dim),
-        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.eye(dim)),
-        unit_cell={"r": sy.ImmutableDenseMatrix([0] * dim)},
+    space = AffineSpace(
+        basis=sy.ImmutableDenseMatrix.eye(dim)
     )
     zero = Offset(rep=sy.ImmutableDenseMatrix([0] * dim), space=space)
     return AffineGroupElement(

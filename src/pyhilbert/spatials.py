@@ -167,9 +167,9 @@ _VecType = TypeVar("_VecType", bound=Union[np.ndarray, ImmutableDenseMatrix])
 
 
 @dataclass(frozen=True)
-class Offset(Spatial, HasBase[Lattice]):
+class Offset(Spatial, HasBase[AffineSpace]):
     rep: ImmutableDenseMatrix
-    space: Lattice
+    space: AffineSpace
 
     def __post_init__(self):
         if self.rep.shape != (self.space.dim, 1):
@@ -184,7 +184,7 @@ class Offset(Spatial, HasBase[Lattice]):
 
     def fractional(self) -> "Offset":
         """
-        Return the fractional coordinates of this Offset within its lattice space.
+        Return the fractional coordinates of this Offset within its affine space.
         """
         n = sy.Matrix([sy.floor(x) for x in self.rep])
         s = self.rep - n
@@ -192,23 +192,23 @@ class Offset(Spatial, HasBase[Lattice]):
 
     fractional = lru_cache(fractional)  # Prevent mypy type checking issues
 
-    def base(self) -> Lattice:
-        """Get the `Lattice` this `Offset` is expressed in."""
+    def base(self) -> AffineSpace:
+        """Get the `AffineSpace` this `Offset` is expressed in."""
         return self.space
 
-    def rebase(self, space: Lattice) -> "Offset":
+    def rebase(self, space: AffineSpace) -> "Offset":
         """
-        Re-express this Offset in a different Lattice.
+        Re-express this Offset in a different AffineSpace.
 
         Parameters
         ----------
-        `space` : `Lattice`
-            The new lattice to express this Offset in.
+        `space` : `AffineSpace`
+            The new affine space to express this Offset in.
 
         Returns
         -------
         `Offset`
-            New Offset expressed in the given lattice.
+            New Offset expressed in the given affine space.
         """
         rebase_transform_mat = space.basis.inv() @ self.space.basis
         new_rep = rebase_transform_mat @ self.rep
@@ -216,7 +216,7 @@ class Offset(Spatial, HasBase[Lattice]):
 
     def to_vec(self, T: Type[_VecType]) -> _VecType:
         """Convert this Offset to a vector in Cartesian coordinates by applying
-        the basis transformation of its lattice.
+        the basis transformation of its affine space.
 
         Returns
         -------
@@ -251,7 +251,6 @@ class Offset(Spatial, HasBase[Lattice]):
 
 @dataclass(frozen=True)
 class Momentum(Offset, HasBase[ReciprocalLattice]):
-    space: ReciprocalLattice  # type: ignore[assignment]
 
     @override
     def fractional(self) -> "Momentum":
