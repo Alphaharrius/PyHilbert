@@ -1,4 +1,5 @@
 from typing import (
+    Self,
     NamedTuple,
     Tuple,
     TypeVar,
@@ -10,19 +11,21 @@ from typing import (
     Any,
     Optional,
     Callable,
-    Literal,
     TypeAlias,
 )
-from numbers import Number
-from dataclasses import dataclass
-from types import EllipsisType
-from multipledispatch import dispatch  # type: ignore[import-untyped]
-import torch
-from .precision import get_precision_config
+from typing_extensions import override
 from functools import wraps, reduce
 from itertools import product
+from numbers import Number
+from dataclasses import dataclass, replace
+from types import EllipsisType
+
+from multipledispatch import dispatch  # type: ignore[import-untyped]
+import torch
 
 from .abstracts import Convertible, Operable, Plottable
+from .precision import get_precision_config
+from .utils import Device, DeviceBounded
 from .state_space import (
     StateSpace,
     BroadcastSpace,
@@ -35,6 +38,7 @@ from .state_space import (
 
 
 T = TypeVar("T", bound=torch.Tensor)
+TensorType = TypeVar("TensorType", bound="Tensor[Any]")
 """
 The `torch.Tensor` types to be used in `Tensor`. 
 This is a type variable that can be any subclass of `torch.Tensor`, 
@@ -43,7 +47,7 @@ such as `torch.FloatTensor`, `torch.DoubleTensor`, etc.
 
 
 @dataclass(frozen=True, eq=False)
-class Tensor(Generic[T], Operable, Plottable, Convertible):
+class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     data: T
     dims: Tuple[StateSpace, ...]
 
@@ -79,7 +83,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         data = torch.tensor(number, dtype=dtype)
         return Tensor(data=data, dims=())
 
-    def astype(self, dtype: torch.dtype) -> "Tensor":
+    def astype(self, dtype: torch.dtype) -> Self:
         """
         Return a new tensor with the same dims and converted data dtype.
 
@@ -90,8 +94,8 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
-            A new tensor whose data has dtype `dtype`.
+        `Self`
+            A new tensor of the same wrapper type whose data has dtype `dtype`.
         """
         return astype(self, dtype)
 
@@ -151,18 +155,18 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         """
         return allclose(self, other, rtol=rtol, atol=atol, equal_nan=equal_nan)
 
-    def conj(self) -> "Tensor":
+    def conj(self) -> Self:
         """
         Compute the complex conjugate of the given tensor.
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The complex conjugate of the tensor.
         """
         return conj(self)
 
-    def permute(self, *order: Union[int, Sequence[int]]) -> "Tensor":
+    def permute(self, *order: Union[int, Sequence[int]]) -> Self:
         """
         Permute the dimensions according to the specified order.
 
@@ -173,12 +177,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The permuted tensor.
         """
         return permute(self, *order)
 
-    def transpose(self, dim0: int, dim1: int) -> "Tensor":
+    def transpose(self, dim0: int, dim1: int) -> Self:
         """
         Transpose the specified dimensions.
 
@@ -191,12 +195,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The transposed tensor.
         """
         return transpose(self, dim0, dim1)
 
-    def h(self, dim0: int, dim1: int) -> "Tensor":
+    def h(self, dim0: int, dim1: int) -> Self:
         """
         Hermitian transpose (conjugate transpose) of the specified dimensions.
 
@@ -209,12 +213,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The Hermitian transposed tensor.
         """
         return self.conj().transpose(dim0, dim1)
 
-    def align(self, dim: int, target_dim: StateSpace) -> "Tensor":
+    def align(self, dim: int, target_dim: StateSpace) -> Self:
         """
         Align the specified dimension to the target StateSpace.
 
@@ -227,12 +231,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The aligned tensor.
         """
         return align(self, dim, target_dim)
 
-    def align_all(self, dims: Tuple[StateSpace, ...]) -> "Tensor":
+    def align_all(self, dims: Tuple[StateSpace, ...]) -> Self:
         """
         Align all tensor dimensions to `dims`.
 
@@ -243,7 +247,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The aligned tensor.
 
         Raises
@@ -255,7 +259,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
     def all(
         self, dim: Optional[Union[int, Tuple[int, ...]]] = None, keepdim: bool = False
-    ) -> "Tensor":
+    ) -> Self:
         """
         Return whether all elements evaluate to `True`.
 
@@ -268,7 +272,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             Boolean tensor after reduction.
         """
         return all(self, dim=dim, keepdim=keepdim)
@@ -347,7 +351,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         """
         return nonzero(self, as_tuple=as_tuple)
 
-    def unsqueeze(self, dim: int) -> "Tensor":
+    def unsqueeze(self, dim: int) -> Self:
         """
         Unsqueeze the specified dimension.
 
@@ -358,12 +362,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The unsqueezed tensor.
         """
         return unsqueeze(self, dim)
 
-    def squeeze(self, dim: int) -> "Tensor":
+    def squeeze(self, dim: int) -> Self:
         """
         Squeeze the specified dimension.
 
@@ -374,7 +378,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The squeezed tensor.
         """
         return squeeze(self, dim)
@@ -390,7 +394,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         """
         return rank(self)
 
-    def mean(self, dim: Optional[Union[int, Tuple[int, ...]]] = None) -> "Tensor":
+    def mean(self, dim: Optional[Union[int, Tuple[int, ...]]] = None) -> Self:
         """
         Compute the mean over specified dimension(s).
 
@@ -401,12 +405,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             A new tensor with the specified dimensions reduced.
         """
         return mean(self, dim)
 
-    def argmax(self, dim: int) -> "Tensor":
+    def argmax(self, dim: int) -> Self:
         """
         Compute the indices of the maximum values over a specified dimension.
 
@@ -417,12 +421,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             A new tensor with the specified dimension reduced.
         """
         return argmax(self, dim)
 
-    def argmin(self, dim: int) -> "Tensor":
+    def argmin(self, dim: int) -> Self:
         """
         Compute the indices of the minimum values over a specified dimension.
 
@@ -433,12 +437,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             A new tensor with the specified dimension reduced.
         """
         return argmin(self, dim)
 
-    def expand_to_union(self, union_dims: list[StateSpace]) -> "Tensor":
+    def expand_to_union(self, union_dims: list[StateSpace]) -> Self:
         """
         Expand the tensor to the union of the specified dimensions.
 
@@ -449,7 +453,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The expanded tensor.
         """
         return expand_to_union(self, union_dims)
@@ -474,60 +478,30 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
             )
         return self.data.item()
 
-    def cpu(self) -> "Tensor":
+    @override
+    @property
+    def device(self) -> Device:
         """
-        Copy the tensor data to CPU memory and create a new `Tensor` instance.
-
-        Returns
-        -------
-        `Tensor`
-            The new `Tensor` instance with copied data on CPU.
+        Return the logical device associated with the tensor data.
         """
-        return Tensor(data=self.data.cpu(), dims=self.dims)
+        torch_device = self.data.device
+        if torch_device.type == "cpu":
+            return Device("cpu")
+        if torch_device.type == "cuda":
+            return Device("gpu", torch_device.index)
+        if torch_device.type == "mps":
+            return Device("gpu")
+        raise ValueError(f"Unsupported tensor device type: {torch_device.type}")
 
-    def gpu(self) -> "Tensor":
+    @override
+    def to_device(self, device: Device) -> Self:
         """
-        Copy the tensor data to GPU memory and create a new `Tensor` instance.
-
-        Returns
-        -------
-        `Tensor`
-            The new `Tensor` instance with copied data on GPU.
-
-        Raises
-        ------
-        RuntimeError
-            If GPU is not available on this system.
+        Copy the tensor data to the specified logical device and return a new tensor.
         """
-        if torch.cuda.is_available():
-            return Tensor(data=self.data.cuda(), dims=self.dims)
-        elif torch.backends.mps.is_available():
-            return Tensor(data=self.data.to("mps"), dims=self.dims)
-        else:
-            raise RuntimeError(
-                "Only CUDA and MPS devices are supported for GPU operations!"
-            )
-
-    def device(
-        self, device: Optional[Literal["cpu", "gpu"]] = None
-    ) -> "Tensor" | Literal["cpu", "gpu"]:
-        """
-        ### Provided `device`
-        Copy the tensor data to the specified device and create a new `Tensor` instance.
-        See ``Tensor.cpu()`` and ``Tensor.gpu()`` for device-specific behavior and requirements.
-
-        ### No `device` argument
-        If `device` is `None`, this returns a string indicating the current device type of the tensor data:
-        - Returns `"gpu"` if the data is on a CUDA or MPS device.
-        - Returns `"cpu"` if the data is on a CPU device.
-        """
-        if device is None:
-            device_type = self.data.device.type
-            return "gpu" if device_type in {"cuda", "mps"} else "cpu"
-        elif device == "cpu":
-            return self.cpu()
-        elif device == "gpu":
-            return self.gpu()
+        target = device.torch_device()
+        if self.data.device == target:
+            return self
+        return replace(self, data=cast(T, self.data.to(target)))
 
     @property
     def requires_grad(self) -> bool:
@@ -541,7 +515,53 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
         """
         return self.data.requires_grad
 
-    def attach(self) -> "Tensor":
+    @property
+    def grad(self) -> Optional[Self]:
+        """
+        Return the accumulated gradient wrapped as a PyHilbert tensor.
+
+        Returns
+        -------
+        `Optional[Self]`
+            The current gradient with the same dims, or `None` if no gradient
+            has been accumulated.
+        """
+        grad = self.data.grad
+        if grad is None:
+            return None
+        return replace(self, data=cast(T, grad))
+
+    def backward(
+        self,
+        gradient: Optional[Self] = None,
+        retain_graph: Optional[bool] = None,
+        create_graph: bool = False,
+        inputs: Optional[Sequence[Self]] = None,
+    ) -> None:
+        """
+        Run autograd backward from this tensor.
+
+        Parameters
+        ----------
+        `gradient` : `Optional[Self]`, optional
+            Upstream gradient for non-scalar tensors.
+        `retain_graph` : `Optional[bool]`, optional
+            Whether to retain the autograd graph after backward.
+        `create_graph` : `bool`, optional
+            Whether to construct the derivative graph.
+        `inputs` : `Optional[Sequence[Self]]`, optional
+            Restrict gradient accumulation to the specified leaf inputs.
+        """
+        grad_data = gradient.align_all(self.dims).data if gradient is not None else None
+        input_data = [tensor.data for tensor in inputs] if inputs is not None else None
+        self.data.backward(
+            gradient=grad_data,
+            retain_graph=retain_graph,
+            create_graph=create_graph,
+            inputs=input_data,
+        )
+
+    def attach(self) -> Self:
         """
         Enable gradient tracking for the tensor data and return the attached `Tensor` instance.
 
@@ -554,16 +574,17 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
-            The new `Tensor` instance with gradient tracking enabled.
+        `Self`
+            The new tensor of the same wrapper type with gradient tracking enabled.
         """
         if self.data.requires_grad:
             return self
-        return Tensor(
-            data=self.data.detach().clone().requires_grad_(True), dims=self.dims
+        return replace(
+            self,
+            data=cast(T, self.data.detach().clone().requires_grad_(True)),
         )
 
-    def detach(self) -> "Tensor":
+    def detach(self) -> Self:
         """
         Disable gradient tracking for the tensor data and create a new `Tensor` instance.
 
@@ -575,23 +596,23 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
-            The new `Tensor` instance with gradient tracking disabled.
+        `Self`
+            The new tensor of the same wrapper type with gradient tracking disabled.
         """
-        return Tensor(data=self.data.detach(), dims=self.dims)
+        return replace(self, data=cast(T, self.data.detach()))
 
-    def clone(self) -> "Tensor":
+    def clone(self) -> Self:
         """
         Create a deep copy of the tensor.
 
         Returns
         -------
-        `Tensor`
+        `Self`
             The cloned tensor.
         """
-        return Tensor(data=self.data.clone(), dims=self.dims)
+        return replace(self, data=cast(T, self.data.clone()))
 
-    def replace_dim(self, dim: int, new_dim: StateSpace) -> "Tensor":
+    def replace_dim(self, dim: int, new_dim: StateSpace) -> Self:
         """
         Replace the StateSpace at the specified dimension with a new StateSpace.
 
@@ -606,8 +627,8 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
-            A new Tensor with the updated dimension.
+        `Self`
+            A new tensor of the same wrapper type with the updated dimension.
         """
         return replace_dim(self, dim, new_dim)
 
@@ -696,7 +717,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
                 axis += 1
         return Tensor(data=data, dims=compiled.dims)
 
-    def factorize_dim(self, dim: int, rule: StateSpaceFactorization) -> "Tensor":
+    def factorize_dim(self, dim: int, rule: StateSpaceFactorization) -> Self:
         """
         Factorize one `StateSpace`-like dimension into multiple subspaces.
 
@@ -713,12 +734,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
-            A new tensor with the specified dimension factorized.
+        `Self`
+            A new tensor of the same wrapper type with the specified dimension factorized.
         """
         return factorize_dim(self, dim, rule)
 
-    def product_dims(self, *indices_group: Tuple[int, ...]) -> "Tensor":
+    def product_dims(self, *indices_group: Tuple[int, ...]) -> Self:
         """
         Combine selected tensor dimensions into product dimensions.
 
@@ -742,8 +763,8 @@ class Tensor(Generic[T], Operable, Plottable, Convertible):
 
         Returns
         -------
-        `Tensor`
-            A new tensor where each requested group is replaced by one product
+        `Self`
+            A new tensor of the same wrapper type where each requested group is replaced by one product
             dimension and all non-grouped dimensions are retained.
 
         Raises
@@ -788,9 +809,9 @@ def auto_promote(func):
         if isinstance(left, Tensor) and isinstance(right, Tensor):
             common_dtype = torch.promote_types(left.data.dtype, right.data.dtype)
             if left.data.dtype != common_dtype:
-                left = Tensor(data=left.data.to(common_dtype), dims=left.dims)
+                left = replace(left, data=left.data.to(common_dtype))
             if right.data.dtype != common_dtype:
-                right = Tensor(data=right.data.to(common_dtype), dims=right.dims)
+                right = replace(right, data=right.data.to(common_dtype))
         return func(left, right, *args, **kwargs)
 
     return wrapper
@@ -956,7 +977,7 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
 
 
 @dispatch(Tensor, Tensor)
-def operator_eq(left: Tensor, right: Tensor) -> Tensor:
+def operator_eq(left: TensorType, right: Tensor) -> TensorType:
     """
     Perform element-wise equality comparison between two tensors.
 
@@ -987,11 +1008,11 @@ def operator_eq(left: Tensor, right: Tensor) -> Tensor:
             f"merged_dims={_format_dims(merged_dims)}, "
             f"expected_shape={expected_shape}, runtime_shape={tuple(runtime_shape)}"
         )
-    return Tensor(data=aligned_left.data == aligned_right.data, dims=merged_dims)
+    return replace(left, data=aligned_left.data == aligned_right.data, dims=merged_dims)
 
 
 @dispatch(Tensor)
-def operator_neg(tensor: Tensor) -> Tensor:
+def operator_neg(tensor: TensorType) -> TensorType:
     """
     Perform negation on the given tensor.
 
@@ -1002,10 +1023,10 @@ def operator_neg(tensor: Tensor) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The negated tensor.
+    `TensorType`
+        The negated tensor, preserving the input wrapper type.
     """
-    return Tensor(data=-tensor.data, dims=tensor.dims)
+    return replace(tensor, data=-tensor.data)
 
 
 @dispatch(Tensor, Tensor)
@@ -1178,7 +1199,7 @@ def operator_truediv(left: Tensor, right: Number) -> Tensor:
     return left * (1.0 / right)  # type: ignore[operator]
 
 
-def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
+def permute(tensor: TensorType, *order: Union[int, Sequence[int]]) -> TensorType:
     """
     Permute the dimensions of the tensor according to the specified order.
 
@@ -1191,8 +1212,8 @@ def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The permuted tensor.
+    `TensorType`
+        The permuted tensor, preserving the input wrapper type.
     """
     _order: Tuple[int, ...]
     if len(order) == 1 and isinstance(order[0], (tuple, list)):
@@ -1209,10 +1230,10 @@ def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
     new_data = tensor.data.permute(_order)
     new_dims = tuple(tensor.dims[i] for i in _order)
 
-    return Tensor(data=new_data, dims=new_dims)
+    return replace(tensor, data=new_data, dims=new_dims)
 
 
-def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
+def transpose(tensor: TensorType, dim0: int, dim1: int) -> TensorType:
     """
     Transpose the specified dimensions of the tensor.
 
@@ -1227,8 +1248,8 @@ def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The transposed tensor.
+    `TensorType`
+        The transposed tensor, preserving the input wrapper type.
     """
     new_data = tensor.data.transpose(dim0, dim1)
 
@@ -1237,10 +1258,10 @@ def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
     # Swap elements
     new_dims_list[dim0], new_dims_list[dim1] = new_dims_list[dim1], new_dims_list[dim0]
 
-    return Tensor(data=new_data, dims=tuple(new_dims_list))
+    return replace(tensor, data=new_data, dims=tuple(new_dims_list))
 
 
-def conj(tensor: Tensor) -> Tensor:
+def conj(tensor: TensorType) -> TensorType:
     """
     Compute the complex conjugate of the given tensor.
 
@@ -1251,13 +1272,13 @@ def conj(tensor: Tensor) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The complex conjugate of the tensor.
+    `TensorType`
+        The complex conjugate of the tensor, preserving the input wrapper type.
     """
-    return Tensor(data=tensor.data.conj(), dims=tensor.dims)
+    return replace(tensor, data=tensor.data.conj())
 
 
-def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
+def unsqueeze(tensor: TensorType, dim: int) -> TensorType:
     """
     Unsqueeze the specified dimension of the tensor.
 
@@ -1270,18 +1291,18 @@ def unsqueeze(tensor: Tensor, dim: int) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The unsqueezed tensor.
+    `TensorType`
+        The unsqueezed tensor, preserving the input wrapper type.
     """
     if dim < 0:
         dim = dim + len(tensor.dims) + 1
     new_data = tensor.data.unsqueeze(dim)
     new_dims = tensor.dims[:dim] + (BroadcastSpace(),) + tensor.dims[dim:]
 
-    return Tensor(data=new_data, dims=new_dims)
+    return replace(tensor, data=new_data, dims=new_dims)
 
 
-def squeeze(tensor: Tensor, dim: int) -> Tensor:
+def squeeze(tensor: TensorType, dim: int) -> TensorType:
     """
     Squeeze the specified dimension of the tensor.
 
@@ -1294,8 +1315,8 @@ def squeeze(tensor: Tensor, dim: int) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The squeezed tensor.
+    `TensorType`
+        The squeezed tensor, preserving the input wrapper type.
     """
     if dim < 0:
         dim = dim + len(tensor.dims)
@@ -1305,10 +1326,10 @@ def squeeze(tensor: Tensor, dim: int) -> Tensor:
     new_data = tensor.data.squeeze(dim)
     new_dims = tensor.dims[:dim] + tensor.dims[dim + 1 :]
 
-    return Tensor(data=new_data, dims=new_dims)
+    return replace(tensor, data=new_data, dims=new_dims)
 
 
-def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
+def align(tensor: TensorType, dim: int, target_dim: StateSpace) -> TensorType:
     """
     Align the specified dimension of the tensor to the target StateSpace.
 
@@ -1323,8 +1344,8 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The aligned tensor.
+    `TensorType`
+        The aligned tensor, preserving the input wrapper type.
     """
     if dim < 0:
         dim = dim + len(tensor.dims)
@@ -1344,7 +1365,8 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         expanded_shape = list(tensor.data.shape)
         expanded_shape[dim] = target_dim.dim
         aligned_data = tensor.data.expand(*expanded_shape)
-        return Tensor(
+        return replace(
+            tensor,
             data=aligned_data,
             dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim + 1 :],
         )
@@ -1378,7 +1400,8 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
         torch.tensor(target_order, dtype=torch.long, device=tensor.data.device),
     )
 
-    aligned_tensor = Tensor(
+    aligned_tensor = replace(
+        tensor,
         data=aligned_data,
         dims=tensor.dims[:dim] + (target_dim,) + tensor.dims[dim + 1 :],
     )
@@ -1386,7 +1409,7 @@ def align(tensor: Tensor, dim: int, target_dim: StateSpace) -> Tensor:
     return aligned_tensor
 
 
-def align_all(tensor: Tensor, dims: Tuple[StateSpace, ...]) -> Tensor:
+def align_all(tensor: TensorType, dims: Tuple[StateSpace, ...]) -> TensorType:
     """
     Align all dimensions of `tensor` to `dims`.
 
@@ -1399,8 +1422,8 @@ def align_all(tensor: Tensor, dims: Tuple[StateSpace, ...]) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        The aligned tensor.
+    `TensorType`
+        The aligned tensor, preserving the input wrapper type.
 
     Raises
     ------
@@ -1420,10 +1443,10 @@ def align_all(tensor: Tensor, dims: Tuple[StateSpace, ...]) -> Tensor:
 
 
 def all(
-    tensor: Tensor,
+    tensor: TensorType,
     dim: Optional[Union[int, Tuple[int, ...]]] = None,
     keepdim: bool = False,
-) -> Tensor:
+) -> TensorType:
     """
     Reduce a tensor with logical AND, matching `torch.all` semantics.
 
@@ -1438,11 +1461,11 @@ def all(
 
     Returns
     -------
-    `Tensor`
-        Boolean tensor with reduced dimensions.
+    `TensorType`
+        Boolean tensor with reduced dimensions, preserving the input wrapper type.
     """
     if dim is None:
-        return Tensor(data=torch.all(tensor.data), dims=())
+        return replace(tensor, data=torch.all(tensor.data), dims=())
 
     rank_ = tensor.rank()
     if isinstance(dim, int):
@@ -1474,7 +1497,7 @@ def all(
             for idx, current_dim in enumerate(tensor.dims)
             if idx not in reduced_dims_set
         )
-    return Tensor(data=reduced, dims=new_dims)
+    return replace(tensor, data=reduced, dims=new_dims)
 
 
 def rank(tensor: Tensor) -> int:
@@ -1494,7 +1517,9 @@ def rank(tensor: Tensor) -> int:
     return len(tensor.dims)
 
 
-def mean(tensor: Tensor, dim: Optional[Union[int, Tuple[int, ...]]] = None) -> Tensor:
+def mean(
+    tensor: TensorType, dim: Optional[Union[int, Tuple[int, ...]]] = None
+) -> TensorType:
     """
     Compute the mean over specified dimension(s), matching `torch.mean` dim forms.
 
@@ -1507,11 +1532,11 @@ def mean(tensor: Tensor, dim: Optional[Union[int, Tuple[int, ...]]] = None) -> T
 
     Returns
     -------
-    `Tensor`
-        A new tensor with the specified dimensions reduced.
+    `TensorType`
+        A new tensor with the specified dimensions reduced, preserving the input wrapper type.
     """
     if dim is None:
-        return Tensor(data=tensor.data.mean(), dims=())
+        return replace(tensor, data=tensor.data.mean(), dims=())
 
     rank_ = tensor.rank()
     if isinstance(dim, int):
@@ -1535,10 +1560,10 @@ def mean(tensor: Tensor, dim: Optional[Union[int, Tuple[int, ...]]] = None) -> T
         for idx, current_dim in enumerate(tensor.dims)
         if idx not in reduced_dims_set
     )
-    return Tensor(data=reduced, dims=new_dims)
+    return replace(tensor, data=reduced, dims=new_dims)
 
 
-def argmax(tensor: Tensor, dim: int) -> Tensor:
+def argmax(tensor: TensorType, dim: int) -> TensorType:
     """
     Compute the indices of the maximum values over a specified dimension.
 
@@ -1551,21 +1576,22 @@ def argmax(tensor: Tensor, dim: int) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        A new tensor with the specified dimension reduced.
+    `TensorType`
+        A new tensor with the specified dimension reduced, preserving the input wrapper type.
     """
     if dim < 0:
         dim += tensor.rank()
     if dim < 0 or dim >= tensor.rank():
         raise IndexError(f"Dimension index {dim} out of range for rank {tensor.rank()}")
 
-    return Tensor(
+    return replace(
+        tensor,
         data=tensor.data.argmax(dim=dim),
         dims=tensor.dims[:dim] + tensor.dims[dim + 1 :],
     )
 
 
-def argmin(tensor: Tensor, dim: int) -> Tensor:
+def argmin(tensor: TensorType, dim: int) -> TensorType:
     """
     Compute the indices of the minimum values over a specified dimension.
 
@@ -1578,15 +1604,16 @@ def argmin(tensor: Tensor, dim: int) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        A new tensor with the specified dimension reduced.
+    `TensorType`
+        A new tensor with the specified dimension reduced, preserving the input wrapper type.
     """
     if dim < 0:
         dim += tensor.rank()
     if dim < 0 or dim >= tensor.rank():
         raise IndexError(f"Dimension index {dim} out of range for rank {tensor.rank()}")
 
-    return Tensor(
+    return replace(
+        tensor,
         data=tensor.data.argmin(dim=dim),
         dims=tensor.dims[:dim] + tensor.dims[dim + 1 :],
     )
@@ -1630,7 +1657,7 @@ def one_hot(
     )
 
 
-def astype(tensor: Tensor, dtype: torch.dtype) -> Tensor:
+def astype(tensor: TensorType, dtype: torch.dtype) -> TensorType:
     """
     Return a new tensor with data converted to `dtype`.
 
@@ -1643,10 +1670,10 @@ def astype(tensor: Tensor, dtype: torch.dtype) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        A new tensor with converted data and unchanged dims.
+    `TensorType`
+        A new tensor with converted data and unchanged dims, preserving the input wrapper type.
     """
-    return Tensor(data=tensor.data.to(dtype=dtype), dims=tensor.dims)
+    return replace(tensor, data=tensor.data.to(dtype=dtype))
 
 
 def allclose(
@@ -1731,7 +1758,7 @@ def equal(a: Tensor, b: Tensor) -> bool:
     return torch.equal(a.data, aligned_b.data)
 
 
-def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
+def expand_to_union(tensor: TensorType, union_dims: list[StateSpace]) -> TensorType:
     """
     Expand BroadcastSpace dimensions in the tensor to match union_dims sizes.
     Performs expansion in a single pass to avoid intermediate Tensor creation.
@@ -1755,7 +1782,7 @@ def expand_to_union(tensor: Tensor, union_dims: list[StateSpace]) -> Tensor:
     if not needs_expansion:
         return tensor
 
-    return Tensor(data=tensor.data.expand(target_shape), dims=tuple(new_dims))
+    return replace(tensor, data=tensor.data.expand(target_shape), dims=tuple(new_dims))
 
 
 def union_dims(
@@ -1975,7 +2002,7 @@ def kernel_tensor(
     return Tensor(data=data, dims=dims)
 
 
-def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
+def replace_dim(tensor: TensorType, dim: int, new_dim: StateSpace) -> TensorType:
     """
     Replace the StateSpace at the specified dimension with a new StateSpace.
 
@@ -1990,8 +2017,8 @@ def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
 
     Returns
     -------
-    `Tensor`
-        A new Tensor with the updated dimension.
+    `TensorType`
+        A new tensor with the updated dimension, preserving the input wrapper type.
     """
     if dim < 0:
         dim += len(tensor.dims)
@@ -2017,10 +2044,12 @@ def replace_dim(tensor: Tensor, dim: int, new_dim: StateSpace) -> Tensor:
 
     new_dims = list(tensor.dims)
     new_dims[dim] = new_dim
-    return Tensor(data=tensor.data, dims=tuple(new_dims))
+    return replace(tensor, dims=tuple(new_dims))
 
 
-def factorize_dim(tensor: Tensor, dim: int, rule: StateSpaceFactorization) -> Tensor:
+def factorize_dim(
+    tensor: TensorType, dim: int, rule: StateSpaceFactorization
+) -> TensorType:
     """
     Factorize one `StateSpace`-like dimension into multiple subspaces.
 
@@ -2039,8 +2068,8 @@ def factorize_dim(tensor: Tensor, dim: int, rule: StateSpaceFactorization) -> Te
 
     Returns
     -------
-    `Tensor`
-        A new tensor with the specified dimension factorized.
+    `TensorType`
+        A new tensor with the specified dimension factorized, preserving the input wrapper type.
     """
     rank = tensor.rank()
     if dim < 0:
@@ -2067,7 +2096,7 @@ def factorize_dim(tensor: Tensor, dim: int, rule: StateSpaceFactorization) -> Te
     )
     new_data = aligned.data.reshape(new_shape)
     new_dims = tensor.dims[:dim] + rule.factorized + tensor.dims[dim + 1 :]
-    return Tensor(data=new_data, dims=new_dims)
+    return replace(tensor, data=new_data, dims=new_dims)
 
 
 def _product_dims_normalize_groups(
@@ -2119,7 +2148,7 @@ def _format_dims(dims: Tuple[StateSpace, ...]) -> str:
     return "(" + ", ".join(f"{type(dim).__name__}:{dim.dim}" for dim in dims) + ")"
 
 
-def product_dims(tensor: Tensor, *indices_group: Tuple[int, ...]) -> Tensor:
+def product_dims(tensor: TensorType, *indices_group: Tuple[int, ...]) -> TensorType:
     """
     Combine selected tensor dimensions into product dimensions.
 
@@ -2145,7 +2174,7 @@ def product_dims(tensor: Tensor, *indices_group: Tuple[int, ...]) -> Tensor:
 
     Returns
     -------
-    `Tensor`
+    `TensorType`
         A new tensor where each requested group is replaced by one product
         dimension and all non-grouped dimensions are retained.
 
@@ -2193,7 +2222,9 @@ def product_dims(tensor: Tensor, *indices_group: Tuple[int, ...]) -> Tensor:
             new_dims.append(tensor.dims[idx])
         cursor += len(group)
 
-    return Tensor(data=permuted.data.reshape(tuple(new_shape)), dims=tuple(new_dims))
+    return replace(
+        tensor, data=permuted.data.reshape(tuple(new_shape)), dims=tuple(new_dims)
+    )
 
 
 def promote_rank(tensor: Tensor, target_rank: int) -> Tensor:
