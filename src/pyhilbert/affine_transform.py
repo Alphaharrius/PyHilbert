@@ -9,11 +9,10 @@ import sympy as sy
 import torch
 
 from .abstracts import HasBase, Functional, Gaugable, GaugeBasis, Gauged, GaugeInvariant
-from .spatials import Lattice, Spatial, Offset, Momentum, AffineSpace
+from .spatials import Spatial, Offset, Momentum, AffineSpace
 from .hilbert import Mode, MomentumSpace, HilbertSpace, hilbert
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
-from .boundary import PeriodicBoundary
 from .utils import FrozenDict
 
 
@@ -1020,9 +1019,7 @@ def pointgroup(query: str) -> AffineGroupElement:
             f"Unsupported group '{group}'. Supported groups are cyclic and mirror."
         )
 
-    space = AffineSpace(
-        basis=sy.ImmutableDenseMatrix.eye(dim)
-    )
+    space = AffineSpace(basis=sy.ImmutableDenseMatrix.eye(dim))
     zero = Offset(rep=sy.ImmutableDenseMatrix([0] * dim), space=space)
     return AffineGroupElement(
         irrep=irrep,

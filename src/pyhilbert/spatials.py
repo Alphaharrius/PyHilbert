@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Type, TypeVar, Union, cast, Mapping
+from typing import Tuple, Type, TypeVar, Union, cast, Mapping, Generic
 from typing_extensions import override
 from abc import ABC, abstractmethod
 from multipledispatch import dispatch  # type: ignore[import-untyped]
@@ -166,10 +166,14 @@ _VecType = TypeVar("_VecType", bound=Union[np.ndarray, ImmutableDenseMatrix])
 """Type variable for vector types that can be returned by `Offset.to_vec()`."""
 
 
+S = TypeVar("S", bound=AffineSpace)
+"""Generic type for the `AffineSpace`."""
+
+
 @dataclass(frozen=True)
-class Offset(Spatial, HasBase[AffineSpace]):
+class Offset(Generic[S], Spatial, HasBase[S]):
     rep: ImmutableDenseMatrix
-    space: AffineSpace
+    space: S
 
     def __post_init__(self):
         if self.rep.shape != (self.space.dim, 1):
@@ -192,11 +196,11 @@ class Offset(Spatial, HasBase[AffineSpace]):
 
     fractional = lru_cache(fractional)  # Prevent mypy type checking issues
 
-    def base(self) -> AffineSpace:
+    def base(self) -> S:
         """Get the `AffineSpace` this `Offset` is expressed in."""
         return self.space
 
-    def rebase(self, space: AffineSpace) -> "Offset":
+    def rebase(self, space: S) -> "Offset[S]":
         """
         Re-express this Offset in a different AffineSpace.
 
@@ -250,8 +254,7 @@ class Offset(Spatial, HasBase[AffineSpace]):
 
 
 @dataclass(frozen=True)
-class Momentum(Offset, HasBase[ReciprocalLattice]):
-
+class Momentum(Offset[ReciprocalLattice]):
     @override
     def fractional(self) -> "Momentum":
         """
