@@ -5,6 +5,7 @@ from pyhilbert.boundary import PeriodicBoundary
 from pyhilbert.spatials import Lattice, Offset, AffineSpace
 from pyhilbert.affine_transform import AffineGroupElement, pointgroup
 import sympy as sy
+from pyhilbert.basis_transform import BasisTransform
 
 
 def col(*values: int) -> ImmutableDenseMatrix:
@@ -284,7 +285,6 @@ def test_lattice_rebase_physical_invariance():
     Test that offsetting and rebasing an Offset between two lattices related by a basis
     transform correctly preserves the absolute physical space position and periodicity.
     """
-    from pyhilbert.basis_transform import BasisTransform
 
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
     boundaries = PeriodicBoundary(basis * 4)
@@ -324,3 +324,83 @@ def test_lattice_rebase_physical_invariance():
     k = physical_boundaries.inv() @ diff
 
     assert all(val.is_integer for val in k)
+
+
+def assert_equivalent_mod_physical_boundaries(
+    reference_vec: ImmutableDenseMatrix,
+    candidate_vec: ImmutableDenseMatrix,
+    physical_boundaries: ImmutableDenseMatrix,
+) -> None:
+    """
+    Assert candidate_vec == reference_vec modulo integer combinations of
+    physical boundary vectors.
+    """
+    diff = candidate_vec - reference_vec
+    coeffs, params = physical_boundaries.gauss_jordan_solve(diff)
+
+    # Full-rank boundary basis should yield a unique solution.
+    assert params.shape == (0, 1)
+    assert all(value.is_integer for value in coeffs)
+
+
+def test_lattice_rebase_physical_invariance_3d():
+    """
+    Validate that a 3D basis transform preserves physical position modulo
+    the transformed periodic boundaries.
+    """
+    basis = ImmutableDenseMatrix.eye(3)
+    boundaries = PeriodicBoundary(ImmutableDenseMatrix.diag(4, 3, 5))
+    lattice = Lattice(
+        basis=basis,
+        boundaries=boundaries,
+        unit_cell={"r": ImmutableDenseMatrix([0, 0, 0])},
+    )
+
+    # Integer, unimodular transform to keep lattice indexing integral.
+    M = ImmutableDenseMatrix([[1, 1, 0], [0, 1, 2], [0, 0, 1]])
+    lat_new = BasisTransform(M)(lattice)
+
+    a = Offset(rep=ImmutableDenseMatrix([1, 2, 3]), space=lattice)
+    b = Offset(rep=ImmutableDenseMatrix([7, -1, 8]), space=lattice)
+    c = a + b
+
+    c_new = a.rebase(lat_new) + b.rebase(lat_new)
+
+    phys_c = c.to_vec(ImmutableDenseMatrix)
+    phys_c_new = c_new.to_vec(ImmutableDenseMatrix)
+
+    physical_boundaries = lattice.basis @ lattice.boundaries.basis
+    assert_equivalent_mod_physical_boundaries(phys_c, phys_c_new, physical_boundaries)
+
+
+def test_affine_transform_boundary_condition_3d():
+    """
+    In 3D, affine-transformed offsets on a periodic lattice should be equivalent
+    to the unwrapped affine image modulo physical boundary vectors.
+    """
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(3),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4, 3, 5)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0, 0])},
+    )
+
+    x, y, z = sy.symbols("x y z")
+    t = AffineGroupElement(
+        irrep=ImmutableDenseMatrix([[0, 1, 0], [0, 0, 1], [1, 0, 0]]),
+        axes=(x, y, z),
+        offset=Offset(rep=ImmutableDenseMatrix([5, -4, 7]), space=lattice),
+        basis_function_order=1,
+    )
+
+    point = Offset(rep=ImmutableDenseMatrix([3, 2, 4]), space=lattice)
+    transformed = t(point)
+
+    # Unwrapped affine action in representation coordinates.
+    unwrapped_rep = t.irrep @ point.rep + t.offset.rep
+    unwrapped_phys = lattice.basis @ unwrapped_rep
+    wrapped_phys = transformed.to_vec(ImmutableDenseMatrix)
+
+    physical_boundaries = lattice.basis @ lattice.boundaries.basis
+    assert_equivalent_mod_physical_boundaries(
+        wrapped_phys, unwrapped_phys, physical_boundaries
+    )
