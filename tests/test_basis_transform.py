@@ -143,7 +143,7 @@ def test_affine_space_transform():
 
 
 def test_basis_transform_rejects_non_invertible_matrix():
-    with pytest.raises(ValueError, match="non-zero determinant"):
+    with pytest.raises(ValueError, match="positive determinant"):
         BasisTransform(ImmutableDenseMatrix([[1, 0], [0, 0]]))
 
 

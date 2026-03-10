@@ -24,7 +24,7 @@ class Spatial(Operable, Plottable, ABC):
         raise NotImplementedError()
 
 
-@need_validation(check_invertibility("basis"))
+@need_validation(check_numerical("basis"), check_invertibility("basis"))
 @dataclass(frozen=True)
 class AffineSpace(Spatial):
     basis: ImmutableDenseMatrix

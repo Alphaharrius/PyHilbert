@@ -10,7 +10,7 @@ import numpy as np
 from .abstracts import Functional
 from .utils import FrozenDict, matchby
 from .validations import need_validation
-from .validations.symbolics import check_invertibility, check_numerical
+from .validations.symbolics import check_proper_transformation, check_numerical
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
 from .state_space import MomentumSpace, brillouin_zone
 from .hilbert_space import HilbertSpace, U1Basis, hilbert
@@ -18,7 +18,7 @@ from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 
 
-@need_validation(check_invertibility("M"), check_numerical("M"))
+@need_validation(check_proper_transformation("M"), check_numerical("M"))
 @dataclass(frozen=True)
 class BasisTransform(Functional):
     M: ImmutableDenseMatrix
