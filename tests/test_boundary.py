@@ -7,7 +7,6 @@ from pyhilbert.affine_transform import AffineGroupElement, pointgroup
 import sympy as sy
 from pyhilbert.basis_transform import BasisTransform
 
-
 def col(*values: int) -> ImmutableDenseMatrix:
     return ImmutableDenseMatrix(list(values))
 
@@ -150,7 +149,7 @@ def test_offset_addition_wraps_to_representative_on_nondiagonal_boundary():
 
 
 def test_offset_with_affine_space():
-    # 測試 Offset 是否能接受純 AffineSpace 而不依賴 Lattice
+    # Test that Offset can accept a pure AffineSpace and does not require a Lattice
     basis = sy.ImmutableDenseMatrix.eye(3)
     space = AffineSpace(basis=basis)
     rep = sy.ImmutableDenseMatrix([1, 2, 3])
@@ -162,20 +161,20 @@ def test_offset_with_affine_space():
 
 
 def test_pointgroup_with_affine_space():
-    # 測試 pointgroup 是否正確地使用 AffineSpace 而不是 Lattice
+    # Test that pointgroup uses AffineSpace instead of Lattice
     c3 = pointgroup("c3-xy:xy-o1")
     assert isinstance(c3.offset.space, AffineSpace)
-    # 確保它不是 Lattice (Lattice 繼承自 AffineSpace，所以用 type 檢查)
+    # Ensure it is not a Lattice (Lattice inherits from AffineSpace, so check type)
     assert type(c3.offset.space) is AffineSpace
 
 
 def test_affine_group_element_rebase():
-    # 測試 AffineGroupElement 從 AffineSpace 轉換到 Lattice
+    # Test AffineGroupElement rebasing from AffineSpace to Lattice
     dim = 2
     affine_basis = sy.ImmutableDenseMatrix.eye(dim)
     affine_space = AffineSpace(basis=affine_basis)
 
-    # 建立一個旋轉 180 度的操作在純 AffineSpace 上
+    # Construct a 180-degree rotation operation in pure AffineSpace
     irrep = sy.ImmutableDenseMatrix([[-1, 0], [0, -1]])
     axes = (sy.Symbol("x"), sy.Symbol("y"))
     zero_offset = Offset(rep=sy.ImmutableDenseMatrix([0, 0]), space=affine_space)
@@ -184,7 +183,7 @@ def test_affine_group_element_rebase():
         irrep=irrep, axes=axes, offset=zero_offset, basis_function_order=1
     )
 
-    # 建立一個有邊界的 Lattice
+    # Construct a Lattice with boundaries
     lat_basis = sy.ImmutableDenseMatrix([[2, 0], [0, 2]])
     lattice = Lattice(
         basis=lat_basis,
@@ -192,15 +191,16 @@ def test_affine_group_element_rebase():
         unit_cell={"A": sy.ImmutableDenseMatrix([0, 0])},
     )
 
-    # Rebase 到 Lattice
+    # Rebase to Lattice
     op_lat = op.rebase(lattice)
     assert op_lat.offset.space == lattice
-    # 檢查是否正確執行了基底轉換 (2x2 單位矩陣 rebase 到 2x2 對角矩陣 [2, 0; 0, 2] 應該要是零向量)
+    # Check that the basis transformation is performed correctly
+    # (2x2 identity rebase to 2x2 diagonal matrix should produce zero vector)
     assert op_lat.offset.rep == sy.ImmutableDenseMatrix([0, 0])
 
 
 def test_potential_errors():
-    # 1. 測試維度不匹配 (Offset shape mismatch)
+    # 1. Test dimension mismatch (Offset shape mismatch)
     basis = sy.ImmutableDenseMatrix.eye(3)
     space = AffineSpace(basis=basis)
     rep_2d = sy.ImmutableDenseMatrix([1, 2])
@@ -208,7 +208,7 @@ def test_potential_errors():
     with pytest.raises(ValueError, match="Invalid Shape"):
         Offset(rep=rep_2d, space=space)
 
-    # 2. 測試 rebase 時的維度或空間不匹配
+    # 2. Test error during rebase when dimensions or spaces do not match
     lat_basis = sy.ImmutableDenseMatrix.eye(2)
     lattice_2d = Lattice(
         basis=lat_basis,
@@ -216,9 +216,9 @@ def test_potential_errors():
         unit_cell={"A": sy.ImmutableDenseMatrix([0, 0])},
     )
 
-    # 將 3D 的 offset rebase 到 2D 的 lattice 應該要報錯
+    # Rebasing a 3D offset to a 2D lattice should raise an error
     offset_3d = Offset(rep=sy.ImmutableDenseMatrix([1, 1, 1]), space=space)
-    with pytest.raises(Exception):  # sympy 矩陣乘法會報錯 ShapeError
+    with pytest.raises(Exception):  # Sympy matrix multiplication should raise ShapeError
         offset_3d.rebase(lattice_2d)
 
 
@@ -325,7 +325,6 @@ def test_lattice_rebase_physical_invariance():
 
     assert all(val.is_integer for val in k)
 
-
 def assert_equivalent_mod_physical_boundaries(
     reference_vec: ImmutableDenseMatrix,
     candidate_vec: ImmutableDenseMatrix,
@@ -341,7 +340,6 @@ def assert_equivalent_mod_physical_boundaries(
     # Full-rank boundary basis should yield a unique solution.
     assert params.shape == (0, 1)
     assert all(value.is_integer for value in coeffs)
-
 
 def test_lattice_rebase_physical_invariance_3d():
     """
