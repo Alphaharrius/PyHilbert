@@ -4,6 +4,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Optional,
     Tuple,
     Type,
     TypeVar,
@@ -613,7 +614,9 @@ class HilbertSpace(HasRayRepr, StateSpace[U1Basis], Span[U1Basis]):
             return ()
         return elements[0].repr_types()
 
-    def factorize(self, *irrep_types: Tuple[Type, ...]) -> StateSpaceFactorization:
+    def factorize(
+        self, *irrep_types: Tuple[Type, ...], coef_on: Optional[int] = None
+    ) -> StateSpaceFactorization:
         """
         Factorize this homogeneous `HilbertSpace` into tensor factors grouped by irrep type.
 
@@ -650,6 +653,11 @@ class HilbertSpace(HasRayRepr, StateSpace[U1Basis], Span[U1Basis]):
         `*irrep_types` : `Tuple[Type, ...]`
             Factor specification. Each tuple is one factor, containing the irrep
             types assigned to that factor.
+        `coef_on` : `Optional[int]`
+            Index of the factor that inherits the original `U1Basis.coef`.
+            `None` defaults to the leftmost factor (`0`). Negative indices are
+            interpreted using normal Python indexing. All other factors are
+            built with coefficient `1`.
 
         Returns
         -------
@@ -663,6 +671,9 @@ class HilbertSpace(HasRayRepr, StateSpace[U1Basis], Span[U1Basis]):
             - this space is not homogeneous;
             - some irrep type in the space is missing from `irrep_types`;
             - `irrep_types` contains a type not present in the space;
+            - `coef_on` is out of range for the requested factors;
+            - the requested `coef_on` assignment is not well-defined because the
+              same grouped basis key appears with different coefficients;
             - the basis is not factorizable for the requested groups (incomplete
               Cartesian-product structure).
         """
@@ -679,6 +690,17 @@ class HilbertSpace(HasRayRepr, StateSpace[U1Basis], Span[U1Basis]):
 
         if any(not group for group in irrep_types):
             raise ValueError("Each irrep group in factorize must be non-empty.")
+
+        if coef_on is None:
+            coef_factor = 0
+        else:
+            coef_factor = coef_on
+            if coef_factor < 0:
+                coef_factor += len(irrep_types)
+            if coef_factor < 0 or coef_factor >= len(irrep_types):
+                raise ValueError(
+                    f"`coef_on` index {coef_on} is out of range for {len(irrep_types)} factors."
+                )
 
         canonical_types = elements[0].repr_types()
         requested_types = tuple(T for group in irrep_types for T in group)
@@ -708,11 +730,20 @@ class HilbertSpace(HasRayRepr, StateSpace[U1Basis], Span[U1Basis]):
 
         factor_keys: list[Tuple[Tuple[Any, ...], ...]] = []
         factorized: list[HilbertSpace] = []
-        for group in irrep_types:
-            keys: OrderedDict[Tuple[Any, ...], None] = OrderedDict()
+        for group_idx, group in enumerate(irrep_types):
+            keys: OrderedDict[Tuple[Any, ...], sy.Expr] = OrderedDict()
             for el in elements:
-                keys[tuple(el.irrep_of(T) for T in group)] = None
-            grouped_basis = tuple(U1Basis(sy.Integer(1), tuple(key)) for key in keys)
+                key = tuple(el.irrep_of(T) for T in group)
+                coef = el.coef if group_idx == coef_factor else sy.Integer(1)
+                if key in keys and keys[key] != coef:
+                    raise ValueError(
+                        "Requested factorization is not valid: "
+                        "the requested `coef_on` factor does not determine a unique coefficient."
+                    )
+                keys[key] = coef
+            grouped_basis = tuple(
+                U1Basis(coef, tuple(key)) for key, coef in keys.items()
+            )
             factor_keys.append(tuple(keys.keys()))
             factorized.append(hilbert(grouped_basis))
 

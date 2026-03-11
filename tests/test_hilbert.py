@@ -351,6 +351,55 @@ def test_hilbert_space_factorize_success_two_groups():
     assert factorization.align_dim.elements() == h.elements()
 
 
+def test_hilbert_space_factorize_defaults_coef_to_leftmost_factor():
+    h = hilbert(
+        U1Basis(coef=sy.Integer(i + 2), base=(i, j)) for i in (0, 1) for j in ("a", "b")
+    )
+
+    factorization = h.factorize((int,), (str,))
+    left, right = factorization.factorized
+
+    assert left.elements() == (
+        U1Basis(coef=sy.Integer(2), base=(0,)),
+        U1Basis(coef=sy.Integer(3), base=(1,)),
+    )
+    assert right.elements() == (
+        U1Basis(coef=sy.Integer(1), base=("a",)),
+        U1Basis(coef=sy.Integer(1), base=("b",)),
+    )
+
+
+def test_hilbert_space_factorize_places_coef_on_requested_factor():
+    coef_by_orb = {"a": sy.Integer(5), "b": sy.Integer(7)}
+    h = hilbert(
+        U1Basis(coef=coef_by_orb[j], base=(i, j)) for i in (0, 1) for j in ("a", "b")
+    )
+
+    factorization = h.factorize((int,), (str,), coef_on=1)
+    left, right = factorization.factorized
+
+    assert left.elements() == (
+        U1Basis(coef=sy.Integer(1), base=(0,)),
+        U1Basis(coef=sy.Integer(1), base=(1,)),
+    )
+    assert right.elements() == (
+        U1Basis(coef=sy.Integer(5), base=("a",)),
+        U1Basis(coef=sy.Integer(7), base=("b",)),
+    )
+
+
+def test_hilbert_space_factorize_accepts_negative_coef_index():
+    coef_by_orb = {"a": sy.Integer(11), "b": sy.Integer(13)}
+    h = hilbert(
+        U1Basis(coef=coef_by_orb[j], base=(i, j)) for i in (0, 1) for j in ("a", "b")
+    )
+
+    positive = h.factorize((int,), (str,), coef_on=1)
+    negative = h.factorize((int,), (str,), coef_on=-1)
+
+    assert negative.factorized == positive.factorized
+
+
 def test_hilbert_space_factorize_rejects_missing_type():
     h = hilbert(
         U1Basis(coef=sy.Integer(1), base=(i, j)) for i in (0, 1) for j in ("a", "b")
@@ -377,3 +426,24 @@ def test_hilbert_space_factorize_rejects_incomplete_cartesian_product():
     )
     with pytest.raises(ValueError, match="complete Cartesian product"):
         h.factorize((int,), (str,))
+
+
+def test_hilbert_space_factorize_rejects_out_of_range_coef_index():
+    h = hilbert(
+        U1Basis(coef=sy.Integer(1), base=(i, j)) for i in (0, 1) for j in ("a", "b")
+    )
+    with pytest.raises(ValueError, match="`coef_on` index 2 is out of range"):
+        h.factorize((int,), (str,), coef_on=2)
+
+
+def test_hilbert_space_factorize_rejects_ambiguous_coef_assignment():
+    h = hilbert(
+        (
+            U1Basis(coef=sy.Integer(2), base=(0, "a")),
+            U1Basis(coef=sy.Integer(3), base=(0, "b")),
+            U1Basis(coef=sy.Integer(5), base=(1, "a")),
+            U1Basis(coef=sy.Integer(7), base=(1, "b")),
+        )
+    )
+    with pytest.raises(ValueError, match="does not determine a unique coefficient"):
+        h.factorize((int,), (str,), coef_on=0)
