@@ -1,6 +1,8 @@
 import torch
 import sympy as sy
+from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
+import pytest
 
 from pyhilbert.spatials import (
     Lattice,
@@ -9,11 +11,19 @@ from pyhilbert.spatials import (
     ReciprocalLattice,
     Momentum,
 )
-from pyhilbert.hilbert import brillouin_zone, hilbert, Mode
+from pyhilbert.state_space import brillouin_zone
+from pyhilbert.hilbert_space import U1Basis, hilbert
 from pyhilbert.tensors import Tensor
 from pyhilbert.basis_transform import bandfold, BasisTransform
-from pyhilbert.boundary import PeriodicBoundary
-from pyhilbert.utils import FrozenDict
+
+
+@dataclass(frozen=True)
+class Orb:
+    name: str
+
+
+def _mode(r: Offset, orb: str = "s") -> U1Basis:
+    return U1Basis(u1=sy.Integer(1), rep=(r, Orb(orb)))
 
 
 def test_bandfold_1d():
@@ -29,8 +39,8 @@ def test_bandfold_1d():
     assert k_space.dim == 4
 
     # 1b. Define a simple 1-dim Hilbert space
-    r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
-    h_space = hilbert([Mode(count=1, attr=FrozenDict({"r": r_offset}))])
+    r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice.affine)
+    h_space = hilbert([_mode(r_offset)])
     assert h_space.dim == 1
 
     # 1c. Create an input tensor (4, 1, 1)
@@ -85,8 +95,8 @@ def test_bandfold_2d():
     assert k_space.dim == 4
 
     # 1b. Define a simple Hilbert space
-    r_offset = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice)
-    h_space = hilbert([Mode(count=1, attr=FrozenDict({"orb": "s", "r": r_offset}))])
+    r_offset = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
+    h_space = hilbert([_mode(r_offset, "s")])
     assert h_space.dim == 1
 
     # 1c. Create input tensor (4, 1, 1)
@@ -138,6 +148,11 @@ def test_affine_space_transform():
     new_space = t(space)
     assert isinstance(new_space, AffineSpace)
     assert new_space.basis == M @ basis
+
+
+def test_basis_transform_rejects_non_invertible_matrix():
+    with pytest.raises(ValueError, match="positive determinant"):
+        BasisTransform(ImmutableDenseMatrix([[1, 0], [0, 0]]))
 
 
 def test_lattice_transform():

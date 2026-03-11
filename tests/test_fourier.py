@@ -1,11 +1,23 @@
 import torch
 import numpy as np
+import sympy as sy
+from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 from pyhilbert.spatials import Lattice, Offset, Momentum
-from pyhilbert.hilbert import hilbert, Mode, brillouin_zone
+from pyhilbert.state_space import brillouin_zone
+from pyhilbert.hilbert_space import U1Basis, hilbert
 from pyhilbert.fourier import fourier_transform
 from pyhilbert.boundary import PeriodicBoundary
 from pyhilbert.utils import FrozenDict
+
+
+@dataclass(frozen=True)
+class Orb:
+    name: str
+
+
+def _mode(r: Offset, orb: str = "s") -> U1Basis:
+    return U1Basis(u1=sy.Integer(1), rep=(r, Orb(orb)))
 
 
 def test_fourier_kernel_1d():
@@ -64,12 +76,12 @@ def test_fourier_tensor_construction():
     r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat)
     r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lat)
 
-    m0 = Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))
-    m1 = Mode(count=1, attr=FrozenDict({"r": r1, "orb": "s"}))
+    m0 = _mode(r0, "s")
+    m1 = _mode(r1, "s")
     region_space = hilbert([m0, m1])
 
     # Bloch space: 1 site at 0 (unit cell)
-    b0 = Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))
+    b0 = _mode(r0, "s")
     bloch_space = hilbert([b0])
 
     # Compute FT Tensor
@@ -111,15 +123,15 @@ def test_fourier_tensor_unitarity():
     # The region is the whole crystal.
     region_modes = []
     for i in range(n_cells):
-        r = Offset(rep=ImmutableDenseMatrix([i]), space=lat)
-        m = Mode(count=1, attr=FrozenDict({"r": r, "orb": "s"}))
+        r = Offset(rep=ImmutableDenseMatrix([i]), space=lat.affine)
+        m = _mode(r, "s")
         region_modes.append(m)
     region_space = hilbert(region_modes)
     assert region_space.dim == n_cells
 
     # Bloch space: 1 site at 0 (defines the unit cell for Bloch states)
-    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat)
-    b0 = Mode(count=1, attr=FrozenDict({"r": r0, "orb": "s"}))
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine)
+    b0 = _mode(r0, "s")
     bloch_space = hilbert([b0])
     assert bloch_space.dim == 1
 

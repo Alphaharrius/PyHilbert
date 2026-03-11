@@ -14,6 +14,8 @@ from sympy.matrices.normalforms import smith_normal_form  # type: ignore[import-
 from .utils import FrozenDict
 from .abstracts import Operable, HasDual, HasBase, Plottable
 from .boundary import BoundaryCondition
+from .validations import need_validation
+from .validations.symbolics import check_invertibility, check_numerical
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,7 @@ class Spatial(Operable, Plottable, ABC):
         raise NotImplementedError()
 
 
+@need_validation(check_numerical("basis"), check_invertibility("basis"))
 @dataclass(frozen=True)
 class AffineSpace(Spatial):
     basis: ImmutableDenseMatrix
@@ -166,18 +169,61 @@ _VecType = TypeVar("_VecType", bound=Union[np.ndarray, ImmutableDenseMatrix])
 """Type variable for vector types that can be returned by `Offset.to_vec()`."""
 
 
+def _check_offset_matches_space(r: "Offset") -> None:
+    if r.rep.shape != (r.space.dim, 1):
+        raise ValueError(
+            f"Offset.rep must have shape {(r.space.dim, 1)} to match its affine space, "
+            f"got {r.rep.shape}."
+        )
+
+
 S = TypeVar("S", bound=AffineSpace)
 """Generic type for the `AffineSpace`."""
+        
 
-
+@need_validation(_check_offset_matches_space, check_numerical("rep"))
 @dataclass(frozen=True)
 class Offset(Generic[S], Spatial, HasBase[S]):
+    """
+    Offset vector in an affine basis.
+
+    Let :math:`x = (r_x, S_x)` and :math:`y = (r_y, S_y)`, where
+    :math:`r_x, r_y \\in \\mathbb{R}^{d \\times 1}` are coordinate columns and
+    :math:`S_x, S_y` are affine spaces with basis matrices :math:`B_x, B_y`.
+
+    Algebra
+    -------
+    :math:`-x = (-r_x, S_x)`.
+
+    :math:`x + y = (r_x + \\tilde r_y, S_x)`, where
+    :math:`\\tilde r_y = B_x^{-1} B_y r_y` if :math:`S_x \\neq S_y`
+    (equivalently, rebase :math:`y` into :math:`S_x` first).
+
+    :math:`x - y = x + (-y)`.
+
+    Equality
+    --------
+    :math:`x = y \\iff (r_x = r_y) \\land (S_x = S_y)`.
+    This is exact structural equality; no implicit rebasing is applied.
+
+    Order
+    -----
+    For :math:`x < y` and :math:`x > y`:
+    compare :math:`d_x` and :math:`d_y` first.
+    If :math:`d_x = d_y`, compare Cartesian tuples
+    :math:`\\mathrm{tuple}(B_x r_x)` and :math:`\\mathrm{tuple}(B_y r_y)`
+    lexicographically.
+
+    Unsupported operators
+    ---------------------
+    :math:`\\le, \\ge, \\times, @, /, //, ^, \\land, \\lor`
+    are not defined for `Offset` and raise `NotImplementedError`.
+    """
+
     rep: ImmutableDenseMatrix
     space: S
 
     def __post_init__(self):
-        if self.rep.shape != (self.space.dim, 1):
-            raise ValueError("Invalid Shape")
         if isinstance(self.space, Lattice):
             wrapped = self.space.boundaries.wrap(self.rep)
             object.__setattr__(self, "rep", ImmutableDenseMatrix(wrapped))
@@ -253,8 +299,26 @@ class Offset(Generic[S], Spatial, HasBase[S]):
         return str(self)
 
 
+@dispatch(Offset, Offset)  # type: ignore[no-redef]
+def operator_lt(a: Offset, b: Offset) -> bool:
+    if a.dim != b.dim:
+        return a.dim < b.dim
+    va = a.to_vec(np.ndarray)
+    vb = b.to_vec(np.ndarray)
+    return tuple(va) < tuple(vb)
+
+
+@dispatch(Offset, Offset)  # type: ignore[no-redef]
+def operator_gt(a: Offset, b: Offset) -> bool:
+    if a.dim != b.dim:
+        return a.dim > b.dim
+    va = a.to_vec(np.ndarray)
+    vb = b.to_vec(np.ndarray)
+    return tuple(va) > tuple(vb)
+
+
 @dataclass(frozen=True)
-class Momentum(Offset[ReciprocalLattice]):
+class Momentum(Offset[ReciprocalLattice], Convertible):
     @override
     def fractional(self) -> "Momentum":
         """

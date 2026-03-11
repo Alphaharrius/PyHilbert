@@ -4,25 +4,24 @@ import sympy as sy
 from sympy.matrices.normalforms import smith_normal_decomp  # type: ignore[import-untyped]
 from functools import lru_cache
 from itertools import product
-from typing import Tuple, cast, Literal
+from typing import List, Tuple, cast, Literal
 import numpy as np
 
 from .abstracts import Functional
 from .utils import FrozenDict, matchby
+from .validations import need_validation
+from .validations.symbolics import check_proper_transformation, check_numerical
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace
-from .boundary import PeriodicBoundary
-from .hilbert import MomentumSpace, brillouin_zone, hilbert, HilbertSpace
+from .state_space import MomentumSpace, brillouin_zone
+from .hilbert_space import HilbertSpace, U1Basis, hilbert
 from .tensors import Tensor, mapping_matrix
 from .fourier import fourier_transform
 
 
+@need_validation(check_proper_transformation("M"), check_numerical("M"))
 @dataclass(frozen=True)
 class BasisTransform(Functional):
     M: ImmutableDenseMatrix
-
-    def __post_init__(self):
-        if self.M.det() == 0:
-            raise ValueError("M must have non-zero determinant")
 
 
 @lru_cache
@@ -64,7 +63,7 @@ def lattice_transform(t: BasisTransform, lat: Lattice) -> Lattice:
 
     # Iterate over existing atoms (or implicit origin)
     if lat.unit_cell:
-        items = lat.unit_cell.items()
+        items = cast(List[Tuple[str, Offset]], list(lat.unit_cell.items()))
     else:
         default_offset = Offset(rep=ImmutableDenseMatrix([0] * lat.dim), space=lat)
         items = [("0", default_offset)]
@@ -191,7 +190,7 @@ def bandfold(
             f"but got {type(target_space)}"
         )
     rebased_hilbert = hilbert(
-        target_space.mode_lookup(r=r.fractional()).update(r=r)
+        cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
         for r in enlarge_unit_cell
     )
     # # Transform both sides

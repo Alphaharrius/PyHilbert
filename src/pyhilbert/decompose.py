@@ -1,32 +1,10 @@
-from typing import List, overload
+from typing import overload
 from collections import namedtuple
 
 import torch
 
-from .hilbert import FactorSpace
-from .hilbert import same_span
+from .state_space import IndexSpace, same_span
 from .tensors import Tensor
-
-
-def _band_counts(eigenvalues: torch.Tensor, eps: float) -> List[int]:
-    n = eigenvalues.shape[-1]
-    if eps < 0.0:
-        eps = 0.0
-    if n == 0:
-        raise ValueError("Eigenvalues tensor has zero size along the last dimension.")
-    reference = eigenvalues.reshape(-1, n)[0]
-    diffs = (reference[1:] - reference[:-1]).abs()
-    split_idxs = torch.nonzero(diffs > eps, as_tuple=False).flatten()
-    if split_idxs.numel() == 0:
-        return [n]
-    splits = (split_idxs + 1).tolist()
-    band_counts: List[int] = []
-    prev = 0
-    for s in splits:
-        band_counts.append(s - prev)
-        prev = s
-    band_counts.append(n - prev)
-    return band_counts
 
 
 EigH = namedtuple("EigH", ["eigenvalues", "eigenvectors"])
@@ -45,7 +23,7 @@ def _assert_eig_dims(tensor: Tensor) -> None:
         )
 
 
-def eigh(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
+def eigh(tensor: Tensor) -> EigH:
     """
     Perform eigen-value decomposition on a `Tensor` with Hermitian matrix at the last two indices.
 
@@ -53,10 +31,6 @@ def eigh(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     ----------
     `tensor` : `Tensor`
         Input tensor with Hermitian matrices at the last two indices.
-    `group_band_eps` : `float`, default `1e-8`
-        Tolerance for grouping eigenvalues into bands. Eigenvalues within this
-        tolerance are considered part of the same band.
-
     Returns
     -------
     `EigH`
@@ -67,9 +41,9 @@ def eigh(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
           yield real eigenvalues of the corresponding real dtype).
         - `eigenvectors` dtype matches the input dtype.
         - `eigenvalues.dims` keeps all leading dimensions and replaces the last
-          two matrix dimensions with a single `FactorSpace` dimension.
+          two matrix dimensions with a single `IndexSpace` dimension.
         - `eigenvectors.dims` keeps the leading dimensions, then uses the second
-          last dimension (the row space) followed by the `FactorSpace` dimension.
+          last dimension (the row space) followed by the `IndexSpace` dimension.
 
     Notes
     -----
@@ -85,10 +59,7 @@ def eigh(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     target = tensor.align(-1, dim0)  # Align column space to match the row space
     eigenvalues, eigenvectors = torch.linalg.eigh(target.data)
 
-    band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = FactorSpace.from_band_counts(band_counts)
-
-    print(target.dims)
+    spectrum = IndexSpace.linear(eigenvalues.shape[-1])
 
     eigvals = Tensor(
         data=eigenvalues,
@@ -102,7 +73,7 @@ def eigh(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     return EigH(eigvals, eigvecs)
 
 
-def eigvalsh(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
+def eigvalsh(tensor: Tensor) -> Tensor:
     """
     Compute eigenvalues of a `Tensor` with Hermitian matrix at the last two indices.
 
@@ -110,10 +81,6 @@ def eigvalsh(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     ----------
     `tensor` : `Tensor`
         Input tensor with Hermitian matrices at the last two indices.
-    `group_band_eps` : `float`, default `1e-8`
-        Tolerance for grouping eigenvalues into bands. Eigenvalues within this
-        tolerance are considered part of the same band.
-
     Returns
     -------
     `Tensor`
@@ -121,7 +88,7 @@ def eigvalsh(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
         - dtype matching the real dtype of the input (complex inputs
           yield real eigenvalues of the corresponding real dtype).
         - dims keeping all leading dimensions and replacing the last
-          two matrix dimensions with a single `FactorSpace` dimension.
+          two matrix dimensions with a single `IndexSpace` dimension.
     """
     _assert_eig_dims(tensor)
 
@@ -129,8 +96,7 @@ def eigvalsh(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     target = tensor.align(-1, dim0)  # Align column space to match the row space
     eigenvalues = torch.linalg.eigvalsh(target.data)
 
-    band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = FactorSpace.from_band_counts(band_counts)
+    spectrum = IndexSpace.linear(eigenvalues.shape[-1])
 
     vals = Tensor(
         data=eigenvalues,
@@ -171,7 +137,7 @@ def _sort_eigenpairs(
     return eigenvalues, eigenvectors
 
 
-def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
+def eig(tensor: Tensor) -> EigH:
     """
     Perform eigen-value decomposition on a `Tensor` with general square matrices
     at the last two indices.
@@ -180,11 +146,6 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     ----------
     `tensor` : `Tensor`
         Input tensor with square matrices at the last two indices.
-    `group_band_eps` : `float`, default `1e-8`
-        Tolerance for grouping eigenvalues into bands. Eigenvalues within this
-        tolerance are considered part of the same band after lexicographic
-        sorting by `(real, imag)`.
-
     Returns
     -------
     `EigH`
@@ -195,15 +156,15 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
           yield complex eigenvalues).
         - `eigenvectors` dtype matches the complex dtype of the input.
         - `eigenvalues.dims` keeps all leading dimensions and replaces the last
-          two matrix dimensions with a single `FactorSpace` dimension.
+          two matrix dimensions with a single `IndexSpace` dimension.
         - `eigenvectors.dims` keeps the leading dimensions, then uses the second
-          last dimension (the row space) followed by the `FactorSpace` dimension.
+          last dimension (the row space) followed by the `IndexSpace` dimension.
 
     Notes
     -----
     `torch.linalg.eig` does not guarantee any ordering of the eigenvalues. This
-    function sorts eigenvalues lexicographically by `(real, imag)` before band
-    grouping, and applies the same reordering to eigenvectors.
+    function sorts eigenvalues lexicographically by `(real, imag)` and applies
+    the same reordering to eigenvectors.
     """
     _assert_eig_dims(tensor)
 
@@ -212,8 +173,7 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     eigenvalues, eigenvectors = torch.linalg.eig(target.data)
     eigenvalues, eigenvectors = _sort_eigenpairs(eigenvalues, eigenvectors)
 
-    band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = FactorSpace.from_band_counts(band_counts)
+    spectrum = IndexSpace.linear(eigenvalues.shape[-1])
 
     eigvals = Tensor(
         data=eigenvalues,
@@ -227,7 +187,7 @@ def eig(tensor: Tensor, group_band_eps: float = 1e-8) -> EigH:
     return EigH(eigvals, eigvecs)
 
 
-def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
+def eigvals(tensor: Tensor) -> Tensor:
     """
     Compute eigenvalues of a `Tensor` with general square matrices at the last
     two indices.
@@ -236,11 +196,6 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     ----------
     `tensor` : `Tensor`
         Input tensor with square matrices at the last two indices.
-    `group_band_eps` : `float`, default `1e-8`
-        Tolerance for grouping eigenvalues into bands. Eigenvalues within this
-        tolerance are considered part of the same band after lexicographic
-        sorting by `(real, imag)`.
-
     Returns
     -------
     `Tensor`
@@ -248,13 +203,12 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
         - dtype matching the complex dtype of the input (real inputs
           yield complex eigenvalues).
         - dims keeping all leading dimensions and replacing the last
-          two matrix dimensions with a single `FactorSpace` dimension.
+          two matrix dimensions with a single `IndexSpace` dimension.
 
     Notes
     -----
     `torch.linalg.eigvals` does not guarantee any ordering of the eigenvalues.
-    This function sorts eigenvalues lexicographically by `(real, imag)` before
-    band grouping.
+    This function sorts eigenvalues lexicographically by `(real, imag)`.
     """
     _assert_eig_dims(tensor)
 
@@ -263,8 +217,7 @@ def eigvals(tensor: Tensor, group_band_eps: float = 1e-8) -> Tensor:
     eigenvalues = torch.linalg.eigvals(target.data)
     eigenvalues, _ = _sort_eigenpairs(eigenvalues)
 
-    band_counts = _band_counts(eigenvalues, float(group_band_eps))
-    spectrum = FactorSpace.from_band_counts(band_counts)
+    spectrum = IndexSpace.linear(eigenvalues.shape[-1])
 
     vals = Tensor(
         data=eigenvalues,
@@ -289,7 +242,7 @@ def qr(tensor: Tensor) -> QR:
         - `R` is an upper-triangular `Tensor`.
         - Output dims preserve leading dimensions and map the last two dims to
           `(row_dim, spectral_dim)` for `Q` and `(spectral_dim, col_dim)` for
-          `R`, where `spectral_dim` is a `FactorSpace` describing the
+          `R`, where `spectral_dim` is an `IndexSpace` describing the
           reduced QR bond dimension.
     """
     if tensor.rank() < 2:
@@ -301,7 +254,7 @@ def qr(tensor: Tensor) -> QR:
     col_dim = tensor.dims[-1]
 
     q_data, r_data = torch.linalg.qr(tensor.data, mode="reduced")
-    spectral_dim = FactorSpace.from_band_counts([q_data.shape[-1]])
+    spectral_dim = IndexSpace.linear(q_data.shape[-1])
 
     q = Tensor(
         data=q_data,
@@ -354,11 +307,11 @@ def svd(
 
     u_data, s_data, vh_data = torch.linalg.svd(tensor.data, full_matrices=full_matrices)
 
-    factor = FactorSpace.from_band_counts([s_data.shape[-1]])
+    factor = IndexSpace.linear(s_data.shape[-1])
 
     if full_matrices:
-        left_factor = FactorSpace.from_band_counts([row_dim.dim])
-        right_factor = FactorSpace.from_band_counts([col_dim.dim])
+        left_factor = IndexSpace.linear(row_dim.dim)
+        right_factor = IndexSpace.linear(col_dim.dim)
         u = Tensor(
             data=u_data,
             dims=tensor.dims[:-2] + (row_dim, left_factor),

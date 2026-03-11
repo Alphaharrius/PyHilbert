@@ -1,24 +1,20 @@
 from abc import ABC, abstractmethod
-from copy import copy
-from dataclasses import dataclass, field, fields, is_dataclass
-from multipledispatch import dispatch
+from dataclasses import dataclass, fields, is_dataclass
 from typing import (
     Any,
     Callable,
     Dict,
     ClassVar,
-    Literal,
-    NamedTuple,
-    Set,
     Self,
     Tuple,
     Generic,
     Type,
     TypeVar,
-    Union,
+    cast,
 )
+from typing_extensions import final
 
-from .utils import subtypes
+from multipledispatch import dispatch
 
 
 @dataclass(frozen=True)
@@ -342,84 +338,76 @@ class HasBase(Generic[BaseType], ABC):
         raise NotImplementedError()
 
 
-@dataclass(frozen=True)
+_InnerProductType = TypeVar("_InnerProductType")
+
+
+class AbstractKet(Generic[_InnerProductType], ABC):
+    """
+    The base class for all ket-like objects that the inner product is defined via `<bra|ket>` syntax.
+
+    The `_InnerProductType` is the type of the inner product mapping between this ket and its dual bra.
+    """
+
+    @abstractmethod
+    def ket(self, another: Self) -> _InnerProductType:
+        """Return the inner product mapping between this ket and `another` ket."""
+        raise NotImplementedError()
+
+
 class Functional(ABC):
-    _registered_methods: ClassVar[Dict[Tuple[type, type], Tuple[Callable, ...]]] = {}
-    _overwrite_locked_by_subclass: ClassVar[Set[Tuple[type, type]]] = set()
+    _registered_methods: ClassVar[Dict[Tuple[type, type], Callable]] = {}
+    _resolved_methods: ClassVar[Dict[Tuple[type, type], Callable]] = {}
 
     @classmethod
-    def register(  # TODO: Rename to register
-        cls, obj_type: type, order: Literal["overwrite", "front", "back"] = "overwrite"
-    ):
+    def _invalidate_resolved_methods(cls, obj_type: type) -> None:
+        stale_keys = [
+            key
+            for key in cls._resolved_methods
+            if key[1] is cls and issubclass(key[0], obj_type)
+        ]
+        for key in stale_keys:
+            del cls._resolved_methods[key]
+
+    @classmethod
+    def register(cls, obj_type: type):
         """
         Register a function defining the action of the `Functional` on a specific object type.
-        Registration is applied to `obj_type` and all currently defined subclasses
-        of `obj_type`. For each affected type:
-        - `'overwrite'` replaces any existing function.
-        - `'front'` prepends the new function to the existing function chain.
-        - `'back'` appends the new function to the existing function chain.
-
-        At call time, chained functions are executed in front-to-end order, where each
-        function receives the output of the previous function as its `obj` input.
+        Dispatch is resolved at call time via MRO, so only the exact `(obj_type, cls)`
+        key is stored here.
 
         Parameters
         ----------
         `obj_type` : `type`
             The type of object the function applies to.
-        `order` : `Literal["overwrite", "front", "back"]`, optional
-            The order in which to register the function relative to existing functions.
-            By default, 'overwrite' which replaces any existing function.
-
         Returns
         -------
         `Callable`
             A decorator that registers the function for the specified object type.
         """
-        if order not in ("overwrite", "front", "back"):
-            raise ValueError(
-                f"Invalid registration order: {order}. "
-                "Expected one of 'overwrite', 'front', 'back'."
-            )
 
         def decorator(func: Callable):
-            chain: Tuple[Callable, ...] = tuple()
-            for target_type in (obj_type, *subtypes(obj_type)):
-                key = (target_type, cls)
-                is_superclass_propagation = target_type is not obj_type
-                if (
-                    is_superclass_propagation
-                    and key in cls._overwrite_locked_by_subclass
-                ):
-                    if order == "overwrite":
-                        raise ValueError(
-                            f"Cannot overwrite function for {target_type.__name__} via "
-                            f"superclass registration on {obj_type.__name__} because "
-                            "the subclass was previously registered with "
-                            "order='overwrite'."
-                        )
-                    continue
-
-                existing = cls._registered_methods.get(key)
-                if existing is None:
-                    existing_chain: Tuple[Callable, ...] = ()
-                elif isinstance(existing, tuple):
-                    existing_chain = existing
-                else:
-                    existing_chain = (existing,)
-
-                if order == "overwrite" or not existing_chain:
-                    chain = (func,)
-                elif order == "front":
-                    chain = (func,) + existing_chain
-                else:  # order == "back"
-                    chain = existing_chain + (func,)
-
-                cls._registered_methods[key] = chain
-                if not is_superclass_propagation and order == "overwrite":
-                    cls._overwrite_locked_by_subclass.add(key)
+            cls._registered_methods[(obj_type, cls)] = func
+            cls._invalidate_resolved_methods(obj_type)
             return func
 
         return decorator
+
+    @classmethod
+    def _resolve_method(
+        cls, obj_class: type, functional_class: type
+    ) -> Callable | None:
+        key = (obj_class, functional_class)
+        method = cls._resolved_methods.get(key)
+        if method is not None:
+            return method
+
+        table_get = cls._registered_methods.get
+        for obj_super in obj_class.__mro__:
+            method = table_get((obj_super, functional_class))
+            if method is not None:
+                cls._resolved_methods[key] = method
+                return method
+        return None
 
     @staticmethod
     def get_applicable_types(cls) -> Tuple[Type, ...]:
@@ -451,86 +439,190 @@ class Functional(ABC):
         bool
             True if this `Functional` can be applied on the object, False otherwise.
         """
+        return self._resolve_method(type(obj), type(self)) is not None
+
+    def invoke(self, obj: Any, **kwargs) -> Any:
         functional_class = type(self)
         obj_class = type(obj)
-        key = (obj_class, functional_class)
-        return key in self._registered_methods
+        method = self._resolve_method(obj_class, functional_class)
 
-    def apply(self, obj: Any, **kwargs) -> Any:
-        functional_class = type(self)
-        obj_class = type(obj)
-        key = (obj_class, functional_class)
-
-        chain = self._registered_methods.get(key)
-
-        if chain is None or not chain:
+        if method is None:
             raise NotImplementedError(
                 f"No function registered for {obj_class.__name__} "
                 f"with {functional_class.__name__}"
             )
 
-        out = obj
-        for func in chain:
-            out = func(self, out, **kwargs)
-        return out
+        return method(self, obj, **kwargs)
 
     def __call__(self, obj: Any, **kwargs) -> Any:
-        return self.apply(obj, **kwargs)
+        return self.invoke(obj, **kwargs)
 
 
-@dataclass(frozen=True)
-class GaugeBasis(ABC):
+_ElementType = TypeVar("_ElementType")
+
+
+class Span(ABC, Generic[_ElementType]):
     """
-    A marker class for gaugable objects.
-    """
+    An object representing the span of a set of elements.
 
-    pass
+    The specific meaning of "span" depends on the context. For example, in a
+    vector space, the span of a set of vectors is the set of all linear
+    combinations of those vectors. In a topological space, the span of a set
+    of points might be the smallest closed set containing those points.
 
+    Implementations should define what it means to be an element and how to
+    determine if an object is contained within the span.
 
-@dataclass(frozen=True)
-class GaugeInvariant(GaugeBasis):
-    """
-    This represents gauge-invariant object to all transformations.
-    """
-
-    pass
-
-
-@dataclass(frozen=True)
-class Gaugable(ABC):
-    """
-    Container base class for objects that own a `GaugeBasis` instance.
+    The `_ElementType` type variable represents the type of elements that define the span.
     """
 
-    _gauge_basis: GaugeBasis = field(default_factory=GaugeInvariant, init=False)
+    @abstractmethod
+    def elements(self) -> Tuple[_ElementType, ...]:
+        """
+        Return the elements contained in this span.
 
-    def gauge_repr(self) -> GaugeBasis:
-        """Get the gauge basis representation of this gaugable object."""
-        return self._gauge_basis
+        Returns
+        -------
+        `Tuple[_ElementType, ...]`
+            Immutable tuple of elements represented by this span.
+        """
+        pass
 
-    def with_gauge_repr(self, new_repr: GaugeBasis) -> Self:
-        new_obj = copy(self)
-        object.__setattr__(new_obj, "_gauge_basis", new_repr)
-        return new_obj
+    def contains(self, v) -> bool:
+        """
+        Check whether this span contains `v`.
+
+        Supported input
+        ---------------
+        - `Span`: compared directly via `v.elements()`.
+        - `Convertible`: converted to `type(self)` by
+          `v.convert(type(self))`, then compared via elements.
+
+        Unsupported input
+        -----------------
+        - Any non-`Span` object that is not `Convertible`.
+        - `Convertible` objects without a registered conversion to `type(self)`.
+
+        Parameters
+        ----------
+        `v` : `Any`
+            Membership query object.
+
+        Returns
+        -------
+        `bool`
+            `True` when all elements in the query span are contained in this span.
+
+        Raises
+        ------
+        `ValueError`
+            If `v` cannot be converted to `type(self)`.
+
+        Developer Note
+        --------------
+        To make a custom type supported by `contains`, implement `Convertible`
+        and register a conversion to the target span type:
+        `@YourType.add_conversion(TargetSpanType)`.
+        """
+        if not isinstance(v, Span):
+            if isinstance(v, Convertible):
+                v = cast(Convertible, v).convert(type(self))
+            else:
+                raise ValueError(
+                    f"Cannot convert {type(v).__name__} to {type(self).__name__}!"
+                )
+        base = set(self.elements())
+        return all(el in base for el in v.elements())
 
 
-_GaugableType = TypeVar("_GaugableType", bound=Union[Gaugable, GaugeInvariant])
-_GaugeType = TypeVar("_GaugeType")
-
-
-class Gauged(Generic[_GaugableType, _GaugeType], NamedTuple):
+class HasUnit(ABC):
     """
-    A simple named tuple to hold a gaugable object and its associated gauge after a transformation.
-
-    This is primarily a convenience wrapper to group together a `Gaugable` object
-    and the resulting gauge after applying a `Transform`. It allows for clear
-    and type-safe handling of gaugable objects along with their gauges in
-    various operations.
-
-    For example, if the gauge is `U(1)` then the gauge is a complex number.
+    An object that has a unit representation.
     """
 
-    gauge: _GaugeType
-    """ The gauge associated with the gaugable object. """
-    gaugable: _GaugableType
-    """ The gaugable object being transformed. """
+    @abstractmethod
+    def unit(self) -> Self:
+        """Return the unit representation of this object."""
+        raise NotImplementedError()
+
+
+A = TypeVar("A", bound="Convertible")
+B = TypeVar("B")
+_type_conversion_table: Dict[Tuple[Type[Any], Type[Any]], Callable[[Any], Any]] = {}
+
+
+class Convertible(ABC):
+    """
+    Mixin for objects that support explicit type-to-type conversion.
+
+    Conversion functions are registered globally using
+    ``@MyType.add_conversion(TargetType)`` with
+    ``(source_type, destination_type)`` as the lookup key. Implementers inherit
+    :meth:`convert` and usually only need to register conversion handlers.
+
+    Notes
+    -----
+    Lookup first checks ``(type(self), T)`` exactly. If not found, it scans
+    source supertypes in MRO order from immediate parent to the most abstract
+    parent. If no conversion function is found, conversion fails with
+    ``NotImplementedError``.
+    """
+
+    @classmethod
+    def add_conversion(
+        cls: Type[A], T: Type[B]
+    ) -> Callable[[Callable[[A], B]], Callable[[A], B]]:
+        """
+        Register a conversion from ``cls`` to ``T``.
+
+        Example
+        -------
+        `@MyType.add_conversion(TargetType)`
+        `def to_target(x: MyType) -> TargetType: ...`
+        """
+
+        def decorator(func: Callable[[A], B]) -> Callable[[A], B]:
+            _type_conversion_table[(cls, T)] = cast(Callable[[Any], Any], func)
+            return func
+
+        return decorator
+
+    @final
+    def convert(self, T: Type[B]) -> B:
+        """
+        Convert this instance to the requested target type.
+
+        Parameters
+        ----------
+        `T` : `Type[B]`
+            Destination type to convert into.
+
+        Returns
+        -------
+        `B`
+            Converted object produced by the registered conversion function.
+
+        Raises
+        ------
+        `NotImplementedError`
+            If no conversion function has been registered for
+            ``(type(self), T)`` or any source supertype via
+            :meth:`add_conversion`.
+        """
+        source_type = type(self)
+        table_get = _type_conversion_table.get
+
+        convertor = table_get((source_type, T))
+        if convertor is None:
+            for super_type in source_type.__mro__[1:]:
+                convertor = table_get((super_type, T))
+                if convertor is not None:
+                    # Cache resolved parent conversion under the concrete source type.
+                    _type_conversion_table[(source_type, T)] = convertor
+                    break
+
+        if convertor is None:
+            raise NotImplementedError(
+                f"No conversion from {source_type.__name__} to {T.__name__}!"
+            )
+        return cast(Callable[["Convertible"], B], convertor)(self)
