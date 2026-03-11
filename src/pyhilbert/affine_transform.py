@@ -703,8 +703,8 @@ def _(t: AffineTransform, v: U1Span) -> U1Span:
     Each basis state in `v.span` is transformed independently. The transformed
     span is then compared against the original span using `same_rays`.
     - If the span is not invariant, returns `(None, transformed_span)`.
-    - If invariant, returns the Gram/overlap matrix `v.gram(new_v)`, which is the
-      representation of the symmetry action in this basis.
+    - If invariant, returns the cross-Gram overlap matrix `v.cross_gram(new_v)`,
+      which is the representation of the symmetry action in this basis.
 
     Parameters
     ----------
@@ -731,7 +731,7 @@ def _(t: AffineTransform, h: HilbertSpace) -> HilbertSpace:
     The transform is applied elementwise to build a new Hilbert space basis.
     Invariance is checked by `same_rays(h, new_h)`:
     - If the transformed basis leaves the span, returns `(None, new_h)`.
-    - If the span is preserved, returns the basis-action matrix `h.gram(new_h)`.
+    - If the span is preserved, returns the basis-action matrix `h.cross_gram(new_h)`.
 
     Parameters
     ----------
@@ -812,7 +812,7 @@ def bandtransform(
     def build_transform(space: HilbertSpace) -> Tensor:
         fractional = FuncOpr(Offset, Offset.fractional)
         new_space = cast(HilbertSpace, fractional @ (t @ space))
-        bloch_transform: Tensor = cast(Tensor, space.gram(new_space)).h(
+        bloch_transform: Tensor = cast(Tensor, space.cross_gram(new_space)).h(
             -2, -1
         )  # (B', B)
         # The transformation will distort the unit-cell of the Hilbert space,

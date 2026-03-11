@@ -353,7 +353,7 @@ class U1Span(Span[U1Basis], Spatial, HasUnit, Convertible):
         """Return the actual span without any basis scaling by a irrep."""
         return U1Span(tuple(m.unit() for m in self.span))
 
-    def gram(self, ket: "U1Span") -> sy.ImmutableDenseMatrix:
+    def cross_gram(self, ket: "U1Span") -> sy.ImmutableDenseMatrix:
         tbl: Dict["U1Basis", Tuple[int, "U1Basis"]] = {
             psi.unit(): (n, psi) for n, psi in enumerate(ket.span)
         }
@@ -392,7 +392,7 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis]):
 
     As a `Span`, `HilbertSpace` supports overlap/mapping computations through
     `gram`, which builds a `Tensor` map between two spaces using `U1Basis`
-    overlap (`U1Span.gram`). As a `HasUnit`, `unit()` keeps basis structure
+    overlap (`U1Span.cross_gram`). As a `HasUnit`, `unit()` keeps basis structure
     while replacing each element by its unit-normalized counterpart.
 
     Parameters
@@ -773,9 +773,9 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis]):
         return hilbert(el.unit() for el in self)
 
     @override
-    def gram(self, another: "HilbertSpace") -> Tensor:
+    def cross_gram(self, another: "HilbertSpace") -> Tensor:
         """
-        Build the overlap (Gram) matrix between this basis and another basis.
+        Build the cross-Gram overlap matrix between this basis and another basis.
 
         Matrix entries are computed from concrete basis overlaps
         `G_{ij} = <self_i | another_j>`, so any nontrivial U(1) irrep phase in
@@ -793,7 +793,7 @@ class HilbertSpace(HasUnit, StateSpace[U1Basis], Span[U1Basis]):
         """
         span = U1Span(cast(Tuple[U1Basis, ...], self.elements()))
         new_span = U1Span(cast(Tuple[U1Basis, ...], another.elements()))
-        irrep = span.gram(new_span)
+        irrep = span.cross_gram(new_span)
         precision = get_precision_config()
         data = torch.from_numpy(
             np.asarray(irrep.tolist(), dtype=precision.np_complex)

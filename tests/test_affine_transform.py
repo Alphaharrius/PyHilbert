@@ -493,7 +493,7 @@ def test_u1span_gram_tracks_basis_order():
     span_ab = a | b
     span_ba = b | a
 
-    gram = span_ab.gram(span_ba)
+    gram = span_ab.cross_gram(span_ba)
     expected = ImmutableDenseMatrix([[0, 1], [1, 0]])
     assert gram == expected
 
@@ -588,7 +588,7 @@ def test_affine_transform_hilbert_c4_u1state_mapping():
     gh = t(h)
     assert gh == gh_expected
 
-    tmat = h.gram(gh)
+    tmat = h.cross_gram(gh)
     assert tmat.dims[0] == h
     assert tmat.dims[1] == gh_expected.unit()
 
@@ -616,7 +616,7 @@ def test_affine_transform_hilbert_applies_nontrivial_u1state_gauge_phase():
     m = _state(gauge_basis)
     h = hilbert([m])
 
-    tmat = h.gram(t @ h)
+    tmat = h.cross_gram(t @ h)
     expected = torch.tensor([[-1.0 + 0.0j]], dtype=tmat.data.dtype)
     assert torch.allclose(tmat.data, expected)
 
@@ -635,7 +635,7 @@ def test_affine_transform_hilbert_applies_matrix_gauge_block():
     fy = AbelianBasis(expr=y, axes=(x, y), order=1, rep=ImmutableDenseMatrix([0, 1]))
 
     h = hilbert([_state(fx), _state(fy)])
-    tmat = h.gram(t @ h)
+    tmat = h.cross_gram(t @ h)
 
     expected = torch.diag(
         torch.tensor([-1.0 + 0.0j, 1.0 + 0.0j], dtype=tmat.data.dtype)
@@ -732,7 +732,7 @@ def test_bandtransform_both_matches_explicit_k_aligned_reference():
     def _build_transform_ref(space: HilbertSpace, kspace: MomentumSpace) -> Tensor:
         fractional = FuncOpr(Offset, Offset.fractional)
         gspace = fractional @ (c4 @ space)
-        bloch_transform = cast(Tensor, space.gram(gspace)).h(-2, -1)  # (B', B)
+        bloch_transform = cast(Tensor, space.cross_gram(gspace)).h(-2, -1)  # (B', B)
         bloch_transform = bloch_transform.replace_dim(0, gspace)
         left_fourier = fourier_transform(kspace, space, gspace)
         right_fourier = fourier_transform(kspace, space, space)

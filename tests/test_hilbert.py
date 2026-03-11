@@ -225,7 +225,7 @@ def test_hilbert_space_gram_diagonal_for_identical_basis():
     )
     hs = hilbert([a, b])
 
-    gram = hs.gram(hs)
+    gram = hs.cross_gram(hs)
     assert gram.data.shape == (2, 2)
     assert gram.data[0, 0] == 4
     assert gram.data[1, 1] == 9
@@ -243,7 +243,7 @@ def test_hilbert_space_gram_unitizes_target_dim():
     )
     hs = hilbert([a, b])
 
-    gram = hs.gram(hs)
+    gram = hs.cross_gram(hs)
     assert gram.dims[0] == hs
     assert gram.dims[1] == hs.unit()
 
