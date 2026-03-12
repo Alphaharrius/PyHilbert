@@ -9,8 +9,8 @@ from qten.affine_transform import (
     AbelianBasis,
     AffineTransform,
     pointgroup,
-    bandtransform,
 )
+from qten.bands import bandaffine
 from qten.geometries.fourier import fourier_transform
 from qten.state_space import MomentumSpace, brillouin_zone
 from qten.hilbert_space import HilbertSpace, U1Basis, FuncOpr, hilbert
@@ -644,7 +644,7 @@ def test_affine_transform_hilbert_applies_matrix_gauge_block():
     assert torch.allclose(tmat.data, expected)
 
 
-def test_bandtransform_both_preserves_c4_symmetric_momentum_tensor_up_to_alignment():
+def test_bandaffine_both_preserves_c4_symmetric_momentum_tensor_up_to_alignment():
     x, y = sy.symbols("x y")
 
     # Square lattice with a 2x2 momentum grid: (0,0), (0,1/2), (1/2,0), (1/2,1/2).
@@ -686,13 +686,13 @@ def test_bandtransform_both_preserves_c4_symmetric_momentum_tensor_up_to_alignme
         basis_function_order=1,
     )
 
-    tensor_out = bandtransform(c4, tensor_in, opt="both")
+    tensor_out = bandaffine(c4, tensor_in, opt="both")
     tensor_out = tensor_out.align(0, k_space).align(1, h_space).align(2, h_space)
 
     assert torch.allclose(tensor_out.data, tensor_in.data)
 
 
-def test_bandtransform_both_matches_explicit_k_aligned_reference():
+def test_bandaffine_both_matches_explicit_k_aligned_reference():
     x, y = sy.symbols("x y")
 
     lattice = Lattice(
@@ -753,14 +753,14 @@ def test_bandtransform_both_matches_explicit_k_aligned_reference():
     )
     tensor_ref = cast(Tensor, (left_ref @ tensor_in @ right_ref.h(-2, -1)))
 
-    tensor_out = bandtransform(c4, tensor_in, opt="both")
+    tensor_out = bandaffine(c4, tensor_in, opt="both")
     tensor_out = tensor_out.align(0, k_space).align(1, h_space).align(2, h_space)
     tensor_ref = tensor_ref.align(0, k_space).align(1, h_space).align(2, h_space)
 
     assert torch.allclose(tensor_out.data, tensor_ref.data)
 
 
-def test_bandtransform_both_c4_fourfold_roundtrip_complex_tensor():
+def test_bandaffine_both_c4_fourfold_roundtrip_complex_tensor():
     x, y = sy.symbols("x y")
     lattice = Lattice(
         basis=ImmutableDenseMatrix.eye(2),
@@ -801,7 +801,7 @@ def test_bandtransform_both_c4_fourfold_roundtrip_complex_tensor():
 
     out = tensor_in
     for _ in range(4):
-        out = bandtransform(c4, out, opt="both")
+        out = bandaffine(c4, out, opt="both")
 
     out = out.align(0, k_space).align(1, h_space).align(2, h_space)
     assert torch.allclose(out.data, tensor_in.data)

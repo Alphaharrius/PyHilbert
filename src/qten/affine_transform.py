@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re
-from typing import Any, Dict, Literal, Tuple, cast
+from typing import Any, Dict, Tuple, cast
 from collections import OrderedDict
 from itertools import product
 from functools import lru_cache, reduce
@@ -10,17 +10,13 @@ import sympy as sy
 
 from .abstracts import HasBase
 from .geometries.spatials import AffineSpace, Spatial, Offset, Momentum
-from .state_space import MomentumSpace
 from .hilbert_space import (
     U1Operator,
     HilbertSpace,
     U1Basis,
     U1Span,
-    FuncOpr,
     hilbert,
 )
-from .tensors import Tensor
-from .geometries.fourier import fourier_transform
 from .validations import need_validation
 from .validations.symbolics import check_invertibility, check_numerical
 from .utils.collections_ext import FrozenDict
@@ -748,104 +744,6 @@ def _(t: AffineTransform, h: HilbertSpace) -> HilbertSpace:
     """
     new_h = hilbert(cast(U1Basis, t @ el) for el in h)
     return new_h
-
-
-def bandtransform(
-    t: AffineTransform,
-    tensor: Tensor,
-    opt: Literal["left", "right", "both"] = "both",
-) -> Tensor:
-    """
-    Apply an affine symmetry action to a momentum-resolved operator tensor.
-
-    The expected tensor shape is `(K, B_left, B_right)` where `K` is a
-    `MomentumSpace` and `B_left`, `B_right` are `HilbertSpace`s. Depending on
-    `opt`, this function applies the symmetry-induced basis transform on the
-    left side, right side, or both sides of the band tensor.
-
-    For each transformed side, a k-dependent matrix is built from:
-    - the affine action on the Hilbert space basis (`t(space)`), and
-    - Fourier transforms that connect Bloch and real-space sectors.
-
-    Momentum handling:
-    - The k action is treated as a relabeling/permutation of sectors.
-    - We align the k-axis of the transform tensors to the canonical `kspace`
-      ordering before multiplication.
-    - The input tensor itself is not pre-remapped in k; remapping is used only
-      to align transform blocks with each momentum sector.
-
-    Parameters
-    ----------
-    `t` : `AffineTransform`
-        Affine transformation to apply.
-    `tensor` : `Tensor`
-        Momentum-space tensor with dims
-        `(MomentumSpace, HilbertSpace, HilbertSpace)`.
-    `opt` : `Literal["left", "right", "both"]`, default `"both"`
-        Which side(s) to transform.
-
-    Returns
-    -------
-    `Tensor`
-        The transformed tensor with the same dimension types.
-
-    Raises
-    ------
-    `ValueError`
-        If `opt` is invalid, if `tensor` is not rank-3 with dims
-        `(MomentumSpace, HilbertSpace, HilbertSpace)`, or if a Hilbert space
-        side is not symmetry-compatible with `t`.
-    """
-    if opt not in ("both", "left", "right"):
-        raise ValueError(f"Invalid option {opt} for bandtransform!")
-    if not len(tensor.dims) == 3:
-        raise ValueError("Input tensor must have exactly 3 dimensions.")
-    if not isinstance(tensor.dims[0], MomentumSpace):
-        raise ValueError("First dimension of tensor must be a MomentumSpace.")
-    if not isinstance(tensor.dims[1], HilbertSpace):
-        raise ValueError("Second dimension of tensor must be a HilbertSpace.")
-    if not isinstance(tensor.dims[2], HilbertSpace):
-        raise ValueError("Third dimension of tensor must be a HilbertSpace.")
-
-    kspace: MomentumSpace = cast(MomentumSpace, tensor.dims[0])
-
-    def build_transform(space: HilbertSpace) -> Tensor:
-        fractional = FuncOpr(Offset, Offset.fractional)
-        new_space = cast(HilbertSpace, fractional @ (t @ space))
-        bloch_transform: Tensor = cast(Tensor, space.cross_gram(new_space)).h(
-            -2, -1
-        )  # (B', B)
-        # The transformation will distort the unit-cell of the Hilbert space,
-        # we will use fractional to return it to the original unit-cell.
-        if not space.same_rays(new_space):
-            raise ValueError(
-                f"Hilbert space {space} is not symmetric under the transform {t}!"
-            )
-        left_fourier = fourier_transform(kspace, space, space)  # (K, B, B'=B)
-        right_fourier = fourier_transform(kspace, space, space)  # (K, B, B)
-        # (K, B, B'=B) @ (B'=B, B) @ (B, B)
-        transform = (
-            left_fourier @ bloch_transform @ right_fourier.h(-2, -1)
-        )  # (K, B, B)
-        return transform
-
-    mapped_kspace = kspace.map(lambda k: cast(Momentum, t @ k).fractional())
-
-    if opt in ("both", "left"):
-        left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
-        left_fourier = left_fourier.replace_dim(0, mapped_kspace).align(
-            0, kspace
-        )  # (K, B, B)
-        tensor = cast(Tensor, (left_fourier @ tensor))  # (K, B, B)
-
-    if opt in ("both", "right"):
-        right_fourier = build_transform(cast(HilbertSpace, tensor.dims[2]))  # (K, B, B)
-        right_fourier = right_fourier.replace_dim(0, mapped_kspace).align(
-            0, kspace
-        )  # (K, B, B)
-        tensor = cast(Tensor, (tensor @ right_fourier.h(-2, -1)))  # (K, B, B)
-
-    return tensor
 
 
 _AFFINE_QUERY_RE = re.compile(

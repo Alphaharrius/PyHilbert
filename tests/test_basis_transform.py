@@ -14,7 +14,8 @@ from qten.geometries.spatials import (
 from qten.state_space import brillouin_zone
 from qten.hilbert_space import U1Basis, hilbert
 from qten.tensors import Tensor
-from qten.geometries.basis_transform import bandfold, BasisTransform
+from qten.geometries.basis_transform import BasisTransform
+from qten.bands import bandfold
 from qten.geometries.boundary import PeriodicBoundary
 
 
