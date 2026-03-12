@@ -4,8 +4,8 @@ import numpy as np
 from sympy import ImmutableDenseMatrix
 
 from .geometries.spatials import Offset, Momentum
-from .state_space import MomentumSpace, brillouin_zone
-from .hilbert_space import (
+from .symbolics.state_space import MomentumSpace, brillouin_zone
+from .symbolics.hilbert_space import (
     HilbertSpace,
     U1Basis,
     FuncOpr,

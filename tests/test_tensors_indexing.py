@@ -6,13 +6,13 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix
 
 from qten.tensors import Tensor, where
-from qten.state_space import (
+from qten.symbolics.state_space import (
     BroadcastSpace,
     IndexSpace,
     MomentumSpace,
     brillouin_zone,
 )
-from qten.hilbert_space import U1Basis, hilbert
+from qten.symbolics.hilbert_space import U1Basis, hilbert
 from qten.geometries.spatials import Lattice
 from qten.geometries.boundary import PeriodicBoundary
 

@@ -9,7 +9,7 @@ import sympy as sy
 
 from ..abstracts import HasBase
 from ..geometries.spatials import AffineSpace, Spatial, Offset, Momentum
-from ..hilbert_space import (
+from ..symbolics.hilbert_space import (
     U1Operator,
     HilbertSpace,
     U1Basis,

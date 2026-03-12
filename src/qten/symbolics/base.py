@@ -17,7 +17,7 @@ import sympy as sy
 BaseType = TypeVar("BaseType")
 
 
-@dataclass
+@dataclass(frozen=True)
 class Multiple(Generic[BaseType]):
     """Represent a scalar coefficient multiplied by an arbitrary base object.
 

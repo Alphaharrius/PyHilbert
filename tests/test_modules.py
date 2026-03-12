@@ -8,7 +8,7 @@ from qten.modules import (
     TENSOR_PARAM_PREFIX,
     nograd_tensors,
 )
-from qten.state_space import IndexSpace
+from qten.symbolics.state_space import IndexSpace
 from qten.tensors import Tensor
 from qten.utils.devices import Device
 from qten.utils.collections_ext import FrozenDict

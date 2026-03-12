@@ -8,9 +8,9 @@ from itertools import islice
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
-from .abstracts import Convertible, Span
-from .validations import need_validation
-from .geometries.spatials import (
+from ..abstracts import Convertible, Span
+from ..validations import need_validation
+from ..geometries.spatials import (
     Spatial,
     ReciprocalLattice,
     Momentum,

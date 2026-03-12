@@ -12,8 +12,8 @@ from qten.pointgroups.abelian import (
 )
 from qten.bands import bandaffine
 from qten.geometries.fourier import fourier_transform
-from qten.state_space import MomentumSpace, brillouin_zone
-from qten.hilbert_space import HilbertSpace, U1Basis, FuncOpr, hilbert
+from qten.symbolics.state_space import MomentumSpace, brillouin_zone
+from qten.symbolics.hilbert_space import HilbertSpace, U1Basis, FuncOpr, hilbert
 from qten.geometries.spatials import AffineSpace, Momentum, Offset
 from qten.geometries.spatials import Lattice
 from qten.geometries.boundary import PeriodicBoundary

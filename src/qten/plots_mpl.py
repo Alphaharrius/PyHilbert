@@ -5,8 +5,8 @@ from typing import Optional, Union, Any, cast, Tuple
 from .geometries.spatials import Lattice
 from .tensors import Tensor
 from .plots import compute_bonds
-from .state_space import MomentumSpace, same_rays
-from .hilbert_space import HilbertSpace
+from .symbolics.state_space import MomentumSpace, same_rays
+from .symbolics.hilbert_space import HilbertSpace
 # --- Registered Plot Methods (Matplotlib Backend) ---
 
 

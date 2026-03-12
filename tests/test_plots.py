@@ -7,10 +7,10 @@ import torch
 
 import plotly.graph_objects as go
 
-from qten.hilbert_space import U1Basis, hilbert
+from qten.symbolics.hilbert_space import U1Basis, hilbert
 from qten.geometries.spatials import Lattice, Offset
 from qten.geometries.boundary import PeriodicBoundary
-from qten.state_space import brillouin_zone
+from qten.symbolics.state_space import brillouin_zone
 from qten.tensors import Tensor
 from qten.geometries.fourier import fourier_transform
 

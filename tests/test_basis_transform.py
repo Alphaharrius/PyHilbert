@@ -11,8 +11,8 @@ from qten.geometries.spatials import (
     ReciprocalLattice,
     Momentum,
 )
-from qten.state_space import brillouin_zone
-from qten.hilbert_space import U1Basis, hilbert
+from qten.symbolics.state_space import brillouin_zone
+from qten.symbolics.hilbert_space import U1Basis, hilbert
 from qten.tensors import Tensor
 from qten.geometries.basis_transform import BasisTransform
 from qten.bands import bandfold

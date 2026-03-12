@@ -3,8 +3,8 @@ import sympy as sy
 from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 
-from qten.hilbert_space import U1Basis, U1Span, HilbertSpace, hilbert
-from qten.state_space import MomentumSpace, brillouin_zone
+from qten.symbolics.hilbert_space import U1Basis, U1Span, HilbertSpace, hilbert
+from qten.symbolics.state_space import MomentumSpace, brillouin_zone
 from qten.geometries.spatials import Lattice, Offset
 from qten.utils.collections_ext import FrozenDict
 from qten.geometries.boundary import PeriodicBoundary

@@ -2,8 +2,8 @@ import torch
 import sympy as sy
 
 from qten.decompose import eig, eigh, eigvals, qr, svd
-from qten.state_space import IndexSpace
-from qten.hilbert_space import U1Basis, hilbert
+from qten.symbolics.state_space import IndexSpace
+from qten.symbolics.hilbert_space import U1Basis, hilbert
 from qten.tensors import Tensor
 
 

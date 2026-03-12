@@ -22,10 +22,10 @@ import torch
 import sympy as sy
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
-from .utils.collections_ext import FrozenDict
-from .utils.types_ext import full_typename
-from .validations import need_validation
-from .abstracts import (
+from ..utils.collections_ext import FrozenDict
+from ..utils.types_ext import full_typename
+from ..validations import need_validation
+from ..abstracts import (
     AbstractKet,
     Convertible,
     Operable,
@@ -33,11 +33,11 @@ from .abstracts import (
     Span,
     HasRays,
 )
-from .geometries.spatials import Spatial
+from ..geometries.spatials import Spatial
 from .state_space import StateSpace, StateSpaceFactorization
-from .tensors import Tensor
-from .precision import get_precision_config
-from .symbolics import Multiple
+from ..tensors import Tensor
+from ..precision import get_precision_config
+from . import Multiple
 
 
 _IrrepType = TypeVar("_IrrepType")
@@ -558,11 +558,15 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
         for el in self.elements():
             keys[tuple(el.irrep_of(t) for t in T)] = None
 
+        def make_selector(key: Tuple[Any, ...]) -> Callable[[U1Basis], bool]:
+            def selector(el: U1Basis) -> bool:
+                return all(el.irrep_of(t) == target for t, target in zip(T, key))
+
+            return selector
+
         selectors: OrderedDict[str, Callable[[U1Basis], bool]] = OrderedDict()
         for i, key in enumerate(keys):
-            selectors[f"_{i}"] = lambda el, key=key: all(
-                el.irrep_of(t) == target for t, target in zip(T, key)
-            )
+            selectors[f"_{i}"] = make_selector(key)
 
         result = self.group(**selectors)
         return tuple(result[label] for label in selectors)
@@ -757,8 +761,8 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
             combo_to_element[combo] = el
 
         expected_size = 1
-        for keys in factor_keys:
-            expected_size *= len(keys)
+        for group_keys in factor_keys:
+            expected_size *= len(group_keys)
         if expected_size != len(combo_to_element):
             raise ValueError(
                 "Requested factorization is not valid: basis is not a complete Cartesian product."
@@ -812,7 +816,6 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
         """Return the Hilbert space obtained by replacing each basis state by its ray representative."""
         return hilbert(el.rays() for el in self)
 
-    @override
     def cross_gram(self, another: "HilbertSpace") -> Tensor:
         """
         Build the cross-Gram overlap matrix between this basis and another basis.
@@ -856,7 +859,9 @@ def u1basis_to_hilbertspace(basis: U1Basis) -> StateSpace:
 
 
 # Support conversion to HilbertSpace using `basis.convert(HilbertSpace)`.
-U1Basis.add_conversion(HilbertSpace)(u1basis_to_hilbertspace)
+U1Basis.add_conversion(HilbertSpace)(
+    cast(Callable[[U1Basis], HilbertSpace], u1basis_to_hilbertspace)
+)
 
 
 @U1Span.add_conversion(StateSpace)
@@ -865,7 +870,11 @@ def u1span_to_hilbertspace(span: U1Span) -> StateSpace:
     return hilbert(span.span)
 
 
-@U1Span.add_conversion(HilbertSpace)
+U1Span.add_conversion(HilbertSpace)(
+    cast(Callable[[U1Span], HilbertSpace], u1span_to_hilbertspace)
+)
+
+
 @HilbertSpace.add_conversion(HilbertSpace)
 def hilbertspace_to_hilbertspace(v: HilbertSpace) -> HilbertSpace:
     """Identity conversion for `HilbertSpace`."""

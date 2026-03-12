@@ -27,7 +27,7 @@ from .abstracts import Convertible, Operable, Plottable
 from .precision import get_precision_config
 from .utils.devices import Device, DeviceBounded
 from .validations import need_validation
-from .state_space import (
+from .symbolics.state_space import (
     StateSpace,
     BroadcastSpace,
     IndexSpace,

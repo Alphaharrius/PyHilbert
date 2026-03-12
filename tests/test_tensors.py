@@ -4,7 +4,7 @@ import torch
 import sympy as sy
 from dataclasses import dataclass
 from collections import OrderedDict
-from qten import state_space
+from qten.symbolics import state_space
 from qten.tensors import (
     Tensor,
     all as tensor_all,
@@ -21,8 +21,8 @@ from qten.tensors import (
     where,
     zeros,
 )
-from qten.hilbert_space import HilbertSpace, U1Basis, hilbert
-from qten.state_space import (
+from qten.symbolics.hilbert_space import HilbertSpace, U1Basis, hilbert
+from qten.symbolics.state_space import (
     BroadcastSpace,
     IndexSpace,
     MomentumSpace,
