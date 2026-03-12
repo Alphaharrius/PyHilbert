@@ -3,7 +3,8 @@ from sympy import ImmutableDenseMatrix
 
 from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice, Offset, AffineSpace
-from qten.affine_transform import AffineTransform, pointgroup
+from qten.pointgroups import pointgroup
+from qten.pointgroups.abelian import AffineTransform
 import sympy as sy
 from qten.geometries.basis_transform import BasisTransform
 

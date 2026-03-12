@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 from typing import cast
 
-from qten.affine_transform import (
+from qten.pointgroups import pointgroup
+from qten.pointgroups.abelian import (
     AbelianBasis,
     AffineTransform,
-    pointgroup,
 )
 from qten.bands import bandaffine
 from qten.geometries.fourier import fourier_transform

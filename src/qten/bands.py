@@ -15,7 +15,7 @@ from .tensors import Tensor, mapping_matrix
 from .geometries.spatials import ReciprocalLattice
 from .geometries.basis_transform import BasisTransform
 from .geometries.fourier import fourier_transform
-from .affine_transform import AffineTransform
+from .pointgroups.abelian import AffineTransform
 from .utils.collections_ext import matchby
 
 
