@@ -1,8 +1,8 @@
 import torch
 import sympy as sy
-from pyhilbert.tensors import Tensor
-from pyhilbert.hilbert_space import U1Basis, hilbert
-from pyhilbert.state_space import IndexSpace
+from qten.tensors import Tensor
+from qten.hilbert_space import U1Basis, hilbert
+from qten.state_space import IndexSpace
 
 
 def _state(tag: str, idx: int) -> U1Basis:

@@ -1,10 +1,10 @@
 import torch
 import sympy as sy
 
-from pyhilbert.decompose import eig, eigh, eigvals, qr, svd
-from pyhilbert.state_space import IndexSpace
-from pyhilbert.hilbert_space import U1Basis, hilbert
-from pyhilbert.tensors import Tensor
+from qten.decompose import eig, eigh, eigvals, qr, svd
+from qten.state_space import IndexSpace
+from qten.hilbert_space import U1Basis, hilbert
+from qten.tensors import Tensor
 
 
 def _space(name: str, n: int):

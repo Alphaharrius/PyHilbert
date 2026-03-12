@@ -2,15 +2,15 @@ import torch
 import torch.nn as nn
 import pytest
 
-from pyhilbert.modules import (
+from qten.modules import (
     Module,
     TENSOR_BUFFER_PREFIX,
     TENSOR_PARAM_PREFIX,
     nograd_tensors,
 )
-from pyhilbert.state_space import IndexSpace
-from pyhilbert.tensors import Tensor
-from pyhilbert.utils import Device, FrozenDict
+from qten.state_space import IndexSpace
+from qten.tensors import Tensor
+from qten.utils import Device, FrozenDict
 
 VECTOR_DIM = (IndexSpace.linear(2),)
 

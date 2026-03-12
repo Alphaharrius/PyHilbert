@@ -1,11 +1,11 @@
 import pytest
 from sympy import ImmutableDenseMatrix
 
-from pyhilbert.boundary import PeriodicBoundary
-from pyhilbert.spatials import Lattice, Offset, AffineSpace
-from pyhilbert.affine_transform import AffineTransform, pointgroup
+from qten.boundary import PeriodicBoundary
+from qten.spatials import Lattice, Offset, AffineSpace
+from qten.affine_transform import AffineTransform, pointgroup
 import sympy as sy
-from pyhilbert.basis_transform import BasisTransform
+from qten.basis_transform import BasisTransform
 
 
 def col(*values: int) -> ImmutableDenseMatrix:

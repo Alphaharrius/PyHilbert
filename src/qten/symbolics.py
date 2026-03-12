@@ -1,4 +1,4 @@
-"""Lightweight symbolic container types used across :mod:`pyhilbert`.
+"""Lightweight symbolic container types used across :mod:`qten`.
 
 Globals
 -------

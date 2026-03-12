@@ -7,12 +7,12 @@ import torch
 
 import plotly.graph_objects as go
 
-from pyhilbert.hilbert_space import U1Basis, hilbert
-from pyhilbert.spatials import Lattice, Offset
-from pyhilbert.boundary import PeriodicBoundary
-from pyhilbert.state_space import brillouin_zone
-from pyhilbert.tensors import Tensor
-from pyhilbert.fourier import fourier_transform
+from qten.hilbert_space import U1Basis, hilbert
+from qten.spatials import Lattice, Offset
+from qten.boundary import PeriodicBoundary
+from qten.state_space import brillouin_zone
+from qten.tensors import Tensor
+from qten.fourier import fourier_transform
 
 
 @dataclass(frozen=True)

@@ -3,11 +3,11 @@ import numpy as np
 import sympy as sy
 from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
-from pyhilbert.spatials import Lattice, Offset, Momentum
-from pyhilbert.state_space import brillouin_zone
-from pyhilbert.hilbert_space import U1Basis, hilbert
-from pyhilbert.fourier import fourier_transform
-from pyhilbert.boundary import PeriodicBoundary
+from qten.spatials import Lattice, Offset, Momentum
+from qten.state_space import brillouin_zone
+from qten.hilbert_space import U1Basis, hilbert
+from qten.fourier import fourier_transform
+from qten.boundary import PeriodicBoundary
 
 
 @dataclass(frozen=True)

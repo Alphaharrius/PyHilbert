@@ -221,7 +221,7 @@ def full_typename(cls: Type) -> str:
 @dataclass(frozen=True)
 class Device:
     """
-    Lightweight immutable device descriptor used by PyHilbert.
+    Lightweight immutable device descriptor used by QTen.
 
     The public device model is intentionally small:
     - `"cpu"` represents host execution.
@@ -320,7 +320,7 @@ class Device:
 
     def __str__(self) -> str:
         """
-        Format the device using PyHilbert's logical device syntax.
+        Format the device using QTen's logical device syntax.
 
         Returns
         -------

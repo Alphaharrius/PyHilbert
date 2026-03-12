@@ -3,9 +3,9 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyhilbert"
+name = "qten"
 version = "0.1.0"
-description = "Add your description here"
+description = "A torch-based tensor library for quantum related computations."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

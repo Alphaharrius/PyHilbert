@@ -4,18 +4,18 @@ from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 import pytest
 
-from pyhilbert.spatials import (
+from qten.spatials import (
     Lattice,
     Offset,
     AffineSpace,
     ReciprocalLattice,
     Momentum,
 )
-from pyhilbert.state_space import brillouin_zone
-from pyhilbert.hilbert_space import U1Basis, hilbert
-from pyhilbert.tensors import Tensor
-from pyhilbert.basis_transform import bandfold, BasisTransform
-from pyhilbert.boundary import PeriodicBoundary
+from qten.state_space import brillouin_zone
+from qten.hilbert_space import U1Basis, hilbert
+from qten.tensors import Tensor
+from qten.basis_transform import bandfold, BasisTransform
+from qten.boundary import PeriodicBoundary
 
 
 @dataclass(frozen=True)

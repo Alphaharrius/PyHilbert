@@ -5,20 +5,20 @@ from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 from typing import cast
 
-from pyhilbert.affine_transform import (
+from qten.affine_transform import (
     AbelianBasis,
     AffineTransform,
     pointgroup,
     bandtransform,
 )
-from pyhilbert.fourier import fourier_transform
-from pyhilbert.state_space import MomentumSpace, brillouin_zone
-from pyhilbert.hilbert_space import HilbertSpace, U1Basis, FuncOpr, hilbert
-from pyhilbert.spatials import AffineSpace, Momentum, Offset
-from pyhilbert.spatials import Lattice
-from pyhilbert.boundary import PeriodicBoundary
-from pyhilbert.tensors import Tensor
-from pyhilbert.symbolics import Multiple
+from qten.fourier import fourier_transform
+from qten.state_space import MomentumSpace, brillouin_zone
+from qten.hilbert_space import HilbertSpace, U1Basis, FuncOpr, hilbert
+from qten.spatials import AffineSpace, Momentum, Offset
+from qten.spatials import Lattice
+from qten.boundary import PeriodicBoundary
+from qten.tensors import Tensor
+from qten.symbolics import Multiple
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@ import pytest
 import sympy as sy
 import torch
 from sympy import ImmutableDenseMatrix
-from pyhilbert.spatials import (
+from qten.spatials import (
     Lattice,
     ReciprocalLattice,
     Offset,
@@ -10,8 +10,8 @@ from pyhilbert.spatials import (
     AffineSpace,
     AbstractLattice,
 )
-from pyhilbert.boundary import PeriodicBoundary
-from pyhilbert.utils import FrozenDict
+from qten.boundary import PeriodicBoundary
+from qten.utils import FrozenDict
 
 
 def test_lattice_creation_and_dual():

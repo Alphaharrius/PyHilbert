@@ -526,7 +526,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     @property
     def grad(self) -> Optional[Self]:
         """
-        Return the accumulated gradient wrapped as a PyHilbert tensor.
+        Return the accumulated gradient wrapped as a QTen tensor.
 
         Returns
         -------
@@ -2409,7 +2409,7 @@ TensorIndexType: TypeAlias = Union[
 """
 Public key token types accepted by `TensorIndexing` input keys.
 
-This includes pyhilbert-level index forms (`StateSpace`, `Convertible`,
+This includes qten-level index forms (`StateSpace`, `Convertible`,
 `Tensor`) and Python indexing tokens (`int`, `slice`, `None`, `...`).
 """
 
@@ -2445,7 +2445,7 @@ class TensorIndexing:
     - `Ellipsis`
     - `StateSpace`
     - `Convertible` (converted to `StateSpace`)
-    - `Tensor` (pyhilbert tensor index)
+    - `Tensor` (qten tensor index)
 
     Normalization rules
     -------------------

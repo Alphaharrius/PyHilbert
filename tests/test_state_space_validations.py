@@ -3,9 +3,9 @@ from collections import OrderedDict
 import pytest
 from sympy import ImmutableDenseMatrix
 
-from pyhilbert.hilbert_space import U1Basis, HilbertSpace
-from pyhilbert.spatials import AffineSpace, Momentum
-from pyhilbert.state_space import IndexSpace, MomentumSpace
+from qten.hilbert_space import U1Basis, HilbertSpace
+from qten.spatials import AffineSpace, Momentum
+from qten.state_space import IndexSpace, MomentumSpace
 
 
 def test_momentum_space_rejects_non_contiguous_structure_values():

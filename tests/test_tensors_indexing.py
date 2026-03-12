@@ -5,16 +5,16 @@ from collections import OrderedDict
 import sympy as sy
 from sympy import ImmutableDenseMatrix
 
-from pyhilbert.tensors import Tensor, where
-from pyhilbert.state_space import (
+from qten.tensors import Tensor, where
+from qten.state_space import (
     BroadcastSpace,
     IndexSpace,
     MomentumSpace,
     brillouin_zone,
 )
-from pyhilbert.hilbert_space import U1Basis, hilbert
-from pyhilbert.spatials import Lattice
-from pyhilbert.boundary import PeriodicBoundary
+from qten.hilbert_space import U1Basis, hilbert
+from qten.spatials import Lattice
+from qten.boundary import PeriodicBoundary
 
 
 class TestTensorGetitem:

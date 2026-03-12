@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from pyhilbert import io
+from qten import io
 
 
 @pytest.fixture
