@@ -30,7 +30,7 @@ from .spatials import Spatial
 from .state_space import StateSpace, StateSpaceFactorization
 from .symbolics import Multiple
 from .tensors import Tensor
-from .utils import FrozenDict
+from .utils.collections_ext import FrozenDict
 
 _IrrepType = TypeVar("_IrrepType")
 _ValueType = TypeVar("_ValueType")

@@ -22,7 +22,8 @@ import torch
 import sympy as sy
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 
-from .utils import FrozenDict, full_typename
+from .utils.collections_ext import FrozenDict
+from .utils.types_ext import full_typename
 from .validations import need_validation
 from .abstracts import (
     AbstractKet,

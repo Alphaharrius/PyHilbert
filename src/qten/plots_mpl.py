@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from typing import Optional, Union, Any, cast, Tuple
 from .spatials import Lattice
 from .tensors import Tensor
-from .utils import compute_bonds
+from .plots import compute_bonds
 from .state_space import MomentumSpace, same_rays
 from .hilbert_space import HilbertSpace
 # --- Registered Plot Methods (Matplotlib Backend) ---

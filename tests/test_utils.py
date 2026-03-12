@@ -1,6 +1,6 @@
 import pytest
 
-from qten.utils import FrozenDict
+from qten.utils.collections_ext import FrozenDict
 
 
 def test_frozendict_creation_and_access():

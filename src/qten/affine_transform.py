@@ -23,7 +23,7 @@ from .tensors import Tensor
 from .fourier import fourier_transform
 from .validations import need_validation
 from .validations.symbolics import check_invertibility, check_numerical
-from .utils import FrozenDict
+from .utils.collections_ext import FrozenDict
 from .symbolics import Multiple
 
 

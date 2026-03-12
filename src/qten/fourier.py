@@ -12,7 +12,7 @@ from .state_space import MomentumSpace
 from .hilbert_space import HilbertSpace, U1Basis
 from .tensors import Tensor
 from .tensors import mapping_matrix
-from .utils import matchby
+from .utils.collections_ext import matchby
 
 
 @dispatch(tuple, tuple)

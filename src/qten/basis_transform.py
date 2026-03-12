@@ -8,7 +8,7 @@ from typing import List, Tuple, cast, Literal
 import numpy as np
 
 from .abstracts import Functional
-from .utils import FrozenDict, matchby
+from .utils.collections_ext import FrozenDict, matchby
 from .validations import need_validation
 from .validations.symbolics import check_proper_transformation, check_numerical
 from .spatials import Lattice, ReciprocalLattice, Offset, Momentum, AffineSpace

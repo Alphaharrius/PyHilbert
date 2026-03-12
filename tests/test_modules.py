@@ -10,7 +10,8 @@ from qten.modules import (
 )
 from qten.state_space import IndexSpace
 from qten.tensors import Tensor
-from qten.utils import Device, FrozenDict
+from qten.utils.devices import Device
+from qten.utils.collections_ext import FrozenDict
 
 VECTOR_DIM = (IndexSpace.linear(2),)
 

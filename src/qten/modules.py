@@ -4,7 +4,8 @@ from typing_extensions import override
 
 import torch.nn as nn
 
-from .utils import Device, DeviceBounded, FrozenDict
+from .utils.devices import Device, DeviceBounded
+from .utils.collections_ext import FrozenDict
 from .abstracts import Functional
 from .tensors import Tensor
 

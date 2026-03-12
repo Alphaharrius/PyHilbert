@@ -27,7 +27,7 @@ from qten.state_space import (
     IndexSpace,
     MomentumSpace,
 )
-from qten.utils import FrozenDict
+from qten.utils.collections_ext import FrozenDict
 from qten.tensors import unsqueeze
 
 

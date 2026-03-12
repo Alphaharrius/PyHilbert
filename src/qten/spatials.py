@@ -11,7 +11,7 @@ import torch
 from .precision import get_precision_config
 from sympy import ImmutableDenseMatrix, sympify
 from sympy.matrices.normalforms import smith_normal_form  # type: ignore[import-untyped]
-from .utils import FrozenDict
+from .utils.collections_ext import FrozenDict
 from .abstracts import Operable, HasDual, HasBase, Plottable, Convertible
 from .boundary import BoundaryCondition, PeriodicBoundary
 from .validations import need_validation
