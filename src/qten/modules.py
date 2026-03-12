@@ -7,7 +7,7 @@ import torch.nn as nn
 from .utils.devices import Device, DeviceBounded
 from .utils.collections_ext import FrozenDict
 from .abstracts import Functional
-from .tensors import Tensor
+from .linalg.tensors import Tensor
 
 
 ModuleType = TypeVar("ModuleType", bound=type["Module"])

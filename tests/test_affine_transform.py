@@ -17,7 +17,7 @@ from qten.symbolics.hilbert_space import HilbertSpace, U1Basis, FuncOpr, hilbert
 from qten.geometries.spatials import AffineSpace, Momentum, Offset
 from qten.geometries.spatials import Lattice
 from qten.geometries.boundary import PeriodicBoundary
-from qten.tensors import Tensor
+from qten.linalg.tensors import Tensor
 from qten.symbolics import Multiple
 
 

@@ -35,7 +35,7 @@ from ..abstracts import (
 )
 from ..geometries.spatials import Spatial
 from .state_space import StateSpace, StateSpaceFactorization
-from ..tensors import Tensor
+from ..linalg.tensors import Tensor
 from ..precision import get_precision_config
 from . import Multiple
 

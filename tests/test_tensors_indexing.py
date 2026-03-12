@@ -5,7 +5,7 @@ from collections import OrderedDict
 import sympy as sy
 from sympy import ImmutableDenseMatrix
 
-from qten.tensors import Tensor, where
+from qten.linalg.tensors import Tensor, where
 from qten.symbolics.state_space import (
     BroadcastSpace,
     IndexSpace,

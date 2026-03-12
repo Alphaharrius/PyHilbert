@@ -13,7 +13,7 @@ from qten.geometries.spatials import (
 )
 from qten.symbolics.state_space import brillouin_zone
 from qten.symbolics.hilbert_space import U1Basis, hilbert
-from qten.tensors import Tensor
+from qten.linalg.tensors import Tensor
 from qten.geometries.basis_transform import BasisTransform
 from qten.bands import bandfold
 from qten.geometries.boundary import PeriodicBoundary

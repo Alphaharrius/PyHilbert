@@ -9,7 +9,7 @@ from qten.modules import (
     nograd_tensors,
 )
 from qten.symbolics.state_space import IndexSpace
-from qten.tensors import Tensor
+from qten.linalg.tensors import Tensor
 from qten.utils.devices import Device
 from qten.utils.collections_ext import FrozenDict
 

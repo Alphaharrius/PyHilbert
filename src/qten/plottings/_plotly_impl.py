@@ -7,7 +7,7 @@ import plotly.figure_factory as ff  # type: ignore[import-untyped]
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
 from ..geometries.spatials import Lattice
-from ..tensors import Tensor
+from ..linalg.tensors import Tensor
 from ._utils import compute_bonds
 
 

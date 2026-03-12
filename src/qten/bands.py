@@ -11,7 +11,7 @@ from .symbolics.hilbert_space import (
     FuncOpr,
     hilbert,
 )
-from .tensors import Tensor, mapping_matrix
+from .linalg.tensors import Tensor, mapping_matrix
 from .geometries.spatials import ReciprocalLattice
 from .geometries.basis_transform import BasisTransform
 from .geometries.fourier import fourier_transform

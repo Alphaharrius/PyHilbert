@@ -5,7 +5,7 @@ import sympy as sy
 from dataclasses import dataclass
 from collections import OrderedDict
 from qten.symbolics import state_space
-from qten.tensors import (
+from qten.linalg.tensors import (
     Tensor,
     all as tensor_all,
     align_all,
@@ -28,7 +28,7 @@ from qten.symbolics.state_space import (
     MomentumSpace,
 )
 from qten.utils.collections_ext import FrozenDict
-from qten.tensors import unsqueeze
+from qten.linalg.tensors import unsqueeze
 
 
 @dataclass(frozen=True)

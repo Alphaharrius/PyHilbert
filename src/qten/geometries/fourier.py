@@ -10,8 +10,8 @@ from ..precision import get_precision_config
 from .spatials import Momentum, Offset
 from ..symbolics.state_space import MomentumSpace
 from ..symbolics.hilbert_space import HilbertSpace, U1Basis
-from ..tensors import Tensor
-from ..tensors import mapping_matrix
+from ..linalg.tensors import Tensor
+from ..linalg.tensors import mapping_matrix
 from ..utils.collections_ext import matchby
 
 

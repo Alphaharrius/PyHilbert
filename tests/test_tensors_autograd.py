@@ -1,6 +1,6 @@
 import torch
 import sympy as sy
-from qten.tensors import Tensor
+from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import U1Basis, hilbert
 from qten.symbolics.state_space import IndexSpace
 
