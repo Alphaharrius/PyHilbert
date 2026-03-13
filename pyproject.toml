@@ -115,3 +115,7 @@ disable_error_code = ["import-untyped"]
 module = "sympy"
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]
+
+[tool.setuptools.package-data]
+qten = ["py.typed"]
+"*" = ["*.pyi"]
