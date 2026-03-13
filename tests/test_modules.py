@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pytest
 
-from qten.modules import (
+from qten.optim import (
     Module,
     TENSOR_BUFFER_PREFIX,
     TENSOR_PARAM_PREFIX,

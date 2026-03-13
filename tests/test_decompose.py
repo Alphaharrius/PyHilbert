@@ -3,12 +3,14 @@ import sympy as sy
 
 from qten.linalg.decompose import eig, eigh, eigvals, qr, svd
 from qten.symbolics.state_space import IndexSpace
-from qten.symbolics.hilbert_space import U1Basis, hilbert
+from qten.symbolics.hilbert_space import U1Basis, HilbertSpace
 from qten.linalg.tensors import Tensor
 
 
 def _space(name: str, n: int):
-    return hilbert(U1Basis(coef=sy.Integer(1), base=((name, i),)) for i in range(n))
+    return HilbertSpace.new(
+        U1Basis(coef=sy.Integer(1), base=((name, i),)) for i in range(n)
+    )
 
 
 def test_eigh_reconstructs_hermitian_matrix():

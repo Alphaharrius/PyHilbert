@@ -9,7 +9,6 @@ from .symbolics.hilbert_space import (
     HilbertSpace,
     U1Basis,
     FuncOpr,
-    hilbert,
 )
 from .linalg.tensors import Tensor, mapping_matrix
 from .geometries.spatials import ReciprocalLattice
@@ -170,7 +169,7 @@ def bandfold(
             f"Dimension at index {switch_index} must be a HilbertSpace, "
             f"but got {type(target_space)}"
         )
-    rebased_hilbert = hilbert(
+    rebased_hilbert = HilbertSpace.new(
         cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
         for r in enlarge_unit_cell
     )

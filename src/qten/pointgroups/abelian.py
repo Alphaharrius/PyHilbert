@@ -10,11 +10,10 @@ import sympy as sy
 from ..abstracts import HasBase
 from ..geometries.spatials import AffineSpace, Spatial, Offset, Momentum
 from ..symbolics.hilbert_space import (
-    U1Operator,
+    Opr,
     HilbertSpace,
     U1Basis,
     U1Span,
-    hilbert,
 )
 from ..validations import need_validation
 from ..validations.symbolics import check_invertibility, check_numerical
@@ -73,7 +72,7 @@ def operator_gt(a: AbelianBasis, b: AbelianBasis) -> bool:
 
 @need_validation(check_invertibility("irrep"), check_numerical("irrep"))
 @dataclass(frozen=True)
-class AffineTransform(U1Operator, HasBase[AffineSpace]):
+class AffineTransform(Opr, HasBase[AffineSpace]):
     """
     Affine group element acting on polynomial coordinate functions.
 
@@ -741,5 +740,5 @@ def _(t: AffineTransform, h: HilbertSpace) -> HilbertSpace:
         Tensor representation of the symmetry action in the original basis when
         invariant, otherwise `None`; and the transformed Hilbert space.
     """
-    new_h = hilbert(cast(U1Basis, t @ el) for el in h)
+    new_h = HilbertSpace.new(cast(U1Basis, t @ el) for el in h)
     return new_h

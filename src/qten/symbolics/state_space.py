@@ -14,7 +14,6 @@ from ..geometries.spatials import (
     Spatial,
     ReciprocalLattice,
     Momentum,
-    cartes,
 )
 
 
@@ -184,7 +183,7 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
 
 
 @StateSpace.add_conversion(StateSpace)
-def state_space_to_state_space(s: StateSpace) -> StateSpace:
+def _(s: StateSpace) -> StateSpace:
     """Identity conversion to allow mapping between different StateSpace subclasses."""
     return s
 
@@ -366,7 +365,7 @@ Momentum.add_conversion(MomentumSpace)(
 
 @lru_cache
 def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
-    elements = cartes(lattice)
+    elements = lattice.cartes()
     structure = OrderedDict((el, n) for n, el in enumerate(elements))
     return MomentumSpace(structure=structure)
 

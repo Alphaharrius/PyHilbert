@@ -13,7 +13,7 @@ from qten.pointgroups.abelian import (
 from qten.bands import bandaffine
 from qten.geometries.fourier import fourier_transform
 from qten.symbolics.state_space import MomentumSpace, brillouin_zone
-from qten.symbolics.hilbert_space import HilbertSpace, U1Basis, FuncOpr, hilbert
+from qten.symbolics.hilbert_space import HilbertSpace, U1Basis, FuncOpr
 from qten.geometries.spatials import AffineSpace, Momentum, Offset
 from qten.geometries.spatials import Lattice
 from qten.geometries.boundary import PeriodicBoundary
@@ -507,7 +507,7 @@ def test_affine_transform_hilbert_matmul_matches_call_output_state():
         offset=Offset(rep=ImmutableDenseMatrix([0]), space=space),
         basis_function_order=1,
     )
-    h = hilbert(
+    h = HilbertSpace.new(
         [
             _state(Offset(rep=ImmutableDenseMatrix([0]), space=space), Orb("a")),
             _state(Offset(rep=ImmutableDenseMatrix([1]), space=space), Orb("b")),
@@ -582,9 +582,9 @@ def test_affine_transform_hilbert_c4_u1state_mapping():
     r_y = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
     m_x = _state(r_x, Orb("p"))
     m_y = _state(r_y, Orb("d"))
-    h = hilbert([m_x, m_y])
+    h = HilbertSpace.new([m_x, m_y])
 
-    gh_expected = hilbert(cast(U1Basis, _transformed(t, m)) for m in h)
+    gh_expected = HilbertSpace.new(cast(U1Basis, _transformed(t, m)) for m in h)
     gh = t(h)
     assert gh == gh_expected
 
@@ -614,7 +614,7 @@ def test_affine_transform_hilbert_applies_nontrivial_u1state_gauge_phase():
         rep=ImmutableDenseMatrix([1]),
     )
     m = _state(gauge_basis)
-    h = hilbert([m])
+    h = HilbertSpace.new([m])
 
     tmat = h.cross_gram(t @ h)
     expected = torch.tensor([[-1.0 + 0.0j]], dtype=tmat.data.dtype)
@@ -634,7 +634,7 @@ def test_affine_transform_hilbert_applies_matrix_gauge_block():
     fx = AbelianBasis(expr=x, axes=(x, y), order=1, rep=ImmutableDenseMatrix([1, 0]))
     fy = AbelianBasis(expr=y, axes=(x, y), order=1, rep=ImmutableDenseMatrix([0, 1]))
 
-    h = hilbert([_state(fx), _state(fy)])
+    h = HilbertSpace.new([_state(fx), _state(fy)])
     tmat = h.cross_gram(t @ h)
 
     expected = torch.diag(
@@ -666,7 +666,7 @@ def test_bandaffine_both_preserves_c4_symmetric_momentum_tensor_up_to_alignment(
             rep=ImmutableDenseMatrix([1, -sy.I]),
         ),
     )
-    h_space = hilbert([mode])
+    h_space = HilbertSpace.new([mode])
 
     # C4-symmetric dispersion: e(k) = cos(2*pi*kx) + cos(2*pi*ky).
     energies = []
@@ -707,7 +707,7 @@ def test_bandaffine_both_matches_explicit_k_aligned_reference():
     r_y = Offset(rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine)
     m_x = _state(r_x, Orb("p"))
     m_y = _state(r_y, Orb("p"))
-    h_space = hilbert([m_x, m_y])
+    h_space = HilbertSpace.new([m_x, m_y])
 
     # k-dependent nontrivial 2x2 tensor so wrong k-block matching is visible.
     data = torch.zeros((k_space.dim, 2, 2), dtype=torch.complex128)
@@ -777,7 +777,7 @@ def test_bandaffine_both_c4_fourfold_roundtrip_complex_tensor():
         order=1,
         rep=ImmutableDenseMatrix([1, -sy.I]),
     )
-    h_space = hilbert([_state(r_x, p_minus), _state(r_y, p_minus)])
+    h_space = HilbertSpace.new([_state(r_x, p_minus), _state(r_y, p_minus)])
 
     c4 = AffineTransform(
         irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),

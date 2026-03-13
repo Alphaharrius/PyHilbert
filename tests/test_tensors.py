@@ -21,7 +21,7 @@ from qten.linalg.tensors import (
     where,
     zeros,
 )
-from qten.symbolics.hilbert_space import HilbertSpace, U1Basis, hilbert
+from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
 from qten.symbolics.state_space import (
     BroadcastSpace,
     IndexSpace,
@@ -1162,14 +1162,14 @@ def _simple_hilbert(tag: str, size: int, make_irrep=None) -> HilbertSpace:
     basis = tuple(
         U1Basis(coef=sy.Integer(1), base=(make_irrep(n),)) for n in range(size)
     )
-    return hilbert(basis)
+    return HilbertSpace.new(basis)
 
 
 def test_factorize_dim_then_product_dims_roundtrip_hilbert():
     left = _simple_hilbert("left", 2)
     right = _simple_hilbert("right", 3)
 
-    factorizable = hilbert(
+    factorizable = HilbertSpace.new(
         U1Basis(coef=sy.Integer(1), base=(i, j))
         for i in (0, 1)
         for j in ("a", "b", "c")

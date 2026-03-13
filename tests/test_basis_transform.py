@@ -12,7 +12,7 @@ from qten.geometries.spatials import (
     Momentum,
 )
 from qten.symbolics.state_space import brillouin_zone
-from qten.symbolics.hilbert_space import U1Basis, hilbert
+from qten.symbolics.hilbert_space import U1Basis, HilbertSpace
 from qten.linalg.tensors import Tensor
 from qten.geometries.basis_transform import BasisTransform
 from qten.bands import bandfold
@@ -42,7 +42,7 @@ def test_bandfold_1d():
 
     # 1b. Define a simple 1-dim Hilbert space
     r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
-    h_space = hilbert([_mode(r_offset)])
+    h_space = HilbertSpace.new([_mode(r_offset)])
     assert h_space.dim == 1
 
     # 1c. Create an input tensor (4, 1, 1)
@@ -98,7 +98,7 @@ def test_bandfold_2d():
 
     # 1b. Define a simple Hilbert space
     r_offset = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice)
-    h_space = hilbert([_mode(r_offset, "s")])
+    h_space = HilbertSpace.new([_mode(r_offset, "s")])
     assert h_space.dim == 1
 
     # 1c. Create input tensor (4, 1, 1)
