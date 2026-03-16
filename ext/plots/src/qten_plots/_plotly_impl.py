@@ -6,8 +6,8 @@ import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
-from ..geometries.spatials import Lattice
-from ..linalg.tensors import Tensor
+from qten.geometries.spatials import Lattice
+from qten.linalg.tensors import Tensor
 from ._utils import compute_bonds
 
 
