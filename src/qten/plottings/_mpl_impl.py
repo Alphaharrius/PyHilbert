@@ -1,3 +1,4 @@
+import colorsys
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -104,8 +105,11 @@ def plot_structure_mpl(
     num_basis = len(obj.unit_cell) if obj.unit_cell else 1
     num_cells = coords.shape[0] // num_basis
 
-    # Basis colors
-    basis_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    n_colors = num_basis if color_by == "basis" else num_cells
+
+    basis_colors = [
+        colorsys.hsv_to_rgb((i * 0.61803) % 1.0, 0.8, 0.9) for i in range(n_colors)
+    ]
     colors = []
     if color_by == "basis":
         for _ in range(num_cells):

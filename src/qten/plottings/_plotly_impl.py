@@ -1,11 +1,11 @@
 from typing import Optional, Union, Tuple
+import colorsys
 
 import torch
 import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
-import plotly.colors as pc  # type: ignore[import-untyped]
 
 from ..geometries.spatials import Lattice
 from ..linalg.tensors import Tensor
@@ -104,7 +104,14 @@ def plot_structure(
     num_basis = len(obj.unit_cell) if obj.unit_cell else 1
     num_cells = coords.shape[0] // num_basis
 
-    basis_colors = pc.qualitative.Plotly
+    n_colors = num_basis if color_by == "basis" else num_cells
+
+    basis_colors = [
+        f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+        for r, g, b in (
+            colorsys.hsv_to_rgb((i * 0.61803) % 1.0, 0.8, 0.9) for i in range(n_colors)
+        )
+    ]
     colors = []
     if color_by == "basis":
         for _ in range(num_cells):
