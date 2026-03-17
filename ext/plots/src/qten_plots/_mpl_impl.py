@@ -3,10 +3,10 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Union, Any, cast, Tuple
-from ..geometries.spatials import Lattice
-from ..linalg.tensors import Tensor
-from ..symbolics.state_space import MomentumSpace, same_rays
-from ..symbolics.hilbert_space import HilbertSpace
+from qten.geometries.spatials import Lattice
+from qten.linalg.tensors import Tensor
+from qten.symbolics.state_space import MomentumSpace, same_rays
+from qten.symbolics.hilbert_space import HilbertSpace
 from ._utils import compute_bonds
 
 

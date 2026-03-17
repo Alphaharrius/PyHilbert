@@ -13,7 +13,7 @@ from sympy.matrices.normalforms import smith_normal_form  # type: ignore[import-
 
 from ..utils.collections_ext import FrozenDict
 from ..abstracts import Operable, HasDual, HasBase, Convertible
-from ..plottings.base import Plottable
+from ..plottings import Plottable
 from .boundary import BoundaryCondition, PeriodicBoundary
 from ..validations import need_validation
 from ..validations.symbolics import check_invertibility, check_numerical
