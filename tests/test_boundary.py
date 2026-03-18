@@ -108,6 +108,14 @@ def test_periodic_boundary_representatives_nondiagonal_basis_cover_all_classes()
     assert seen == rep_set
 
 
+def test_periodic_boundary_distance_uses_nearest_image():
+    boundary = PeriodicBoundary(ImmutableDenseMatrix.diag(4))
+    delta = ImmutableDenseMatrix([3])
+    lattice_basis = ImmutableDenseMatrix([[1]])
+
+    assert boundary.distance(delta, lattice_basis) == pytest.approx(1.0)
+
+
 def test_offset_constructor_wraps_using_boundary():
     lattice = Lattice(
         basis=ImmutableDenseMatrix.eye(2),

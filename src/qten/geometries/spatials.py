@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from numbers import Number
 from typing import Tuple, Type, TypeVar, Union, cast, Mapping, Generic, Sequence
 from typing_extensions import override
 from abc import ABC, abstractmethod
@@ -418,6 +419,21 @@ _VecType = TypeVar("_VecType", bound=Union[np.ndarray, ImmutableDenseMatrix])
 """Type variable for vector types that can be returned by `Offset.to_vec()`."""
 
 
+def _matrix_to_ndarray(mat: ImmutableDenseMatrix) -> np.ndarray:
+    precision = get_precision_config()
+    return np.array(mat.evalf(), dtype=precision.np_float)
+
+
+@lru_cache
+def _space_basis_as_ndarray(space: AffineSpace) -> np.ndarray:
+    return _matrix_to_ndarray(space.basis)
+
+
+def _cartesian_delta(a: "Offset", b: "Offset", target_space: AffineSpace) -> np.ndarray:
+    delta = a - b.rebase(target_space)
+    return _space_basis_as_ndarray(target_space) @ _matrix_to_ndarray(delta.rep)
+
+
 def _check_offset_matches_space(r: "Offset") -> None:
     if r.rep.shape != (r.space.dim, 1):
         raise ValueError(
@@ -546,35 +562,24 @@ class Offset(Generic[S], Spatial, HasBase[S]):
 
     def distance(self, r: "Offset") -> float:
         """
-        Return the Cartesian distance to another offset.
+        Return the distance to another offset using the ambient boundary condition.
 
-        If either offset is expressed on a `Lattice`, the distance is computed
-        using that lattice's boundary condition by searching the nearest
-        periodic image of the displacement. Otherwise, the plain Euclidean norm
-        of the displacement in the current affine space is returned.
+        If either offset is expressed on a lattice with periodic boundary
+        conditions, the distance is computed using the nearest periodic image
+        of the displacement in that lattice. Otherwise, the plain Euclidean
+        norm of the displacement in the current affine space is returned.
         """
         if isinstance(self.space, Lattice):
-            a = self
-            b = r.rebase(self.space)
-            delta = a - b
-            boundary_basis = self.space.boundaries.basis
-            affine = self.space.affine
-            min_distance = float("inf")
-            for coeffs in product((-1, 0, 1), repeat=self.dim):
-                shift = boundary_basis @ ImmutableDenseMatrix(coeffs)
-                candidate = Offset(
-                    rep=ImmutableDenseMatrix(delta.rep + shift), space=affine
-                )
-                distance = float(np.linalg.norm(candidate.to_vec(np.ndarray)))
-                if distance < min_distance:
-                    min_distance = distance
-            return min_distance
+            delta = self - r.rebase(self.space)
+            return self.space.boundaries.distance(delta.rep, self.space.basis)
 
         if isinstance(r.space, Lattice):
-            return r.distance(self)
+            delta = r - self.rebase(r.space)
+            return r.space.boundaries.distance(delta.rep, r.space.basis)
 
-        delta = self - r.rebase(self.space)
-        return float(np.linalg.norm(delta.to_vec(np.ndarray)))
+        target_space = self.space
+        delta_cart = _cartesian_delta(self, r, target_space)
+        return float(np.linalg.norm(delta_cart.reshape(-1)))
 
     def __str__(self):
         # If it's a column vector, flatten to 1D python list
@@ -707,3 +712,27 @@ def operator_sub(a: Offset, b: Offset) -> Offset:
 @dispatch(Momentum, Momentum)  # type: ignore[no-redef]
 def operator_sub(a: Momentum, b: Momentum) -> Momentum:
     return a + (-b)
+
+
+def _scale_offset(r: _O, scalar: Number | sy.Expr) -> _O:
+    return type(r)(rep=ImmutableDenseMatrix(r.rep * scalar), space=r.space)
+
+
+@dispatch(Number, Offset)  # type: ignore[no-redef]
+def operator_mul(left: Number, right: Offset) -> Offset:
+    return _scale_offset(right, left)
+
+
+@dispatch(Offset, Number)  # type: ignore[no-redef]
+def operator_mul(left: Offset, right: Number) -> Offset:
+    return _scale_offset(left, right)
+
+
+@dispatch(sy.Expr, Offset)  # type: ignore[no-redef]
+def operator_mul(left: sy.Expr, right: Offset) -> Offset:
+    return _scale_offset(right, left)
+
+
+@dispatch(Offset, sy.Expr)  # type: ignore[no-redef]
+def operator_mul(left: Offset, right: sy.Expr) -> Offset:
+    return _scale_offset(left, right)

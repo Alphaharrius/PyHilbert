@@ -22,13 +22,6 @@ def _pointcloud_coords(obj: PointCloud) -> torch.Tensor:
     return torch.tensor(coords, dtype=torch.float64)
 
 
-def _canonical_lattice_offset(lattice: Lattice, offset: Offset) -> Offset:
-    rebased = offset.rebase(lattice)
-    fractional = rebased.fractional().rep
-    cell = lattice.boundaries.wrap(rebased.rep - fractional)
-    return Offset(rep=cell + fractional, space=lattice)
-
-
 @Lattice.register_plot_method("structure", backend="matplotlib")
 def plot_structure_mpl(
     obj: Lattice,
@@ -144,29 +137,26 @@ def plot_structure_mpl(
         ax.scatter(x, y, c=colors, s=50, zorder=5, label="Sites")
 
     if highlights:
-        site_to_index = {site: idx for idx, site in enumerate(obj.cartes())}
         fallback_colors = [
             colorsys.hsv_to_rgb((i * 0.38197 + 0.17) % 1.0, 0.95, 0.85)
             for i in range(len(highlights))
         ]
         for idx, cloud in enumerate(highlights):
-            trace_indices = []
-            for offset in cloud.offsets:
-                canonical = _canonical_lattice_offset(obj, offset)
-                if canonical not in site_to_index:
-                    raise ValueError(
-                        f"Highlighted offset {offset} is not a site in the plotted lattice."
-                    )
-                trace_indices.append(site_to_index[canonical])
-
-            if not trace_indices:
+            highlight_coords = _pointcloud_coords(cloud)
+            if highlight_coords.shape[1] != obj.dim:
+                raise ValueError(
+                    "Highlight PointCloud dimension does not match plotted lattice "
+                    f"dimension {obj.dim}."
+                )
+            if highlight_coords.shape[0] == 0:
                 continue
 
-            x_group = x[trace_indices]
-            y_group = y[trace_indices]
+            highlight_np = highlight_coords.numpy()
+            x_group = highlight_np[:, 0]
+            y_group = highlight_np[:, 1]
             trace_color = cloud.color or fallback_colors[idx]
             if is_3d:
-                z_group = z[trace_indices]
+                z_group = highlight_np[:, 2]
                 cast(Any, ax).scatter(
                     x_group,
                     y_group,

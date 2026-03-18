@@ -175,6 +175,27 @@ def test_plot_structure_accepts_pointcloud_highlights():
     assert len(fig.data) >= 2
 
 
+def test_plot_structure_uses_highlight_coordinates_without_wrapping():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(3, 3)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    outside_cell = Offset(rep=sy.ImmutableDenseMatrix([4, 1]), space=lattice.affine)
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[PointCloud.of([outside_cell], color="#ff0000")],
+    )
+
+    assert isinstance(fig, go.Figure)
+    highlight = fig.data[-1]
+    assert list(highlight.x) == [4.0]
+    assert list(highlight.y) == [1.0]
+
+
 def test_pointcloud_scatter_plot():
     basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
     lattice = Lattice(

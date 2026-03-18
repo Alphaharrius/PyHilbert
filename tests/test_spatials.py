@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 import sympy as sy
 import torch
@@ -261,6 +262,67 @@ def test_offset_distance_respects_periodic_boundary():
     assert a.distance(b) == pytest.approx(1.0)
     assert b.distance(a) == pytest.approx(1.0)
     assert c.distance(d) == pytest.approx(1.0)
+
+
+def test_offset_distance_respects_periodic_boundary_with_skew_basis():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1, 1], [0, 1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    a = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice)
+    b = Offset(rep=ImmutableDenseMatrix([3, 3]), space=lattice)
+
+    assert a.distance(b) == pytest.approx(np.sqrt(5.0))
+    assert b.distance(a) == pytest.approx(np.sqrt(5.0))
+
+
+def test_offset_distance_to_affine_point_uses_lattice_boundary():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(8)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    lattice_site = Offset(rep=ImmutableDenseMatrix([7]), space=lattice)
+    affine_point = Offset(rep=ImmutableDenseMatrix([1]), space=lattice.affine)
+
+    assert lattice_site.distance(affine_point) == pytest.approx(2.0)
+
+
+def test_offset_scalar_multiplication_preserves_space_and_wraps_lattice():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    offset = Offset(rep=ImmutableDenseMatrix([3]), space=lattice)
+
+    assert offset * 2 == Offset(rep=ImmutableDenseMatrix([2]), space=lattice)
+    assert 2 * offset == Offset(rep=ImmutableDenseMatrix([2]), space=lattice)
+    assert sy.Rational(3, 2) * offset == Offset(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 2)]), space=lattice
+    )
+
+
+def test_momentum_scalar_multiplication_returns_momentum():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    momentum = Momentum(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 4)]), space=lattice.dual
+    )
+
+    doubled = momentum * 2
+    scaled = sy.pi * momentum
+
+    assert isinstance(doubled, Momentum)
+    assert isinstance(scaled, Momentum)
+    assert doubled == Momentum(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 2)]), space=lattice.dual
+    )
+    assert scaled == Momentum(rep=ImmutableDenseMatrix([sy.pi / 4]), space=lattice.dual)
 
 
 def test_reciprocal_lattice_contains_only_valid_momentum_points_in_same_space():
