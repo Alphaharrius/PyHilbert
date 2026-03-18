@@ -193,6 +193,32 @@ def test_reciprocal_basis_vectors_use_affine_space_when_not_sampled():
     assert basis_vectors[1].rep == ImmutableDenseMatrix([0, 1])
 
 
+def test_reciprocal_lattice_contains_sampled_momenta_mod_reciprocal_lattice_vectors():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1, 0], [0, 1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4, 2)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    reciprocal = lattice.dual
+
+    sampled = Momentum(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 2), sy.Rational(3, 4)]),
+        space=reciprocal,
+    )
+    off_grid = Momentum(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 3), sy.Rational(3, 4)]),
+        space=reciprocal,
+    )
+    non_canonical = Momentum(
+        rep=ImmutableDenseMatrix([1, 0]),
+        space=reciprocal,
+    )
+
+    assert sampled in reciprocal
+    assert off_grid not in reciprocal
+    assert non_canonical in reciprocal
+
+
 def test_cartes_tensor():
     basis = ImmutableDenseMatrix([[1, 0], [0, 1]])
     # Default unit cell (empty -> one atom at origin)
@@ -356,10 +382,15 @@ def test_reciprocal_lattice_contains_only_valid_momentum_points_in_same_space():
         rep=ImmutableDenseMatrix([sy.Rational(1, 4), 0]),
         space=reciprocal_a,
     )
+    momentum_wrapped = Momentum(
+        rep=ImmutableDenseMatrix([1, 0]),
+        space=reciprocal_a,
+    )
 
     assert momentum_same in reciprocal_a
     assert momentum_equal_space in reciprocal_a
     assert momentum_invalid not in reciprocal_a
+    assert momentum_wrapped in reciprocal_a
 
 
 def test_offset_rejects_rep_with_wrong_dim():

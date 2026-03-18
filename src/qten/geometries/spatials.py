@@ -410,7 +410,9 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
             candidate = Offset(rep=rep, space=self.affine)
             momentum_candidate = Momentum(rep=rep, space=self)
             vectors.append(
-                momentum_candidate if momentum_candidate in self else candidate
+                momentum_candidate
+                if _is_reciprocal_grid_point(self, momentum_candidate, canonical=True)
+                else candidate
             )
         return tuple(vectors)
 
@@ -432,6 +434,20 @@ def _space_basis_as_ndarray(space: AffineSpace) -> np.ndarray:
 def _cartesian_delta(a: "Offset", b: "Offset", target_space: AffineSpace) -> np.ndarray:
     delta = a - b.rebase(target_space)
     return _space_basis_as_ndarray(target_space) @ _matrix_to_ndarray(delta.rep)
+
+
+def _is_reciprocal_grid_point(
+    lattice: ReciprocalLattice, momentum: "Momentum", *, canonical: bool
+) -> bool:
+    if momentum.rep.shape != (lattice.dim, 1):
+        return False
+
+    rep = momentum.rep if canonical else momentum.fractional().rep
+    return all(
+        (not canonical or sy.simplify(coord - sy.floor(coord)) == coord)
+        and sy.nsimplify(coord * period).is_integer is True
+        for coord, period in zip(rep, lattice.shape)
+    )
 
 
 def _check_offset_matches_space(r: "Offset") -> None:
@@ -675,7 +691,7 @@ class Momentum(Offset[ReciprocalLattice], Convertible):
 def operator_contains(lattice: ReciprocalLattice, momentum: Momentum) -> bool:
     if momentum.space != lattice:
         return False
-    return momentum in set(lattice.cartes())
+    return _is_reciprocal_grid_point(lattice, momentum, canonical=False)
 
 
 @dispatch(Offset, Offset)  # type: ignore[no-redef]
