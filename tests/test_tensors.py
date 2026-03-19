@@ -7,16 +7,19 @@ from collections import OrderedDict
 from qten.symbolics import state_space
 from qten.linalg.tensors import (
     Tensor,
+    abs as tensor_abs,
     all as tensor_all,
     align_all,
     allclose,
     astype,
     equal,
+    imag as tensor_imag,
     kernel_tensor,
     matmul,
     nonzero,
     one_hot,
     ones,
+    real as tensor_real,
     union_dims,
     where,
     zeros,
@@ -2021,6 +2024,65 @@ def test_tensor_scalar_ordered_comparisons_reject_complex_scalar():
 
     with pytest.raises(RuntimeError, match="not implemented"):
         _ = tensor < (1 + 1j)
+
+
+def test_tensor_real_imag_abs_on_complex_tensor():
+    left = IndexSpace.linear(2)
+    tensor = Tensor(
+        data=torch.tensor([3 + 4j, 1 - 2j], dtype=torch.complex64),
+        dims=(left,),
+    )
+
+    real_out = tensor.real()
+    imag_out = tensor.imag()
+    abs_out = tensor.abs()
+
+    assert real_out.dims == (left,)
+    assert imag_out.dims == (left,)
+    assert abs_out.dims == (left,)
+    assert real_out.data.dtype == torch.float32
+    assert imag_out.data.dtype == torch.float32
+    assert abs_out.data.dtype == torch.float32
+    assert torch.equal(real_out.data, torch.tensor([3.0, 1.0], dtype=torch.float32))
+    assert torch.equal(imag_out.data, torch.tensor([4.0, -2.0], dtype=torch.float32))
+    assert torch.allclose(
+        abs_out.data, torch.tensor([5.0, 5**0.5], dtype=torch.float32)
+    )
+
+
+def test_tensor_real_imag_abs_module_functions_match_methods():
+    left = IndexSpace.linear(2)
+    tensor = Tensor(
+        data=torch.tensor([2 + 3j, -1 + 4j], dtype=torch.complex64),
+        dims=(left,),
+    )
+
+    assert torch.equal(tensor_real(tensor).data, tensor.real().data)
+    assert torch.equal(tensor_imag(tensor).data, tensor.imag().data)
+    assert torch.equal(tensor_abs(tensor).data, tensor.abs().data)
+
+
+def test_tensor_real_imag_abs_on_real_tensor():
+    left = IndexSpace.linear(3)
+    tensor = Tensor(
+        data=torch.tensor([-2.0, 0.0, 3.0], dtype=torch.float64), dims=(left,)
+    )
+
+    real_out = tensor.real()
+    imag_out = tensor.imag()
+    abs_out = tensor.abs()
+
+    assert real_out.dims == (left,)
+    assert imag_out.dims == (left,)
+    assert abs_out.dims == (left,)
+    assert real_out.data.dtype == torch.float64
+    assert imag_out.data.dtype == torch.float64
+    assert abs_out.data.dtype == torch.float64
+    assert torch.equal(
+        real_out.data, torch.tensor([-2.0, 0.0, 3.0], dtype=torch.float64)
+    )
+    assert torch.equal(imag_out.data, torch.zeros(3, dtype=torch.float64))
+    assert torch.equal(abs_out.data, torch.tensor([2.0, 0.0, 3.0], dtype=torch.float64))
 
 
 def test_all_supports_tuple_dims_without_keepdim():

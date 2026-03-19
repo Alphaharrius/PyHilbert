@@ -65,6 +65,145 @@ def _check_data_compatible_with_dims(tensor: "Tensor") -> None:
 @need_validation(_check_data_compatible_with_dims)
 @dataclass(frozen=True, eq=False)
 class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
+    """
+    StateSpace-aware tensor wrapper over `torch.Tensor`.
+
+    A `Tensor` pairs raw tensor data with symbolic axis metadata in `dims`.
+    Each entry of `dims` is a `StateSpace` whose size must match the
+    corresponding axis of `data`. This lets tensor operations preserve not only
+    shapes, but also the semantic identity and ordering of axes.
+
+    Core model
+    ----------
+    - `data` stores the underlying numeric values as a `torch.Tensor`.
+    - `dims` stores one `StateSpace` per axis.
+    - `tensor.data.shape` must equal `tuple(dim.dim for dim in tensor.dims)`.
+    - Axes are aligned by `StateSpace` compatibility rather than by position
+      alone. If two axes represent the same rays in different orders, QTen can
+      permute one operand to match the other.
+    - Singleton broadcast axes are represented symbolically by
+      `BroadcastSpace()`.
+
+    Construction
+    ------------
+    Create tensors directly from a torch tensor and a matching dims tuple:
+
+    `Tensor(data=torch.randn(2, 3), dims=(left_space, right_space))`
+
+    Use `Tensor.scalar(number)` to construct a rank-0 tensor.
+
+    Supported operators
+    -------------------
+    Tensor-Tensor:
+    - `a @ b`: StateSpace-aware matrix multiplication / contraction.
+    - `a + b`: StateSpace union add with metadata-aware alignment.
+    - `a - b`: subtraction.
+    - `a == b`: element-wise equality, returns a bool `Tensor`.
+    - `a < b`, `a <= b`, `a > b`, `a >= b`: element-wise ordered comparisons,
+      return bool `Tensor`s.
+
+    Tensor-Number / Number-Tensor:
+    - `a * c`, `c * a`: element-wise scalar multiplication.
+    - `a / c`: element-wise scalar division.
+    - `a < c`, `a <= c`, `a > c`, `a >= c`: scalar broadcast comparisons.
+    - `c < a`, `c <= a`, `c > a`, `c >= a`: reflected scalar broadcast
+      comparisons.
+
+    Scalar add/sub semantics:
+    - `a + c`, `c + a`, `a - c`, `c - a` treat `a` as a matrix or batch of
+      matrices over its last two axes and add/subtract `c * I` on that matrix
+      part.
+    - These operations therefore require rank at least 2 through `eye(dims)`.
+    - Scalar addition is not element-wise broadcasting.
+
+    Comparison semantics
+    --------------------
+    Comparisons use symmetric StateSpace-aware alignment:
+    - operands are rank-promoted with leading `BroadcastSpace()` axes when
+      needed,
+    - dims are merged with `union_dims(..., allow_merge=False)`,
+    - operands are aligned to the merged dims,
+    - runtime broadcast compatibility is validated,
+    - the result is a bool `Tensor` with those merged dims.
+
+    Ordered comparisons on complex tensors are not supported and defer to
+    PyTorch's runtime error behavior.
+
+    Shape and axis transforms
+    -------------------------
+    - `permute(*order)`: reorder axes.
+    - `transpose(dim0, dim1)`: swap two axes.
+    - `h(dim0, dim1)`: conjugate transpose across two axes.
+    - `unsqueeze(dim)`: insert a singleton `BroadcastSpace` axis.
+    - `squeeze(dim)`: remove a `BroadcastSpace` axis if present.
+    - `replace_dim(dim, new_dim)`: replace metadata for one axis with size
+      validation.
+    - `factorize_dim(dim, rule)`: split one axis into multiple factor spaces.
+    - `product_dims(*groups)`: combine groups of axes into tensor-product axes.
+    - `promote_rank(tensor, target_rank)`: prepend broadcast axes.
+
+    Alignment and metadata utilities
+    --------------------------------
+    - `align(dim, target_dim)`: align one axis to a compatible `StateSpace`.
+    - `align_all(dims)`: align all axes to a target dims tuple.
+    - `expand_to_union(union_dims)`: materialize data expansion for
+      `BroadcastSpace` axes.
+    - `dim_types()`: return the runtime types of all dims.
+    - `rank()`: return the tensor rank.
+
+    Reductions and element queries
+    ------------------------------
+    - `all(dim=None, keepdim=False)`: logical AND reduction.
+    - `mean(dim=None)`: arithmetic mean reduction.
+    - `argmax(dim)`, `argmin(dim)`: index reductions.
+    - `item()`: extract the Python scalar from a rank-0 tensor.
+    - `equal(other)`: exact equality after metadata alignment, returning
+      Python `bool`.
+    - `allclose(other, ...)`: approximate equality after metadata alignment,
+      returning Python `bool`.
+
+    Boolean-mask helpers
+    --------------------
+    - `where(input, other)`: use this tensor as a bool mask and select between
+      two tensors.
+    - `where()`: return index tensors for `True` entries.
+    - `nonzero(as_tuple=True)`: return index tensors for nonzero / `True`
+      entries.
+
+    Indexing
+    --------
+    `__getitem__` supports:
+    - Python integers, slices, `None`, and `...`,
+    - `StateSpace` / `Convertible` axis selection and reindexing,
+    - `Tensor` advanced indices.
+
+    Tensor advanced indexing is metadata-aware and can align tensor index dims
+    before dispatching to torch indexing. Boolean tensor indices are not
+    supported in `__getitem__`; use comparison masks together with `where` or
+    `nonzero` instead.
+
+    Autograd and devices
+    --------------------
+    - `attach()`: return a leaf tensor with `requires_grad=True`.
+    - `detach()`: detach from autograd without cloning storage.
+    - `clone()`: deep-copy tensor data.
+    - `grad`: wrapped gradient tensor, if available.
+    - `requires_grad`: autograd flag from underlying data.
+    - `backward(...)`: autograd backward pass.
+    - `device`: logical QTen device view of the underlying torch device.
+    - `to_device(device)`: move data to another logical device.
+
+    Factory and module-level companion functions
+    --------------------------------------------
+    The module also exposes helpers that create or operate on `Tensor`:
+    `matmul`, `permute`, `transpose`, `conj`, `unsqueeze`, `squeeze`,
+    `align`, `align_all`, `all`, `mean`, `argmax`, `argmin`, `astype`,
+    `one_hot`, `equal`, `allclose`, `expand_to_union`, `union_dims`,
+    `mapping_matrix`, `eye`, `zeros`, `ones`, `kernel_tensor`,
+    `replace_dim`, `factorize_dim`, `product_dims`, `promote_rank`,
+    `where`, and `nonzero`.
+    """
+
     data: T
     dims: Tuple[StateSpace, ...]
 
@@ -174,6 +313,32 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
             The complex conjugate of the tensor.
         """
         return conj(self)
+
+    def real(self) -> Self:
+        """
+        Return the real part of the tensor, preserving dims.
+
+        For complex-valued tensors this drops the imaginary component. For
+        real-valued tensors this returns a tensor with the same values.
+        """
+        return real(self)
+
+    def imag(self) -> Self:
+        """
+        Return the imaginary part of the tensor, preserving dims.
+
+        For complex-valued tensors this returns the imaginary component. For
+        real-valued tensors this returns zeros with the corresponding real dtype.
+        """
+        return imag(self)
+
+    def abs(self) -> Self:
+        """
+        Return the element-wise absolute value / magnitude of the tensor.
+
+        For complex-valued tensors this returns the magnitude.
+        """
+        return abs(self)
 
     def permute(self, *order: Union[int, Sequence[int]]) -> Self:
         """
@@ -1374,6 +1539,32 @@ def conj(tensor: TensorType) -> TensorType:
         The complex conjugate of the tensor, preserving the input wrapper type.
     """
     return replace(tensor, data=tensor.data.conj())
+
+
+def real(tensor: TensorType) -> TensorType:
+    """
+    Return the real part of a tensor, preserving dims and wrapper type.
+    """
+    return replace(tensor, data=cast(T, tensor.data.real))
+
+
+def imag(tensor: TensorType) -> TensorType:
+    """
+    Return the imaginary part of a tensor, preserving dims and wrapper type.
+
+    For real-valued tensors this is a zero tensor with the corresponding real dtype.
+    """
+    if tensor.data.is_complex():
+        return replace(tensor, data=cast(T, tensor.data.imag))
+    return replace(tensor, data=cast(T, torch.zeros_like(tensor.data)))
+
+
+def abs(tensor: TensorType) -> TensorType:
+    """
+    Return the element-wise absolute value / magnitude of a tensor, preserving
+    dims and wrapper type.
+    """
+    return replace(tensor, data=cast(T, tensor.data.abs()))
 
 
 def unsqueeze(tensor: TensorType, dim: int) -> TensorType:
