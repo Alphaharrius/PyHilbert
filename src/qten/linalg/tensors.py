@@ -303,6 +303,21 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         """
         return allclose(self, other, rtol=rtol, atol=atol, equal_nan=equal_nan)
 
+    def isclose(
+        self,
+        other: Union["Tensor", Number],
+        rtol: float = 1e-05,
+        atol: float = 1e-08,
+        equal_nan: bool = False,
+    ) -> Self:
+        """
+        Perform element-wise approximate equality comparison.
+
+        This is the mask-producing counterpart to `allclose`: it returns a bool
+        `Tensor` instead of a Python bool.
+        """
+        return isclose(self, other, rtol=rtol, atol=atol, equal_nan=equal_nan)
+
     def conj(self) -> Self:
         """
         Compute the complex conjugate of the given tensor.
@@ -1202,6 +1217,44 @@ def _tensor_comparison_op(
     )
 
 
+def _binary_elementwise_mask_op(
+    left: TensorType,
+    right: Tensor,
+    op: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+) -> TensorType:
+    """
+    Apply a boolean-mask-producing binary tensor op with symmetric StateSpace
+    alignment and broadcasting.
+    """
+    target_rank = max(left.rank(), right.rank())
+    left = cast(TensorType, promote_rank(left, target_rank))
+    right = promote_rank(right, target_rank)
+    merged_dims = union_dims(left.dims, right.dims, allow_merge=False)
+    aligned_left = left.align_all(merged_dims)
+    aligned_right = right.align_all(merged_dims)
+    expected_shape = tuple(dim.dim for dim in merged_dims)
+    try:
+        runtime_shape = torch.broadcast_shapes(
+            aligned_left.data.shape, aligned_right.data.shape
+        )
+    except RuntimeError as e:
+        raise ValueError(
+            "operands are not broadcastable after StateSpace alignment: "
+            f"left_shape={tuple(aligned_left.data.shape)}, "
+            f"right_shape={tuple(aligned_right.data.shape)}, "
+            f"merged_dims={_format_dims(merged_dims)}"
+        ) from e
+    if runtime_shape != expected_shape:
+        raise ValueError(
+            "StateSpace dims do not match runtime broadcast shape: "
+            f"merged_dims={_format_dims(merged_dims)}, "
+            f"expected_shape={expected_shape}, runtime_shape={tuple(runtime_shape)}"
+        )
+    return replace(
+        left, data=op(aligned_left.data, aligned_right.data), dims=merged_dims
+    )
+
+
 @dispatch(Tensor, Tensor)
 def operator_lt(left: TensorType, right: Tensor) -> TensorType:
     """Perform element-wise less-than comparison between two tensors."""
@@ -2010,6 +2063,31 @@ def allclose(
 
     return torch.allclose(
         a.data, aligned_b.data, rtol=rtol, atol=atol, equal_nan=equal_nan
+    )
+
+
+def isclose(
+    a: TensorType,
+    b: Union[Tensor, Number],
+    rtol: float = 1e-05,
+    atol: float = 1e-08,
+    equal_nan: bool = False,
+) -> TensorType:
+    """
+    Perform element-wise approximate equality comparison with dimension-aware
+    alignment and broadcasting.
+
+    This returns a bool `Tensor` mask, unlike `allclose`, which reduces to a
+    Python bool.
+    """
+    if not isinstance(b, Tensor):
+        b = Tensor.scalar(b)
+    return _binary_elementwise_mask_op(
+        a,
+        b,
+        lambda left, right: torch.isclose(
+            left, right, rtol=rtol, atol=atol, equal_nan=equal_nan
+        ),
     )
 
 

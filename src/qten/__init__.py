@@ -22,6 +22,7 @@ from .linalg.tensors import (
     nonzero as nonzero,
     one_hot as one_hot,
     imag as imag,
+    isclose as isclose,
     ones as ones,
     permute as permute,
     product_dims as product_dims,

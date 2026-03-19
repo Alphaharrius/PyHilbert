@@ -14,6 +14,7 @@ from qten.linalg.tensors import (
     astype,
     equal,
     imag as tensor_imag,
+    isclose as tensor_isclose,
     kernel_tensor,
     matmul,
     nonzero,
@@ -2083,6 +2084,96 @@ def test_tensor_real_imag_abs_on_real_tensor():
     )
     assert torch.equal(imag_out.data, torch.zeros(3, dtype=torch.float64))
     assert torch.equal(abs_out.data, torch.tensor([2.0, 0.0, 3.0], dtype=torch.float64))
+
+
+def test_isclose_returns_bool_mask_with_aligned_dims():
+    mode_a = make_mode("a", 2)
+    mode_b = make_mode("b", 3)
+    space_ab = _space_from_modes(mode_a, mode_b)
+    space_ba = _space_from_modes(mode_b, mode_a)
+
+    a_data = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
+    b_data_ba = torch.empty_like(a_data)
+    perm = torch.tensor([3, 4, 0, 1, 2], dtype=torch.long)
+    target = torch.tensor([1.0, 2.0 + 1e-7, 2.9, 4.0, 5.0], dtype=torch.float64)
+    b_data_ba[perm] = target
+
+    a = Tensor(data=a_data, dims=(space_ab,))
+    b = Tensor(data=b_data_ba, dims=(space_ba,))
+
+    out = tensor_isclose(a, b, atol=1e-6)
+
+    assert out.dims == (space_ab,)
+    assert out.data.dtype == torch.bool
+    assert torch.equal(out.data, torch.tensor([True, True, False, True, True]))
+
+
+def test_tensor_isclose_method_matches_module_function():
+    left = IndexSpace.linear(3)
+    a = Tensor(data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64), dims=(left,))
+    b = Tensor(
+        data=torch.tensor([1.0, 2.0000001, 3.1], dtype=torch.float64), dims=(left,)
+    )
+
+    method_out = a.isclose(b, atol=1e-6)
+    function_out = tensor_isclose(a, b, atol=1e-6)
+
+    assert method_out.dims == function_out.dims
+    assert torch.equal(method_out.data, function_out.data)
+
+
+def test_isclose_supports_scalar_broadcast():
+    left = IndexSpace.linear(3)
+    tensor = Tensor(
+        data=torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64), dims=(left,)
+    )
+
+    out = tensor.isclose(2.0, atol=0.0, rtol=0.0)
+
+    assert out.dims == (left,)
+    assert out.data.dtype == torch.bool
+    assert torch.equal(out.data, torch.tensor([False, True, False]))
+
+
+def test_isclose_uses_symmetric_broadcast_dims():
+    a = IndexSpace.linear(2)
+    b = IndexSpace.linear(3)
+
+    left = Tensor(
+        data=torch.tensor([[1.0], [3.0]], dtype=torch.float64),
+        dims=(a, BroadcastSpace()),
+    )
+    right = Tensor(
+        data=torch.tensor([[1.0, 2.0, 1.0 + 1e-7]], dtype=torch.float64),
+        dims=(BroadcastSpace(), b),
+    )
+
+    out = tensor_isclose(left, right, atol=1e-6)
+    expected = torch.isclose(left.data, right.data, atol=1e-6)
+
+    assert out.dims == (a, b)
+    assert out.data.dtype == torch.bool
+    assert torch.equal(out.data, expected)
+
+
+def test_isclose_supports_complex_tensors_and_equal_nan():
+    left = IndexSpace.linear(3)
+    a = Tensor(
+        data=torch.tensor([1 + 1j, complex("nan+nanj"), 2 + 0j], dtype=torch.complex64),
+        dims=(left,),
+    )
+    b = Tensor(
+        data=torch.tensor(
+            [1 + 1.0000001j, complex("nan+nanj"), 3 + 0j], dtype=torch.complex64
+        ),
+        dims=(left,),
+    )
+
+    out = tensor_isclose(a, b, atol=1e-6, equal_nan=True)
+
+    assert out.dims == (left,)
+    assert out.data.dtype == torch.bool
+    assert torch.equal(out.data, torch.tensor([True, True, False]))
 
 
 def test_all_supports_tuple_dims_without_keepdim():
