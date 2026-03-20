@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from qten.linalg.tensors import Tensor, allclose, equal, isclose, matmul, where
+from qten.linalg.tensors import Tensor, allclose, cat, equal, isclose, matmul, where
 from qten.symbolics.state_space import IndexSpace
 from qten.utils.devices import Device
 
@@ -164,6 +164,22 @@ class TestTensorCrossDeviceBinaryOps:
         assert result.device == data.device
         assert result.dims == INDEX_DIM
         assert torch.equal(result.data.cpu(), torch.tensor([30.0, 10.0]))
+
+    def test_cat_auto_promotes_device(self, left_device: str, right_device: str):
+        left = _move(
+            Tensor(data=torch.tensor([1.0, 2.0]), dims=(IndexSpace.linear(2),)),
+            left_device,
+        )
+        right = _move(
+            Tensor(data=torch.tensor([3.0, 4.0, 5.0]), dims=(IndexSpace.linear(3),)),
+            right_device,
+        )
+
+        result = cat([left, right], dim=0)
+
+        assert result.device == _expected_device(left_device, right_device)
+        assert result.dims == (IndexSpace.linear(5),)
+        assert torch.equal(result.data.cpu(), torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0]))
 
 
 @pytest.mark.parametrize(

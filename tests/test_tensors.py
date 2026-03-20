@@ -12,6 +12,7 @@ from qten.linalg.tensors import (
     align_all,
     allclose,
     astype,
+    cat,
     equal,
     imag as tensor_imag,
     isclose as tensor_isclose,
@@ -126,6 +127,23 @@ class TestMatmul:
         expected_data = torch.matmul(data_left, data_right)
         assert torch.allclose(result.data, expected_data)
         assert result.dims == (matmul_ctx.space2, matmul_ctx.space2)
+
+    def test_cat_rejects_overlapping_structured_concat_dim(self, matmul_ctx):
+        left_space = _space_from_modes(matmul_ctx.mode_a, matmul_ctx.mode_b)
+        right_space = _space_from_modes(matmul_ctx.mode_b, matmul_ctx.mode_c)
+        batch_dim = IndexSpace.linear(1)
+
+        left = Tensor(
+            data=torch.randn(batch_dim.dim, left_space.dim),
+            dims=(batch_dim, left_space),
+        )
+        right = Tensor(
+            data=torch.randn(batch_dim.dim, right_space.dim),
+            dims=(batch_dim, right_space),
+        )
+
+        with pytest.raises(ValueError, match="disjoint"):
+            cat([left, right], dim=1)
 
     def test_matmul_with_alignment(self, matmul_ctx):
         # Test where contraction dimensions have different internal order (space1 vs space3)

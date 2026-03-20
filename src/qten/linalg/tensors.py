@@ -21,6 +21,8 @@ from itertools import product
 from numbers import Number
 from dataclasses import dataclass, replace
 from types import EllipsisType
+from collections import OrderedDict
+import builtins
 
 from multipledispatch import dispatch  # type: ignore[import-untyped]
 import torch
@@ -199,9 +201,9 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     --------------------------------------------
     The module also exposes helpers that create or operate on `Tensor`:
     `matmul`, `permute`, `transpose`, `conj`, `unsqueeze`, `squeeze`,
-    `align`, `align_all`, `all`, `mean`, `argmax`, `argmin`, `astype`,
+    `align`, `align_all`, `all`, `mean`, `norm`, `argmax`, `argmin`, `astype`,
     `one_hot`, `equal`, `allclose`, `expand_to_union`, `union_dims`,
-    `mapping_matrix`, `eye`, `zeros`, `ones`, `kernel_tensor`,
+    `mapping_matrix`, `eye`, `zeros`, `ones`, `kernel_tensor`, `cat`,
     `replace_dim`, `factorize_dim`, `product_dims`, `promote_rank`,
     `where`, and `nonzero`.
     """
@@ -632,6 +634,28 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
             A new tensor with the specified dimensions reduced.
         """
         return mean(self, dim)
+
+    def norm(
+        self,
+        ord: Optional[Union[int, float, str]] = None,
+        dim: Optional[Union[int, Tuple[int, int]]] = None,
+    ) -> Self:
+        """
+        Compute a vector or matrix norm over the specified dimension(s).
+
+        Parameters
+        ----------
+        ord : `Optional[Union[int, float, str]]`, optional
+            Order of the norm, passed through to `torch.linalg.norm`.
+        dim : `Optional[Union[int, Tuple[int, int]]]`, optional
+            Reduction axis or axes. If `None`, reduce over the whole tensor.
+
+        Returns
+        -------
+        `Self`
+            A new tensor with the specified dimensions reduced.
+        """
+        return norm(self, ord=ord, dim=dim)
 
     def argmax(self, dim: int) -> Self:
         """
@@ -1986,6 +2010,59 @@ def mean(
     return replace(tensor, data=reduced, dims=new_dims)
 
 
+def norm(
+    tensor: TensorType,
+    ord: Optional[Union[int, float, str]] = None,
+    dim: Optional[Union[int, Tuple[int, int]]] = None,
+) -> TensorType:
+    """
+    Compute a vector or matrix norm, matching `torch.linalg.norm` dim forms.
+
+    Parameters
+    ----------
+    tensor : `Tensor`
+        The tensor to reduce.
+    ord : `Optional[Union[int, float, str]]`, optional
+        Order of the norm, forwarded to `torch.linalg.norm`.
+    dim : `Optional[Union[int, Tuple[int, int]]]`, optional
+        Reduction axis or axes. If `None`, reduce over the whole tensor.
+
+    Returns
+    -------
+    `TensorType`
+        A new tensor with the specified dimensions reduced, preserving the input wrapper type.
+    """
+    reduced = torch.linalg.norm(tensor.data, ord=ord, dim=dim)
+    if dim is None:
+        return replace(tensor, data=reduced, dims=())
+
+    rank_ = tensor.rank()
+    dims_tuple: Tuple[int, ...]
+    if isinstance(dim, int):
+        dims_tuple = (dim,)
+    else:
+        dims_tuple = dim
+
+    normalized_dims: list[int] = []
+    for d in dims_tuple:
+        nd = d
+        if nd < 0:
+            nd += rank_
+        if nd < 0 or nd >= rank_:
+            raise IndexError(f"Dimension index {d} out of range for rank {rank_}")
+        if nd in normalized_dims:
+            raise ValueError("norm dim entries must be unique")
+        normalized_dims.append(nd)
+
+    reduced_dims_set = set(normalized_dims)
+    new_dims = tuple(
+        current_dim
+        for idx, current_dim in enumerate(tensor.dims)
+        if idx not in reduced_dims_set
+    )
+    return replace(tensor, data=reduced, dims=new_dims)
+
+
 def argmax(tensor: TensorType, dim: int) -> TensorType:
     """
     Compute the indices of the maximum values over a specified dimension.
@@ -2308,6 +2385,91 @@ def union_dims(
             merged[axis] = cast(StateSpace, left_dim + right_dim)
 
     return tuple(merged)
+
+
+def _cat_dim(dims: Sequence[StateSpace]) -> StateSpace:
+    if not dims:
+        raise ValueError("cat requires at least one dimension to concatenate")
+
+    first = dims[0]
+    if isinstance(first, BroadcastSpace):
+        raise ValueError("cat does not support concatenation along BroadcastSpace")
+
+    if builtins.all(isinstance(dim, IndexSpace) for dim in dims):
+        return IndexSpace.linear(sum(dim.dim for dim in dims))
+
+    if not builtins.all(type(dim) is type(first) for dim in dims):
+        raise ValueError("cat dimension types must match across all tensors")
+
+    elements: list[Any] = []
+    seen: set[Any] = set()
+    for dim in dims:
+        for element in dim.elements():
+            if element in seen:
+                raise ValueError(
+                    "cat requires concatenated structured dimensions to be disjoint"
+                )
+            seen.add(element)
+            elements.append(element)
+
+    return type(first)(
+        structure=OrderedDict((element, i) for i, element in enumerate(elements))
+    )
+
+
+def cat(tensors: Sequence[TensorType], dim: int = 0) -> TensorType:
+    """
+    Concatenate tensors along an existing dimension with metadata-aware alignment.
+
+    Non-concatenated dimensions must represent the same rays and are aligned to
+    the ordering of the first tensor before concatenation. The concatenated
+    output dimension is rebuilt by ordered append. `IndexSpace` dimensions are
+    resized linearly; structured dimensions require disjoint labels.
+    """
+    if not tensors:
+        raise ValueError("cat expects at least one tensor")
+
+    first = tensors[0]
+    rank_ = first.rank()
+    if dim < 0:
+        dim += rank_
+    if dim < 0 or dim >= rank_:
+        raise IndexError(f"Dimension index {dim} out of range for rank {rank_}")
+
+    for tensor in tensors[1:]:
+        if tensor.rank() != rank_:
+            raise ValueError("All tensors passed to cat must have the same rank")
+
+    common_dtype = first.data.dtype
+    for tensor in tensors[1:]:
+        common_dtype = torch.promote_types(common_dtype, tensor.data.dtype)
+
+    promoted = tuple(
+        tensor
+        if tensor.data.dtype == common_dtype
+        else replace(tensor, data=tensor.data.to(common_dtype))
+        for tensor in _promote_to_device(*tensors)
+    )
+
+    aligned: list[TensorType] = []
+    for tensor in promoted:
+        current = tensor
+        for axis in range(rank_):
+            if axis == dim:
+                continue
+            target_dim = first.dims[axis]
+            if not same_rays(current.dims[axis], target_dim):
+                raise ValueError(
+                    f"All non-concatenated dims must have the same rays; "
+                    f"axis {axis} differs between {current.dims[axis]} and {target_dim}"
+                )
+            current = current.align(axis, target_dim)
+        aligned.append(current)
+
+    out_dim = _cat_dim([tensor.dims[dim] for tensor in aligned])
+    out_dims = first.dims[:dim] + (out_dim,) + first.dims[dim + 1 :]
+    out_data = torch.cat([tensor.data for tensor in aligned], dim=dim)
+    return replace(first, data=out_data, dims=out_dims)
 
 
 def mapping_matrix(
