@@ -1,6 +1,8 @@
 from typing import Callable, Dict, Literal, Tuple, Union, cast
 
 import numpy as np
+
+# TODO: Avoid using torch explicitly here.
 import torch
 
 from .geometries.spatials import Offset, Momentum
