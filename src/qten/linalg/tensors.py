@@ -16,10 +16,12 @@ from typing import (
     get_origin,
 )
 from typing_extensions import override
+from contextlib import ContextDecorator
 from functools import wraps, reduce
 from itertools import product
 from numbers import Number
 from dataclasses import dataclass, replace
+from threading import local
 from types import EllipsisType
 from collections import OrderedDict
 import builtins
@@ -52,6 +54,53 @@ such as `torch.FloatTensor`, `torch.DoubleTensor`, etc.
 """
 
 
+_TENSOR_DEVICE_STATE = local()
+
+
+def _tensor_device_stack() -> list[Device]:
+    stack = getattr(_TENSOR_DEVICE_STATE, "stack", None)
+    if stack is None:
+        stack = []
+        _TENSOR_DEVICE_STATE.stack = stack
+    return cast(list[Device], stack)
+
+
+def _forced_tensor_device() -> Optional[Device]:
+    stack = cast(tuple[Device, ...], tuple(getattr(_TENSOR_DEVICE_STATE, "stack", ())))
+    if not stack:
+        return None
+    return stack[-1]
+
+
+class at_device(ContextDecorator):
+    """
+    Temporarily force newly created QTen tensors onto a specific device.
+
+    This applies to `Tensor(...)` construction within the current thread,
+    including tensors created indirectly by helper functions in this module.
+    Nested scopes are supported; the innermost device takes precedence.
+    """
+
+    def __init__(self, device: Device | str):
+        self.device = Device.new(device) if isinstance(device, str) else device
+
+    def __enter__(self) -> "at_device":
+        self.device.torch_device()
+        _tensor_device_stack().append(self.device)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: Any,
+    ) -> None:
+        stack = _tensor_device_stack()
+        stack.pop()
+        if not stack:
+            delattr(_TENSOR_DEVICE_STATE, "stack")
+
+
 def _check_data_compatible_with_dims(tensor: "Tensor") -> None:
     """
     Validator function to check that a tensor's data shape matches its dims.
@@ -66,6 +115,10 @@ def _check_data_compatible_with_dims(tensor: "Tensor") -> None:
         )
 
 
+# TODO: Seems when we do torch.tensor(..., device=device) the tensor is created directly on the device
+# and thus takes only 1 allocation. Currently our workflow is to create the tensor on CPU and move it to
+# the target device, which involves 2 allocations and 1 copy. In future versions we should consider allowing
+# direct creation on the target device to optimize this workflow.
 @need_validation(_check_data_compatible_with_dims)
 @dataclass(frozen=True, eq=False)
 class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
@@ -210,6 +263,15 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
     data: T
     dims: Tuple[StateSpace, ...]
+
+    def __post_init__(self) -> None:
+        forced_device = _forced_tensor_device()
+        if forced_device is None:
+            return
+
+        target = forced_device.torch_device()
+        if self.data.device != target:
+            object.__setattr__(self, "data", cast(T, self.data.to(target)))
 
     @staticmethod
     def scalar(number: Number) -> "Tensor":

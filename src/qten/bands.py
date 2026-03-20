@@ -13,7 +13,7 @@ from .symbolics.hilbert_space import (
     FuncOpr,
 )
 from .linalg.decompose import eigh
-from .linalg.tensors import Tensor, mapping_matrix
+from .linalg.tensors import Tensor, mapping_matrix, at_device
 from .geometries.spatials import ReciprocalLattice
 from .geometries.basis_transform import BasisTransform
 from .geometries.fourier import fourier_transform
@@ -101,6 +101,7 @@ def bandtransform(
 
     kspace: MomentumSpace = cast(MomentumSpace, tensor.dims[0])
 
+    @at_device(tensor.device)
     def build_transform(space: HilbertSpace) -> Tensor:
         fractional = FuncOpr(Offset, Offset.fractional)
         new_space = cast(HilbertSpace, fractional @ t @ space)
@@ -243,7 +244,9 @@ def bandfold(
         for r_lookup, r_out in zip(enlarge_unit_cell, transformed_unit_cell)
     )
     # # Transform both sides
-    f = fourier_transform(k_space, tensor.dims[switch_index], rebased_hilbert)
+    f = fourier_transform(
+        k_space, tensor.dims[switch_index], rebased_hilbert
+    ).to_device(tensor.device)
     vratio = np.sqrt(len(enlarge_unit_cell) / len(lattice.unit_cell))
     f = f / vratio
     fh = f.h(-2, -1)  # (K, B', B)
@@ -259,7 +262,11 @@ def bandfold(
         if k.space == reciprocal_lattice
         else k.fractional(),
     )
-    k_map = mapping_matrix(k_space, new_k_space, mapping).transpose(0, 1)
+    k_map = (
+        mapping_matrix(k_space, new_k_space, mapping)
+        .transpose(0, 1)
+        .to_device(tensor.device)
+    )
     transformed = (k_map @ transformed).squeeze(-1).permute(2, 0, 1)
     for dim in (1, 2):
         if transformed.dims[dim] == rebased_hilbert:

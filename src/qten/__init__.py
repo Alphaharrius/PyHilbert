@@ -6,6 +6,7 @@ from .linalg.tensors import (
     align_all as align_all,
     all as all,
     allclose as allclose,
+    at_device as at_device,
     argmax as argmax,
     argmin as argmin,
     abs as abs,

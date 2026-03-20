@@ -114,7 +114,7 @@ def fourier_transform(
         0, 1
     )  # (B, R)
     # (K, 1, R) * (1, B, R)
-    f = f.unsqueeze(1) * map.data.unsqueeze(0)
+    f = f.to(map.data.device).unsqueeze(1) * map.data.unsqueeze(0)
     return Tensor(data=f, dims=(k_space, bloch_space, region_space))  # (K, B, R)
 
 

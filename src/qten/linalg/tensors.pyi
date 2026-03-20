@@ -14,6 +14,7 @@ from ..symbolics.state_space import (
 from ..utils.devices import Device as Device, DeviceBounded as DeviceBounded
 from ..validations import need_validation as need_validation
 from _typeshed import Incomplete
+from contextlib import ContextDecorator
 from dataclasses import dataclass
 from types import EllipsisType
 from typing import (
@@ -32,6 +33,17 @@ from typing_extensions import override
 T = TypeVar("T", bound=torch.Tensor)
 TensorType = TypeVar("TensorType", bound="Tensor[Any]")
 Scalar: TypeAlias = int | float | complex
+
+class at_device(ContextDecorator):
+    device: Device
+    def __init__(self, device: Device | str) -> None: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: Any,
+    ) -> None: ...
 
 @dataclass(frozen=True, eq=False)
 class Tensor(Operable, Plottable, Convertible, DeviceBounded, Generic[T]):

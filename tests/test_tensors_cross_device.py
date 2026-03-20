@@ -1,7 +1,19 @@
+from contextlib import nullcontext
+
 import pytest
 import torch
 
-from qten.linalg.tensors import Tensor, allclose, cat, equal, isclose, matmul, where
+from qten.linalg.tensors import (
+    Tensor,
+    at_device,
+    allclose,
+    cat,
+    equal,
+    isclose,
+    matmul,
+    where,
+    zeros,
+)
 from qten.symbolics.state_space import IndexSpace
 from qten.utils.devices import Device
 
@@ -218,3 +230,50 @@ class TestTensorCrossDeviceWhere:
             condition_device, input_device, other_device
         )
         assert torch.equal(result.data.cpu(), torch.tensor([1.0, 20.0, 3.0]))
+
+
+@pytest.mark.parametrize(
+    "device_name",
+    [
+        "cpu",
+        pytest.param(
+            "gpu",
+            marks=pytest.mark.skipif(not HAS_GPU, reason="requires GPU support"),
+        ),
+    ],
+)
+class TestTensorDeviceContext:
+    def test_tensor_constructor_forces_requested_device(self, device_name: str):
+        with at_device(Device(device_name)):
+            tensor = Tensor(data=torch.tensor([1.0, 2.0, 3.0]), dims=VECTOR_DIM)
+
+        assert tensor.device == Device(device_name)
+
+    def test_factories_inherit_requested_device(self, device_name: str):
+        with at_device(device_name):
+            tensor = zeros(VECTOR_DIM)
+
+        assert tensor.device == Device(device_name)
+
+    def test_nested_scope_restores_outer_device(self, device_name: str):
+        outer = Device(device_name)
+        inner = Device("cpu") if device_name == "gpu" else Device("gpu")
+        use_inner_scope = inner.name != "gpu" or HAS_GPU
+        inner_ctx = at_device(inner) if use_inner_scope else nullcontext()
+
+        with at_device(outer):
+            outer_tensor = Tensor(data=torch.tensor([1.0, 2.0, 3.0]), dims=VECTOR_DIM)
+            with inner_ctx:
+                inner_tensor = Tensor(
+                    data=torch.tensor([4.0, 5.0, 6.0]),
+                    dims=VECTOR_DIM,
+                )
+            restored_tensor = Tensor(
+                data=torch.tensor([7.0, 8.0, 9.0]),
+                dims=VECTOR_DIM,
+            )
+
+        assert outer_tensor.device == outer
+        assert restored_tensor.device == outer
+        expected_inner = inner if use_inner_scope else outer
+        assert inner_tensor.device == expected_inner
