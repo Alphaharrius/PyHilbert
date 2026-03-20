@@ -919,7 +919,11 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
             key = (key,)
         compiled = TensorIndexing(self.dims, key).compile()
         if compiled.has_tensor_index:
-            data = self.data[compiled.indices]
+            indices = tuple(
+                idx.to(self.data.device) if isinstance(idx, torch.Tensor) else idx
+                for idx in compiled.indices
+            )
+            data = self.data[indices]
             return Tensor(data=data, dims=compiled.dims)
 
         data = self.data
@@ -1024,7 +1028,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     __str__ = __repr__  # Override str to use the same representation
 
 
-def auto_promote(func):
+def auto_promote_dtype(func):
     """Decorator to automatically promote input Tensors to a common dtype."""
 
     @wraps(func)
@@ -1038,6 +1042,41 @@ def auto_promote(func):
         return func(left, right, *args, **kwargs)
 
     return wrapper
+
+
+def _common_device(*tensors: Tensor) -> Device:
+    """Return the common execution device for a group of tensors."""
+    for tensor in tensors:
+        if tensor.device.name == "gpu":
+            return tensor.device
+    return tensors[0].device
+
+
+def _promote_to_device(*tensors: Tensor) -> Tuple[Tensor, ...]:
+    """Move tensors to a common execution device when needed."""
+    target_device = _common_device(*tensors)
+    return tuple(
+        tensor if tensor.device == target_device else tensor.to_device(target_device)
+        for tensor in tensors
+    )
+
+
+def auto_promote_device(func):
+    """Decorator to automatically promote input Tensors to a common device."""
+
+    @wraps(func)
+    def wrapper(left, right, *args, **kwargs):
+        if isinstance(left, Tensor) and isinstance(right, Tensor):
+            left, right = _promote_to_device(left, right)
+        return func(left, right, *args, **kwargs)
+
+    return wrapper
+
+
+def auto_promote(func):
+    """Decorator to automatically promote input Tensors to a common dtype/device."""
+
+    return auto_promote_device(auto_promote_dtype(func))
 
 
 def _match_dims_for_matmul(left: Tensor, right: Tensor) -> Tuple[Tensor, Tensor]:
@@ -1222,6 +1261,10 @@ def _tensor_comparison_op(
     Perform an element-wise comparison between two tensors using symmetric
     StateSpace-aware alignment and broadcasting.
     """
+    promoted_left, promoted_right = _promote_to_device(left, right)
+    left = cast(TensorType, promoted_left)
+    right = promoted_right
+
     target_rank = max(left.rank(), right.rank())
     left = cast(TensorType, promote_rank(left, target_rank))
     right = promote_rank(right, target_rank)
@@ -1260,6 +1303,10 @@ def _binary_elementwise_mask_op(
     Apply a boolean-mask-producing binary tensor op with symmetric StateSpace
     alignment and broadcasting.
     """
+    promoted_left, promoted_right = _promote_to_device(left, right)
+    left = cast(TensorType, promoted_left)
+    right = promoted_right
+
     target_rank = max(left.rank(), right.rank())
     left = cast(TensorType, promote_rank(left, target_rank))
     right = promote_rank(right, target_rank)
@@ -2090,6 +2137,8 @@ def allclose(
         `True` if values are close after successful alignment; `False` if
         alignment fails or values are not close.
     """
+    a, b = _promote_to_device(a, b)
+
     try:
         aligned_b = b.align_all(a.dims)
     except (IndexError, TypeError, ValueError, RuntimeError):
@@ -2151,6 +2200,8 @@ def equal(a: Tensor, b: Tensor) -> bool:
         `True` if values are exactly equal after successful alignment; `False`
         if alignment fails or values are not equal.
     """
+    a, b = _promote_to_device(a, b)
+
     try:
         aligned_b = b.align_all(a.dims)
     except (IndexError, TypeError, ValueError, RuntimeError):
@@ -2708,6 +2759,8 @@ def where(condition: Tensor[torch.BoolTensor], input: Tensor, other: Tensor) -> 
     """
     if condition.data.dtype != torch.bool:
         raise TypeError("where expects condition.data to have dtype torch.bool")
+
+    condition, input, other = _promote_to_device(condition, input, other)
 
     target_rank = max(condition.rank(), input.rank(), other.rank())
     condition = promote_rank(condition, target_rank)
