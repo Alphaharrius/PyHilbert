@@ -556,7 +556,9 @@ def _(t: AbelianOpr, f: AbelianBasis) -> Multiple[AbelianBasis]:
     return t.g @ f
 
 
-@lru_cache
+@lru_cache(
+    maxsize=None
+)  # The maximum number of Offset is restricted by the current system.
 def _apply_abelian_opr_to_offset_cached(t: AbelianOpr, offset: Offset) -> Offset:
     if offset.space != t.offset.space:
         t = t.rebase(offset.space)
@@ -613,7 +615,9 @@ def _(t: AbelianOpr, offset: Offset) -> Offset:
     return _apply_abelian_opr_to_offset_cached(t, offset)
 
 
-@lru_cache
+@lru_cache(
+    maxsize=None
+)  # The maximum number of Momentum is restricted by the current system.
 def _apply_abelian_opr_to_momentum_cached(t: AbelianOpr, k: Momentum) -> Momentum:
     real_space = k.base().dual
     if t.base() != real_space:
