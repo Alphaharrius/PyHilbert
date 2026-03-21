@@ -21,7 +21,6 @@ from .symbolics.hilbert_space import Opr
 from .utils.collections_ext import matchby
 
 
-# TODO: Optimize this function: very slow in 192x192 system.
 def bandtransform(
     t: Opr,
     tensor: Tensor,
@@ -101,9 +100,14 @@ def bandtransform(
         raise ValueError("Third dimension of tensor must be a HilbertSpace.")
 
     kspace: MomentumSpace = cast(MomentumSpace, tensor.dims[0])
+    transform_cache: Dict[HilbertSpace, Tensor] = {}
 
     @at_device(tensor.device)
     def build_transform(space: HilbertSpace) -> Tensor:
+        cached = transform_cache.get(space)
+        if cached is not None:
+            return cached
+
         fractional = FuncOpr(Offset, Offset.fractional)
         new_space = cast(HilbertSpace, fractional @ t @ space)
         # The transformation will distort the unit-cell of the Hilbert space,
@@ -113,30 +117,24 @@ def bandtransform(
                 f"Hilbert space {space} is not closed under the transform {t}!"
             )
         bloch_transform = cast(Tensor, space.cross_gram(new_space)).h(-2, -1)
-        left_fourier = fourier_transform(kspace, space, space)  # (K, B, B')
-        right_fourier = fourier_transform(kspace, space, space)  # (K, B, B)
+        f = fourier_transform(kspace, space, space)  # (K, B, B')
         # Keep the transformed unit-cell labels explicit on the region leg so
         # StateSpace auto-alignment does not erase the site permutation.
-        # (K, B, B') @ (B', B) @ (B, B)
-        transform = (
-            left_fourier @ bloch_transform @ right_fourier.h(-2, -1)
-        )  # (K, B, B)
+        # (K, B, B) @ (B, B) @ (K, B, B)
+        transform = f @ bloch_transform @ f.h(-2, -1)  # (K, B, B)
+        transform_cache[space] = transform
         return transform
 
     mapped_kspace = kspace.map(lambda k: cast(Momentum, t @ k).fractional())
 
     if opt in ("both", "left"):
         left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
-        left_fourier = left_fourier.replace_dim(0, mapped_kspace).align(
-            0, kspace
-        )  # (K, B, B)
+        left_fourier = left_fourier.replace_dim(0, mapped_kspace)  # (K, B, B)
         tensor = cast(Tensor, (left_fourier @ tensor))  # (K, B, B)
 
     if opt in ("both", "right"):
         right_fourier = build_transform(cast(HilbertSpace, tensor.dims[2]))  # (K, B, B)
-        right_fourier = right_fourier.replace_dim(0, mapped_kspace).align(
-            0, kspace
-        )  # (K, B, B)
+        right_fourier = right_fourier.replace_dim(0, mapped_kspace)  # (K, B, B)
         tensor = cast(Tensor, (tensor @ right_fourier.h(-2, -1)))  # (K, B, B)
 
     return tensor
