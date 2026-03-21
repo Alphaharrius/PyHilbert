@@ -125,6 +125,7 @@ def bandtransform(
         transform_cache[space] = transform
         return transform
 
+    # TODO: This call is a huge hotspot of this function, contributing nearly 90% of the runtime.
     mapped_kspace = kspace.map(lambda k: cast(Momentum, t @ k).fractional())
 
     if opt in ("both", "left"):
