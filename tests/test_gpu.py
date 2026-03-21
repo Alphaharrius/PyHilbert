@@ -38,7 +38,11 @@ pytestmark = pytest.mark.skipif(not has_gpu, reason="No GPU (CUDA or MPS) availa
 
 @pytest.fixture
 def device():
-    return Device.new("gpu")
+    d = Device.new("gpu")
+    td = d.torch_device()
+    if td.type == "cuda":
+        return Device("gpu", td.index)
+    return d
 
 
 def test_tensor_factories(device):
@@ -46,16 +50,16 @@ def test_tensor_factories(device):
     s2 = IndexSpace.linear(4)
 
     t_zeros = zeros((s1, s2), device=device)
-    assert t_zeros.data.device.type == device.torch_device().type
+    assert t_zeros.device == device
 
     t_ones = ones((s1, s2), device=device)
-    assert t_ones.data.device.type == device.torch_device().type
+    assert t_ones.device == device
 
     t_eye = eye((s1, s1), device=device)
-    assert t_eye.data.device.type == device.torch_device().type
+    assert t_eye.device == device
 
     t_scalar = Tensor.scalar(4.2, device=device)
-    assert t_scalar.data.device.type == device.torch_device().type
+    assert t_scalar.device == device
 
 
 def test_kernel_and_mapping(device):
@@ -66,11 +70,11 @@ def test_kernel_and_mapping(device):
         return i + j
 
     t_ker = kernel_tensor(ker, (s1, s2), device=device)
-    assert t_ker.data.device.type == device.torch_device().type
+    assert t_ker.device == device
 
     mapping = {0: 1, 1: 0}
     t_map = mapping_matrix(s1, s2, mapping, device=device)
-    assert t_map.data.device.type == device.torch_device().type
+    assert t_map.device == device
 
 
 def test_tensor_math(device):
@@ -81,16 +85,16 @@ def test_tensor_math(device):
 
     # Matrix multiplication
     t3 = t1 @ t2
-    assert t3.data.device.type == device.torch_device().type
+    assert t3.device == device
 
     # Addition
     t4 = t1 + t2
-    assert t4.data.device.type == device.torch_device().type
+    assert t4.device == device
 
     # to_device functionality
     t_cpu = ones((s1, s1))
     t_gpu = t_cpu.to_device(device)
-    assert t_gpu.data.device.type == device.torch_device().type
+    assert t_gpu.device == device
 
 
 def test_decompositions(device):
@@ -103,14 +107,14 @@ def test_decompositions(device):
 
     # SVD
     u, s, vh = svd(t)
-    assert u.data.device.type == device.torch_device().type
-    assert s.data.device.type == device.torch_device().type
-    assert vh.data.device.type == device.torch_device().type
+    assert u.device == device
+    assert s.device == device
+    assert vh.device == device
 
     # EIGH
     vals, vecs = eigh(t)
-    assert vals.data.device.type == device.torch_device().type
-    assert vecs.data.device.type == device.torch_device().type
+    assert vals.device == device
+    assert vecs.device == device
 
 
 def test_spatials_lattice(device):
@@ -131,7 +135,7 @@ def test_free_fermions(device):
     ff.add_bond(sy.Integer(1), b1, b2)
 
     t_ten = ff.to_tensor(device=device)
-    assert t_ten.data.device.type == device.torch_device().type
+    assert t_ten.device == device
 
 
 def _opr_with_offset(
@@ -175,7 +179,7 @@ def test_pointgroup_ops(device):
     # This invokes projected spaces which previously had hardcoded CPU allocations
     w_sym = abelian_column_symmetrize(mirror, w)
 
-    assert w_sym.data.device.type == device.torch_device().type
+    assert w_sym.device == device
 
 
 def test_cross_gram_device(device):
@@ -188,7 +192,7 @@ def test_cross_gram_device(device):
     space2 = HilbertSpace.new([b0])
 
     tensor = space1.cross_gram(space2, device=device)
-    assert tensor.data.device.type == device.torch_device().type
+    assert tensor.device == device
 
 
 def test_hilbert_opr_repr_device(device):
@@ -202,7 +206,7 @@ def test_hilbert_opr_repr_device(device):
     identity_opr = FuncOpr(Offset, lambda x: x)
 
     tensor = hilbert_opr_repr(identity_opr, space, device=device)
-    assert tensor.data.device.type == device.torch_device().type
+    assert tensor.device == device
 
 
 def test_fourier_tensor_device(device):
@@ -228,7 +232,7 @@ def test_fourier_tensor_device(device):
 
     ft_tensor_gpu = fourier_transform(k_space, bloch_space, region_space, device=device)
 
-    assert ft_tensor_gpu.data.device.type == device.torch_device().type
+    assert ft_tensor_gpu.device == device
 
 
 def test_one_hot_device(device):
@@ -242,7 +246,7 @@ def test_one_hot_device(device):
     out_dim = IndexSpace.linear(4)
     t_oh = one_hot(t, out_dim)
 
-    assert t_oh.data.device.type == device.torch_device().type
+    assert t_oh.device == device
 
 
 def test_bandfillings_device(device):
@@ -265,7 +269,7 @@ def test_bandfillings_device(device):
     # Fill exactly half the band
     filled = bandfillings(H, 0.5)
 
-    assert filled.data.device.type == device.torch_device().type
+    assert filled.device == device
 
 
 def test_device_bounded_cpu(device):
@@ -273,11 +277,11 @@ def test_device_bounded_cpu(device):
     t_gpu = ones((s1, s1), device=device)
     t_cpu = t_gpu.cpu()
 
-    assert t_gpu.data.device.type == device.torch_device().type
-    assert t_cpu.data.device.type == "cpu"
+    assert t_gpu.device == device
+    assert t_cpu.device.name == "cpu"
 
     t_gpu_back = t_cpu.gpu()
-    assert t_gpu_back.data.device.type == device.torch_device().type
+    assert t_gpu_back.device == device
 
 
 def test_bandfold_device(device):
@@ -306,4 +310,4 @@ def test_bandfold_device(device):
     H_folded = bandfold(T, H, opt="both")
 
     # Assert output device matches input device
-    assert H_folded.data.device.type == device.torch_device().type
+    assert H_folded.device == device
