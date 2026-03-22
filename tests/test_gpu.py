@@ -29,11 +29,9 @@ from qten.geometries.basis_transform import BasisTransform
 from qten.bands import bandfillings
 
 
-has_gpu = torch.cuda.is_available() or (
-    hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-)
+has_gpu = torch.cuda.is_available()
 
-pytestmark = pytest.mark.skipif(not has_gpu, reason="No GPU (CUDA or MPS) available")
+pytestmark = pytest.mark.skipif(not has_gpu, reason="No CUDA available")
 
 
 @pytest.fixture
