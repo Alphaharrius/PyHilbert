@@ -13,7 +13,7 @@ from .symbolics.hilbert_space import (
     FuncOpr,
 )
 from .linalg.decompose import eigh
-from .linalg.tensors import Tensor, mapping_matrix, at_device
+from .linalg.tensors import Tensor, mapping_matrix
 from .geometries.spatials import ReciprocalLattice
 from .geometries.basis_transform import BasisTransform
 from .geometries.fourier import fourier_transform
@@ -115,8 +115,10 @@ def bandtransform(
             raise ValueError(
                 f"Hilbert space {space} is not closed under the transform {t}!"
             )
-        bloch_transform = cast(Tensor, space.cross_gram(new_space, device=tensor.device)).h(-2, -1)
-        f = fourier_transform(kspace, space, space,  device=tensor.device)  # (K, B, B')
+        bloch_transform = cast(
+            Tensor, space.cross_gram(new_space, device=tensor.device)
+        ).h(-2, -1)
+        f = fourier_transform(kspace, space, space, device=tensor.device)  # (K, B, B')
         # Keep the transformed unit-cell labels explicit on the region leg so
         # StateSpace auto-alignment does not erase the site permutation.
         # (K, B, B) @ (B, B) @ (K, B, B)
