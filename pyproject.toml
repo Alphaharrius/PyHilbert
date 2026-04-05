@@ -8,6 +8,10 @@ version = "0.1.1"
 description = "Torch-based tensors, lattices, symmetries, and band-structure tools for quantum lattice models."
 readme = "README.md"
 requires-python = ">=3.11"
+authors = [
+  { name = "alphaharrius" },
+  { name = "eyjafjallac" },
+]
 dependencies = [
     "multipledispatch>=1.0.0",
     "numpy>=2.0.0",
