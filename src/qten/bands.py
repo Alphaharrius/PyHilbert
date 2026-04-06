@@ -1,12 +1,15 @@
 from typing import Callable, Dict, Literal, Tuple, Union, cast
+from collections import OrderedDict
 
 import numpy as np
+import sympy as sy
+from sympy import ImmutableDenseMatrix
 
 # TODO: Avoid using torch explicitly here.
 import torch
 
 from .geometries.spatials import Offset, Momentum
-from .symbolics.state_space import IndexSpace, MomentumSpace, brillouin_zone
+from .symbolics.state_space import IndexSpace, MomentumSpace, brillouin_zone, restructure
 from .symbolics.hilbert_space import (
     HilbertSpace,
     U1Basis,
@@ -19,6 +22,65 @@ from .geometries.basis_transform import BasisTransform
 from .geometries.fourier import fourier_transform
 from .symbolics.hilbert_space import Opr
 from .symbolics.ops import match_indices
+
+
+def _batch_map_kspace(
+    kspace: MomentumSpace,
+    raw_opr: Callable[[Momentum], Momentum],
+) -> MomentumSpace:
+    """
+    Batch-compute ``kspace.map(lambda k: raw_opr(k).fractional())``.
+
+    *raw_opr* must be the **unwrapped** operator (e.g. ``lambda k: t @ k``).
+    Fractional wrapping is applied in bulk via numpy after the linear
+    transformation matrix has been determined by probing with ``d + 1``
+    reference momenta.
+    """
+    k_elements = kspace.elements()
+    if not k_elements:
+        return kspace
+
+    recip_lat = k_elements[0].space
+    dim = recip_lat.dim
+
+    # Probe with the zero vector and *dim* unit vectors **without** fractional
+    # wrapping so that the linear part of the map is faithfully captured.
+    zero_k = Momentum(
+        rep=ImmutableDenseMatrix([sy.Integer(0)] * dim), space=recip_lat
+    )
+    zero_out = raw_opr(zero_k)
+    result_space = zero_out.space
+    c = np.array([float(zero_out.rep[j, 0]) for j in range(dim)])
+
+    M = np.zeros((dim, dim))
+    for i in range(dim):
+        e_rep: list[sy.Expr] = [sy.Integer(0)] * dim
+        e_rep[i] = sy.Integer(1)
+        e_k = Momentum(rep=ImmutableDenseMatrix(e_rep), space=recip_lat)
+        e_out = raw_opr(e_k)
+        for j in range(dim):
+            M[j, i] = float(e_out.rep[j, 0]) - c[j]
+
+    # Batch transform all k-point fractional coordinates.
+    k_frac = np.array(
+        [[float(k.rep[j, 0]) for j in range(dim)] for k in k_elements]
+    )
+    new_frac = k_frac @ M.T + c
+    # Fractional wrapping applied numerically in bulk.
+    new_frac_wrapped = new_frac - np.floor(new_frac)
+
+    # Snap to the rational grid of the result reciprocal lattice.
+    grid_shape = np.array(result_space.shape, dtype=np.int64)
+    grid_ints = np.rint(new_frac_wrapped * grid_shape).astype(np.int64) % grid_shape
+
+    new_structure: OrderedDict[Momentum, int] = OrderedDict()
+    for i, (k, idx) in enumerate(kspace.structure.items()):
+        rep = ImmutableDenseMatrix(
+            [sy.Rational(int(grid_ints[i, j]), int(grid_shape[j])) for j in range(dim)]
+        )
+        new_structure[Momentum(rep=rep, space=result_space)] = idx
+
+    return MomentumSpace(structure=restructure(new_structure))
 
 
 def bandtransform(
@@ -126,8 +188,9 @@ def bandtransform(
         transform_cache[space] = transform
         return transform
 
-    # TODO: This call is a huge hotspot of this function, contributing nearly 90% of the runtime.
-    mapped_kspace = kspace.map(lambda k: cast(Momentum, t @ k).fractional())
+    mapped_kspace = _batch_map_kspace(
+        kspace, lambda k: cast(Momentum, t @ k)
+    )
 
     if opt in ("both", "left"):
         left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
@@ -264,6 +327,7 @@ def bandfold(
         else k.fractional(),
         device=tensor.device,
     )
+
     transformed = (
         zeros((new_k_space, rebased_hilbert, rebased_hilbert), device=tensor.device)
         .astype(transformed.data.dtype)
