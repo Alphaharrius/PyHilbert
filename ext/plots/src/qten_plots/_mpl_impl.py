@@ -125,7 +125,9 @@ def plot_structure_mpl(
         x_lines, y_lines, z_lines = compute_bonds(coords, obj.dim)
         if len(x_lines) > 0:
             if is_3d and z_lines is not None:
-                ax.plot(x_lines, y_lines, z_lines, color="black", linewidth=1, label="Bonds")
+                ax.plot(
+                    x_lines, y_lines, z_lines, color="black", linewidth=1, label="Bonds"
+                )
             else:
                 ax.plot(x_lines, y_lines, color="black", linewidth=1.5, label="Bonds")
 
