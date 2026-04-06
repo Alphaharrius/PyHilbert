@@ -8,10 +8,8 @@ import numpy as np
 import torch
 from ..precision import get_precision_config
 
-from .spatials import Momentum, Offset
-from ..symbolics.state_space import MomentumSpace
-from ..symbolics.hilbert_space import HilbertSpace, U1Basis
-from ..symbolics.ops import region_hilbert
+from . import Momentum, Offset
+from ..symbolics import HilbertSpace, MomentumSpace, U1Basis, region_hilbert
 from ..linalg.tensors import Tensor
 from ..linalg.tensors import mapping_matrix
 from ..utils.collections_ext import matchby
@@ -49,15 +47,20 @@ def fourier_transform(
     """
     precision = get_precision_config()
     torch_device = device.torch_device() if device is not None else None
-    ten_K = torch.from_numpy(  # (K, d)
-        np.stack(
-            [
-                np.array(k.to_vec(np.ndarray), dtype=precision.np_float).reshape(-1)
-                for k in K
-            ],
-            axis=0,
-        )
-    ).to(device=torch_device)
+
+    # Batch-extract K Cartesian coordinates via numpy matrix multiply
+    # instead of per-element sympy to_vec calls.
+    k_space = K[0].space
+    k_dim = k_space.dim
+    k_basis_np = np.array(k_space.basis.evalf(), dtype=precision.np_float)
+    k_frac = np.array(
+        [[float(k.rep[j, 0]) for j in range(k_dim)] for k in K],
+        dtype=precision.np_float,
+    )
+    ten_K = torch.from_numpy(k_frac @ k_basis_np.T).to(  # (K, d)
+        device=torch_device
+    )
+
     ten_R = torch.from_numpy(  # (d, R)
         np.stack(
             [

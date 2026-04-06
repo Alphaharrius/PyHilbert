@@ -1,24 +1,163 @@
-from typing import Callable, Dict, Literal, Tuple, Union, cast
+from collections import OrderedDict
+from typing import Callable, Dict, Literal, Optional, Tuple, Union, cast
 
 import numpy as np
+import sympy as sy
+from sympy import ImmutableDenseMatrix
 
 # TODO: Avoid using torch explicitly here.
 import torch
 
-from .geometries.spatials import Offset, Momentum
-from .symbolics.state_space import IndexSpace, MomentumSpace, brillouin_zone
-from .symbolics.hilbert_space import (
-    HilbertSpace,
-    U1Basis,
-    FuncOpr,
-)
-from .linalg.decompose import eigh
-from .linalg.tensors import Tensor, zeros
-from .geometries.spatials import ReciprocalLattice
-from .geometries.basis_transform import BasisTransform
+from .geometries import BasisTransform, Momentum, Offset, ReciprocalLattice
 from .geometries.fourier import fourier_transform
-from .symbolics.hilbert_space import Opr
-from .symbolics.ops import match_indices
+from .linalg import eigh
+from .linalg.tensors import Tensor, zeros
+from .symbolics import (
+    FuncOpr,
+    HilbertSpace,
+    IndexSpace,
+    MomentumSpace,
+    Opr,
+    U1Basis,
+    brillouin_zone,
+    restructure,
+)
+from .utils.devices import Device
+
+
+def _probe_affine(
+    raw_opr: Callable[[Momentum], Momentum],
+    recip_lat: ReciprocalLattice,
+) -> Tuple[np.ndarray, np.ndarray, ReciprocalLattice]:
+    """
+    Probe *raw_opr* with ``d + 1`` reference momenta to extract its affine
+    decomposition ``output_frac = input_frac @ M.T + c``.
+
+    Returns ``(M, c, result_space)`` where *result_space* is the reciprocal
+    lattice carried by the output momenta.
+    """
+    dim = recip_lat.dim
+    zero_k = Momentum(rep=ImmutableDenseMatrix([sy.Integer(0)] * dim), space=recip_lat)
+    zero_out = raw_opr(zero_k)
+    result_space = zero_out.space
+    c = np.array([float(zero_out.rep[j, 0]) for j in range(dim)])
+
+    M = np.zeros((dim, dim))
+    for i in range(dim):
+        e_rep: list[sy.Expr] = [sy.Integer(0)] * dim
+        e_rep[i] = sy.Integer(1)
+        e_k = Momentum(rep=ImmutableDenseMatrix(e_rep), space=recip_lat)
+        e_out = raw_opr(e_k)
+        for j in range(dim):
+            M[j, i] = float(e_out.rep[j, 0]) - c[j]
+
+    return M, c, result_space
+
+
+def _kspace_frac(kspace: MomentumSpace) -> np.ndarray:
+    """Return the fractional coordinates of *kspace* as an ``(N, d)`` array."""
+    elements = kspace.elements()
+    dim = elements[0].space.dim
+    return np.array(
+        [[float(k.rep[j, 0]) for j in range(dim)] for k in elements],
+        dtype=np.float64,
+    )
+
+
+def _momentum_match_indices(
+    src: MomentumSpace,
+    dest: MomentumSpace,
+    transform: Union[np.ndarray, Callable[[Momentum], Momentum]],
+    *,
+    device: Optional[Device] = None,
+) -> Tensor[torch.LongTensor]:
+    """
+    Batch-compute destination indices for a momentum-space mapping via
+    integer grid lookup.
+
+    This is the ``MomentumSpace``-specialised counterpart of
+    `match_indices`. Instead of evaluating *transform* per element, the
+    transformation is applied as a single matrix multiply over all source
+    k-points, followed by fractional wrapping and grid snapping.
+    """
+    if callable(transform):
+        recip_lat = next(iter(src.structure)).space
+        M, c, _ = _probe_affine(transform, recip_lat)
+    else:
+        M, c = transform, None
+
+    src_frac = _kspace_frac(src)
+    mapped = src_frac @ M.T
+    if c is not None:
+        mapped = mapped + c
+    mapped_wrapped = mapped - np.floor(mapped)
+
+    first_dest_k = next(iter(dest.structure))
+    dim = first_dest_k.space.dim
+    grid = np.array(first_dest_k.space.shape, dtype=np.int64)
+    mapped_grid = np.rint(mapped_wrapped * grid).astype(np.int64) % grid
+
+    lookup: Dict[Tuple[int, ...], int] = {}
+    for k, idx in dest.structure.items():
+        gcoord = tuple(
+            int(round(float(k.rep[j, 0]) * grid[j])) % int(grid[j]) for j in range(dim)
+        )
+        lookup[gcoord] = idx
+
+    indices: list[int] = []
+    for i in range(mapped_grid.shape[0]):
+        gcoord = tuple(int(mapped_grid[i, j]) for j in range(dim))
+        if gcoord not in lookup:
+            raise ValueError(
+                f"Source momentum maps to grid {gcoord}, not in destination BZ."
+            )
+        indices.append(lookup[gcoord])
+
+    torch_device = device.torch_device() if device is not None else None
+    return Tensor(
+        data=cast(
+            torch.LongTensor,
+            torch.tensor(indices, dtype=torch.long, device=torch_device),
+        ),
+        dims=(src,),
+    )
+
+
+def _momentum_map(
+    kspace: MomentumSpace,
+    raw_opr: Callable[[Momentum], Momentum],
+) -> MomentumSpace:
+    """
+    Batch-compute ``kspace.map(lambda k: raw_opr(k).fractional())``.
+
+    *raw_opr* must be the **unwrapped** operator (e.g. ``lambda k: t @ k``).
+    Fractional wrapping is applied in bulk via numpy after the linear
+    transformation matrix has been determined by probing with ``d + 1``
+    reference momenta.
+    """
+    k_elements = kspace.elements()
+    if not k_elements:
+        return kspace
+
+    recip_lat = k_elements[0].space
+    dim = recip_lat.dim
+    M, c, result_space = _probe_affine(raw_opr, recip_lat)
+
+    k_frac = _kspace_frac(kspace)
+    new_frac = k_frac @ M.T + c
+    new_frac_wrapped = new_frac - np.floor(new_frac)
+
+    grid_shape = np.array(result_space.shape, dtype=np.int64)
+    grid_ints = np.rint(new_frac_wrapped * grid_shape).astype(np.int64) % grid_shape
+
+    new_structure: OrderedDict[Momentum, int] = OrderedDict()
+    for i, (k, idx) in enumerate(kspace.structure.items()):
+        rep = ImmutableDenseMatrix(
+            [sy.Rational(int(grid_ints[i, j]), int(grid_shape[j])) for j in range(dim)]
+        )
+        new_structure[Momentum(rep=rep, space=result_space)] = idx
+
+    return MomentumSpace(structure=restructure(new_structure))
 
 
 def bandtransform(
@@ -126,8 +265,7 @@ def bandtransform(
         transform_cache[space] = transform
         return transform
 
-    # TODO: This call is a huge hotspot of this function, contributing nearly 90% of the runtime.
-    mapped_kspace = kspace.map(lambda k: cast(Momentum, t @ k).fractional())
+    mapped_kspace = _momentum_map(kspace, lambda k: cast(Momentum, t @ k))
 
     if opt in ("both", "left"):
         left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
@@ -142,7 +280,6 @@ def bandtransform(
     return tensor
 
 
-# TODO: Optimize this function: very slow in 192x192 system.
 def bandfold(
     transform: BasisTransform,
     tensor: Tensor,
@@ -254,16 +391,17 @@ def bandfold(
     fh = f.h(-2, -1)  # (K, B', B)
     transformed = fh @ tensor @ f  # (K, B', B')
 
-    # k-mapping
+    # k-mapping: batch-compute which new-BZ slot each old k-point folds into.
     new_k_space = brillouin_zone(scaled_reciprocal_lattice)
-    k_indices = match_indices(
-        k_space,
-        new_k_space,
-        matching_func=lambda k: transform(k).fractional()
-        if k.space == reciprocal_lattice
-        else k.fractional(),
-        device=tensor.device,
+
+    old_basis_np = np.array(reciprocal_lattice.basis.evalf(), dtype=np.float64)
+    new_basis_np = np.array(scaled_reciprocal_lattice.basis.evalf(), dtype=np.float64)
+    M_rebase = np.linalg.solve(new_basis_np, old_basis_np)
+
+    k_indices = _momentum_match_indices(
+        k_space, new_k_space, M_rebase, device=tensor.device
     )
+
     transformed = (
         zeros((new_k_space, rebased_hilbert, rebased_hilbert), device=tensor.device)
         .astype(transformed.data.dtype)

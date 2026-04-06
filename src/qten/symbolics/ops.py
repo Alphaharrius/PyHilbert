@@ -1,5 +1,4 @@
-from typing import Sequence, Optional, Callable, TypeVar, cast
-
+from typing import Callable, Optional, Sequence, TypeVar, cast
 import torch
 
 from ..geometries import Offset
