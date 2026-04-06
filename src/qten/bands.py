@@ -26,7 +26,6 @@ from .geometries.spatials import ReciprocalLattice
 from .geometries.basis_transform import BasisTransform
 from .geometries.fourier import fourier_transform
 from .symbolics.hilbert_space import Opr
-from .symbolics.ops import match_indices
 
 
 def _batch_map_kspace(
@@ -316,15 +315,49 @@ def bandfold(
     fh = f.h(-2, -1)  # (K, B', B)
     transformed = fh @ tensor @ f  # (K, B', B')
 
-    # k-mapping
+    # k-mapping: batch-compute which new-BZ slot each old k-point folds into.
     new_k_space = brillouin_zone(scaled_reciprocal_lattice)
-    k_indices = match_indices(
-        k_space,
-        new_k_space,
-        matching_func=lambda k: transform(k).fractional()
-        if k.space == reciprocal_lattice
-        else k.fractional(),
-        device=tensor.device,
+
+    dim = reciprocal_lattice.dim
+    old_basis_np = np.array(reciprocal_lattice.basis.evalf(), dtype=np.float64)
+    new_basis_np = np.array(scaled_reciprocal_lattice.basis.evalf(), dtype=np.float64)
+    M_rebase = np.linalg.solve(new_basis_np, old_basis_np)
+
+    k_elements = k_space.elements()
+    k_frac = np.array(
+        [[float(k.rep[j, 0]) for j in range(dim)] for k in k_elements],
+        dtype=np.float64,
+    )
+    mapped_frac = k_frac @ M_rebase.T
+    mapped_wrapped = mapped_frac - np.floor(mapped_frac)
+
+    new_grid = np.array(scaled_reciprocal_lattice.shape, dtype=np.int64)
+    mapped_grid = np.rint(mapped_wrapped * new_grid).astype(np.int64) % new_grid
+
+    dest_lookup: Dict[Tuple[int, ...], int] = {}
+    for k, idx in new_k_space.structure.items():
+        gcoord = tuple(
+            int(round(float(k.rep[j, 0]) * new_grid[j])) % int(new_grid[j])
+            for j in range(dim)
+        )
+        dest_lookup[gcoord] = idx
+
+    idx_list: list[int] = []
+    for i in range(len(k_elements)):
+        gcoord = tuple(int(mapped_grid[i, j]) for j in range(dim))
+        if gcoord not in dest_lookup:
+            raise ValueError(
+                f"Source momentum maps to grid {gcoord}, not in destination BZ."
+            )
+        idx_list.append(dest_lookup[gcoord])
+
+    torch_device = tensor.device.torch_device() if tensor.device is not None else None
+    k_indices = Tensor(
+        data=cast(
+            torch.LongTensor,
+            torch.tensor(idx_list, dtype=torch.long, device=torch_device),
+        ),
+        dims=(k_space,),
     )
 
     transformed = (
