@@ -64,7 +64,7 @@ def _kspace_frac(kspace: MomentumSpace) -> np.ndarray:
     )
 
 
-def momentum_match_indices(
+def _momentum_match_indices(
     src: MomentumSpace,
     dest: MomentumSpace,
     transform: Union[np.ndarray, Callable[[Momentum], Momentum]],
@@ -123,7 +123,7 @@ def momentum_match_indices(
     )
 
 
-def momentum_map(
+def _momentum_map(
     kspace: MomentumSpace,
     raw_opr: Callable[[Momentum], Momentum],
 ) -> MomentumSpace:
@@ -265,7 +265,7 @@ def bandtransform(
         transform_cache[space] = transform
         return transform
 
-    mapped_kspace = momentum_map(kspace, lambda k: cast(Momentum, t @ k))
+    mapped_kspace = _momentum_map(kspace, lambda k: cast(Momentum, t @ k))
 
     if opt in ("both", "left"):
         left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
@@ -398,7 +398,7 @@ def bandfold(
     new_basis_np = np.array(scaled_reciprocal_lattice.basis.evalf(), dtype=np.float64)
     M_rebase = np.linalg.solve(new_basis_np, old_basis_np)
 
-    k_indices = momentum_match_indices(
+    k_indices = _momentum_match_indices(
         k_space, new_k_space, M_rebase, device=tensor.device
     )
 
