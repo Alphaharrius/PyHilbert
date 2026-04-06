@@ -9,7 +9,12 @@ from sympy import ImmutableDenseMatrix
 import torch
 
 from .geometries.spatials import Offset, Momentum
-from .symbolics.state_space import IndexSpace, MomentumSpace, brillouin_zone, restructure
+from .symbolics.state_space import (
+    IndexSpace,
+    MomentumSpace,
+    brillouin_zone,
+    restructure,
+)
 from .symbolics.hilbert_space import (
     HilbertSpace,
     U1Basis,
@@ -45,9 +50,7 @@ def _batch_map_kspace(
 
     # Probe with the zero vector and *dim* unit vectors **without** fractional
     # wrapping so that the linear part of the map is faithfully captured.
-    zero_k = Momentum(
-        rep=ImmutableDenseMatrix([sy.Integer(0)] * dim), space=recip_lat
-    )
+    zero_k = Momentum(rep=ImmutableDenseMatrix([sy.Integer(0)] * dim), space=recip_lat)
     zero_out = raw_opr(zero_k)
     result_space = zero_out.space
     c = np.array([float(zero_out.rep[j, 0]) for j in range(dim)])
@@ -62,9 +65,7 @@ def _batch_map_kspace(
             M[j, i] = float(e_out.rep[j, 0]) - c[j]
 
     # Batch transform all k-point fractional coordinates.
-    k_frac = np.array(
-        [[float(k.rep[j, 0]) for j in range(dim)] for k in k_elements]
-    )
+    k_frac = np.array([[float(k.rep[j, 0]) for j in range(dim)] for k in k_elements])
     new_frac = k_frac @ M.T + c
     # Fractional wrapping applied numerically in bulk.
     new_frac_wrapped = new_frac - np.floor(new_frac)
@@ -188,9 +189,7 @@ def bandtransform(
         transform_cache[space] = transform
         return transform
 
-    mapped_kspace = _batch_map_kspace(
-        kspace, lambda k: cast(Momentum, t @ k)
-    )
+    mapped_kspace = _batch_map_kspace(kspace, lambda k: cast(Momentum, t @ k))
 
     if opt in ("both", "left"):
         left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
