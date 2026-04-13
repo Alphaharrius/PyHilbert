@@ -8,3 +8,4 @@ from .symbolics import (
     hilbert_opr_repr as hilbert_opr_repr,
 )
 from .pointgroups.ops import abelian_column_symmetrize as abelian_column_symmetrize
+from .bands import interpolate_path as interpolate_path

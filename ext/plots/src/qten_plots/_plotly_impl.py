@@ -12,6 +12,7 @@ from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
 from qten.symbolics.state_space import StateSpace
+from qten.bands import BzPath
 from ._utils import analyze_bandstructure_sampling, band_path_positions, compute_bonds
 from .plottables import PointCloud
 
@@ -791,6 +792,7 @@ def plot_bandstructure(
     mode: str = "auto",
     hide_nullspace: bool = False,
     nullspace_tol: float = 1e-9,
+    bz_path: Optional[BzPath] = None,
     **kwargs,
 ) -> go.Figure:
     """
@@ -811,6 +813,10 @@ def plot_bandstructure(
         band surface opens around the nullspace.
     nullspace_tol : float, default 1e-9
         Energy tolerance used when hide_nullspace is enabled.
+    bz_path : BzPath, optional
+        Brillouin-zone path returned by ``interpolate_path``.  When given,
+        vertical dividers and high-symmetry-point labels are drawn on the
+        path-mode x-axis.
     **kwargs
         Additional keyword arguments.
 
@@ -882,24 +888,46 @@ def plot_bandstructure(
 
     else:
         # === 1D Line Plot ===
-        x_vals = band_path_positions(k_space, k_cart)
+        if bz_path is not None:
+            x_vals = np.array(bz_path.path_positions)
+            plot_eigvals = eigvals_np[list(bz_path.path_order)]
+        else:
+            x_vals = band_path_positions(k_space, k_cart)
+            plot_eigvals = eigvals_np
 
-        for b in range(n_bands):
+        for b in range(plot_eigvals.shape[1]):
             fig.add_trace(
-                go.Scatter(x=x_vals, y=eigvals_np[:, b], mode="lines", name=f"Band {b}")
+                go.Scatter(x=x_vals, y=plot_eigvals[:, b], mode="lines", name=f"Band {b}")
             )
 
-    fig.update_layout(
-        title=title,
-        scene=dict(
-            xaxis_title="kx (1/Å)",
-            yaxis_title="ky (1/Å)",
-            zaxis_title="Energy (eV)",
-            aspectmode="data",
+    if is_surface:
+        fig.update_layout(
+            title=title,
+            scene=dict(
+                xaxis_title="kx (1/Å)",
+                yaxis_title="ky (1/Å)",
+                zaxis_title="Energy (eV)",
+                aspectmode="data",
+            ),
         )
-        if is_surface
-        else None,
-    )
+    else:
+        layout_kwargs: dict = dict(
+            title=title,
+            yaxis_title="Energy (eV)",
+        )
+        if bz_path is not None:
+            wp_x = [float(x_vals[i]) for i in bz_path.waypoint_indices]
+            layout_kwargs["xaxis"] = dict(
+                tickvals=wp_x,
+                ticktext=list(bz_path.labels),
+            )
+            for x in wp_x:
+                fig.add_vline(
+                    x=x, line_dash="dash", line_color="gray", line_width=0.8
+                )
+        else:
+            layout_kwargs["xaxis_title"] = "k-path (1/Å)"
+        fig.update_layout(**layout_kwargs)
 
     if show:
         fig.show()
