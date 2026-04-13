@@ -1,5 +1,4 @@
 from collections import OrderedDict
-from dataclasses import dataclass
 from typing import Callable, Dict, Literal, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
@@ -11,10 +10,12 @@ import torch
 
 from .geometries import BasisTransform, Momentum, Offset, ReciprocalLattice
 from .geometries.fourier import fourier_transform
+from .geometries.ops import interpolate_reciprocal_path
 from .linalg import eigh
 from .linalg.tensors import Tensor, zeros
 from .precision import get_precision_config
 from .symbolics import (
+    BzPath,
     FuncOpr,
     HilbertSpace,
     IndexSpace,
@@ -27,37 +28,6 @@ from .symbolics import (
 from .utils.devices import Device
 
 
-@dataclass(frozen=True)
-class BzPath:
-    """A Brillouin-zone path through high-symmetry waypoints.
-
-    Attributes
-    ----------
-    k_space : MomentumSpace
-        Unique momentum points along the path, suitable for building a band
-        tensor via ``fourier_transform``.
-    labels : tuple[str, ...]
-        Human-readable label for each waypoint (e.g. ``("Gamma", "X", "M")``).
-    waypoint_indices : tuple[int, ...]
-        Position of each waypoint within the full path sequence (i.e. indices
-        into ``path_order``).
-    path_order : tuple[int, ...]
-        Mapping from each position along the path to the corresponding index
-        in ``k_space``.  Length equals the requested ``n_points``.  When the
-        path revisits a k-point (e.g. a closed loop), the same ``k_space``
-        index appears more than once.
-    path_positions : tuple[float, ...]
-        Cumulative Cartesian distance along the path for each position.
-        Same length as ``path_order``.
-    """
-
-    k_space: MomentumSpace
-    labels: tuple
-    waypoint_indices: tuple
-    path_order: tuple
-    path_positions: tuple
-
-
 def interpolate_path(
     recip: ReciprocalLattice,
     waypoints: Sequence[Union[Tuple[float, ...], str]],
@@ -65,157 +35,13 @@ def interpolate_path(
     labels: Optional[Sequence[str]] = None,
     points: Optional[Dict[str, Tuple[float, ...]]] = None,
 ) -> BzPath:
-    """Build a dense momentum-space sample along a piecewise-linear path.
-
-    Parameters
-    ----------
-    recip : ReciprocalLattice
-        Reciprocal lattice that defines the basis for fractional coordinates.
-    waypoints : Sequence[Tuple[float, ...] | str]
-        The route through the Brillouin zone.  Each element is either a
-        fractional-coordinate tuple **or** a string name resolved via
-        *points*.  The two styles can be mixed freely::
-
-            # All tuples (original API):
-            interpolate_path(recip, [(0,0,0), (0.5,0,0)])
-
-            # Named route with a points dictionary:
-            interpolate_path(
-                recip,
-                ["Gamma", "X", "M", "Gamma"],
-                points={"Gamma": (0,0,0), "X": (0.5,0,0), "M": (0.5,0.5,0)},
-            )
-
-    n_points : int, default 100
-        Total number of k-points along the entire path (distributed
-        proportionally to the Cartesian length of each segment).
-    labels : Sequence[str], optional
-        Label for each waypoint.  When *None*, labels are inferred: string
-        waypoints use the name itself; tuple waypoints use ``str(tuple)``.
-    points : dict[str, Tuple[float, ...]], optional
-        Lookup table mapping names to fractional coordinates.  Required
-        when any element of *waypoints* is a string.
-
-    Returns
-    -------
-    BzPath
-        Contains the interpolated ``MomentumSpace``, labels, and the
-        index of each waypoint within that space.
-    """
-    if len(waypoints) < 2:
-        raise ValueError("At least two waypoints are required to define a path.")
-
-    _points: Dict[str, Tuple[float, ...]] = points or {}
-
-    resolved_wp: list[Tuple[float, ...]] = []
-    auto_labels: list[str] = []
-    for i, wp in enumerate(waypoints):
-        if isinstance(wp, str):
-            if wp not in _points:
-                raise ValueError(
-                    f"Waypoint {i} is the name '{wp}' but it was not found in "
-                    f"the points dictionary.  Available names: "
-                    f"{sorted(_points.keys()) if _points else '(empty)'}."
-                )
-            resolved_wp.append(_points[wp])
-            auto_labels.append(wp)
-        else:
-            resolved_wp.append(tuple(wp))
-            auto_labels.append(str(tuple(wp)))
-
-    dim = recip.dim
-    for i, wp in enumerate(resolved_wp):
-        if len(wp) != dim:
-            raise ValueError(f"Waypoint {i} has {len(wp)} components, expected {dim}.")
-    if n_points < len(resolved_wp):
-        raise ValueError(
-            f"n_points ({n_points}) must be >= number of waypoints ({len(resolved_wp)})."
-        )
-
-    basis_mat = np.array(recip.basis.evalf(), dtype=float)
-    wp_frac = np.array(resolved_wp, dtype=float)
-    wp_cart = wp_frac @ basis_mat.T
-
-    seg_lengths = np.array(
-        [
-            np.linalg.norm(wp_cart[i + 1] - wp_cart[i])
-            for i in range(len(resolved_wp) - 1)
-        ]
-    )
-    total_length = seg_lengths.sum()
-    n_segments = len(resolved_wp) - 1
-
-    if total_length < 1e-15:
-        raise ValueError("All waypoints are identical; path has zero length.")
-
-    remaining = n_points - n_segments - 1
-    interior_per_seg = np.zeros(n_segments, dtype=int)
-    if remaining > 0:
-        ideal = (seg_lengths / total_length) * remaining
-        interior_per_seg = np.floor(ideal).astype(int)
-        deficit = remaining - interior_per_seg.sum()
-        fracs = ideal - interior_per_seg
-        for idx in np.argsort(-fracs)[:deficit]:
-            interior_per_seg[idx] += 1
-
-    all_fracs: list[np.ndarray] = []
-    waypoint_indices: list[int] = []
-
-    for seg in range(n_segments):
-        n_interior = int(interior_per_seg[seg])
-        n_seg_points = n_interior + 1
-        t_vals = np.linspace(0.0, 1.0, n_seg_points, endpoint=False)
-        start = wp_frac[seg]
-        end = wp_frac[seg + 1]
-        waypoint_indices.append(len(all_fracs))
-        for t in t_vals:
-            all_fracs.append(start + t * (end - start))
-
-    waypoint_indices.append(len(all_fracs))
-    all_fracs.append(wp_frac[-1])
-
-    # Convert to Momentum objects, deduplicating for MomentumSpace while
-    # preserving the full path sequence via path_order.
-    seen: dict[Momentum, int] = {}
-    unique_momenta: list[Momentum] = []
-    path_order: list[int] = []
-
-    for frac in all_fracs:
-        rep = ImmutableDenseMatrix(
-            [sy.Rational(f).limit_denominator(10**9) for f in frac]
-        )
-        k = Momentum(rep=rep, space=recip)
-        if k not in seen:
-            seen[k] = len(unique_momenta)
-            unique_momenta.append(k)
-        path_order.append(seen[k])
-
-    structure: OrderedDict[Momentum, int] = OrderedDict(
-        (k, i) for i, k in enumerate(unique_momenta)
-    )
-    k_space = MomentumSpace(structure=structure)
-
-    # Precompute cumulative Cartesian distances along the path.
-    all_cart = np.stack(all_fracs) @ basis_mat.T
-    diffs = np.diff(all_cart, axis=0)
-    dists = np.linalg.norm(diffs, axis=1)
-    positions = np.concatenate(([0.0], np.cumsum(dists)))
-
-    if labels is None:
-        labels = tuple(auto_labels)
-    else:
-        if len(labels) != len(resolved_wp):
-            raise ValueError(
-                f"Number of labels ({len(labels)}) must match number of waypoints ({len(resolved_wp)})."
-            )
-        labels = tuple(labels)
-
-    return BzPath(
-        k_space=k_space,
+    """Backward-compatible wrapper for `interpolate_reciprocal_path`."""
+    return interpolate_reciprocal_path(
+        recip=recip,
+        waypoints=waypoints,
+        n_points=n_points,
         labels=labels,
-        waypoint_indices=tuple(waypoint_indices),
-        path_order=tuple(path_order),
-        path_positions=tuple(float(p) for p in positions),
+        points=points,
     )
 
 

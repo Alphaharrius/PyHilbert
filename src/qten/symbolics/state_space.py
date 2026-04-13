@@ -374,6 +374,17 @@ class MomentumSpace(StateSpace[Momentum]):
         return header + body
 
 
+@dataclass(frozen=True)
+class BzPath:
+    """A Brillouin-zone path through high-symmetry waypoints."""
+
+    k_space: MomentumSpace
+    labels: tuple
+    waypoint_indices: tuple
+    path_order: tuple
+    path_positions: tuple
+
+
 @Momentum.add_conversion(StateSpace)
 def momentum_to_momentumspace(k: Momentum) -> StateSpace:
     """Convert a `Momentum` to a `MomentumSpace` containing only that momentum."""

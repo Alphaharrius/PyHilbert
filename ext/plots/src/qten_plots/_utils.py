@@ -4,9 +4,8 @@ import numpy as np
 import torch
 from scipy.spatial import cKDTree
 
-from qten.bands import BzPath
 from qten.geometries.spatials import ReciprocalLattice
-from qten.symbolics.state_space import MomentumSpace, brillouin_zone
+from qten.symbolics.state_space import BzPath, MomentumSpace, brillouin_zone
 
 
 def compute_bonds(

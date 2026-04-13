@@ -51,6 +51,14 @@ def same_rays(a: StateSpace, b: StateSpace) -> bool: ...
 class MomentumSpace(StateSpace[Momentum]):
     def __hash__(self) -> int: ...
 
+@dataclass(frozen=True)
+class BzPath:
+    k_space: MomentumSpace
+    labels: tuple
+    waypoint_indices: tuple
+    path_order: tuple
+    path_positions: tuple
+
 def momentum_to_momentumspace(k: Momentum) -> MomentumSpace: ...
 @lru_cache
 def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace: ...

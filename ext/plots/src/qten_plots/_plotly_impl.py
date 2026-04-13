@@ -11,8 +11,7 @@ from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
-from qten.symbolics.state_space import StateSpace
-from qten.bands import BzPath
+from qten.symbolics.state_space import BzPath, StateSpace
 from ._utils import (
     analyze_bandstructure_sampling,
     band_path_positions,
@@ -819,7 +818,7 @@ def plot_bandstructure(
     nullspace_tol : float, default 1e-9
         Energy tolerance used when hide_nullspace is enabled.
     bz_path : BzPath, optional
-        Brillouin-zone path returned by ``interpolate_path``.  When given,
+        Brillouin-zone path returned by ``interpolate_reciprocal_path``. When given,
         vertical dividers and high-symmetry-point labels are drawn on the
         path-mode x-axis.
     **kwargs

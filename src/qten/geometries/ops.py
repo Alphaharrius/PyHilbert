@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 import math
 from itertools import product
+from typing import Dict, Optional, Sequence, Union
 
+import numpy as np
+import sympy as sy
 from sympy import ImmutableDenseMatrix
 
 from . import AffineSpace, Lattice, Offset
+from .spatials import Momentum, ReciprocalLattice
 
 
 def _cutoff_from_sites(
@@ -153,3 +158,126 @@ def nearest_sites(
         if distance < cutoff_distance
         or math.isclose(distance, cutoff_distance, rel_tol=1e-9, abs_tol=1e-9)
     )
+
+
+def interpolate_reciprocal_path(
+    recip: ReciprocalLattice,
+    waypoints: Sequence[Union[tuple[float, ...], str]],
+    n_points: int = 100,
+    labels: Optional[Sequence[str]] = None,
+    points: Optional[Dict[str, tuple[float, ...]]] = None,
+) -> "BzPath":
+    """Build a dense reciprocal-space sample along a piecewise-linear path."""
+    if len(waypoints) < 2:
+        raise ValueError("At least two waypoints are required to define a path.")
+
+    _points: Dict[str, tuple[float, ...]] = points or {}
+
+    resolved_wp: list[tuple[float, ...]] = []
+    auto_labels: list[str] = []
+    for i, wp in enumerate(waypoints):
+        if isinstance(wp, str):
+            if wp not in _points:
+                raise ValueError(
+                    f"Waypoint {i} is the name '{wp}' but it was not found in "
+                    f"the points dictionary. Available names: "
+                    f"{sorted(_points.keys()) if _points else '(empty)'}."
+                )
+            resolved_wp.append(_points[wp])
+            auto_labels.append(wp)
+        else:
+            resolved_wp.append(tuple(wp))
+            auto_labels.append(str(tuple(wp)))
+
+    dim = recip.dim
+    for i, wp in enumerate(resolved_wp):
+        if len(wp) != dim:
+            raise ValueError(f"Waypoint {i} has {len(wp)} components, expected {dim}.")
+    if n_points < len(resolved_wp):
+        raise ValueError(
+            f"n_points ({n_points}) must be >= number of waypoints ({len(resolved_wp)})."
+        )
+
+    basis_mat = np.array(recip.basis.evalf(), dtype=float)
+    wp_frac = np.array(resolved_wp, dtype=float)
+    wp_cart = wp_frac @ basis_mat.T
+
+    seg_lengths = np.array(
+        [np.linalg.norm(wp_cart[i + 1] - wp_cart[i]) for i in range(len(resolved_wp) - 1)]
+    )
+    total_length = seg_lengths.sum()
+    n_segments = len(resolved_wp) - 1
+
+    if total_length < 1e-15:
+        raise ValueError("All waypoints are identical; path has zero length.")
+
+    remaining = n_points - n_segments - 1
+    interior_per_seg = np.zeros(n_segments, dtype=int)
+    if remaining > 0:
+        ideal = (seg_lengths / total_length) * remaining
+        interior_per_seg = np.floor(ideal).astype(int)
+        deficit = remaining - interior_per_seg.sum()
+        fracs = ideal - interior_per_seg
+        for idx in np.argsort(-fracs)[:deficit]:
+            interior_per_seg[idx] += 1
+
+    all_fracs: list[np.ndarray] = []
+    waypoint_indices: list[int] = []
+
+    for seg in range(n_segments):
+        n_interior = int(interior_per_seg[seg])
+        n_seg_points = n_interior + 1
+        t_vals = np.linspace(0.0, 1.0, n_seg_points, endpoint=False)
+        start = wp_frac[seg]
+        end = wp_frac[seg + 1]
+        waypoint_indices.append(len(all_fracs))
+        for t in t_vals:
+            all_fracs.append(start + t * (end - start))
+
+    waypoint_indices.append(len(all_fracs))
+    all_fracs.append(wp_frac[-1])
+
+    seen: dict[Momentum, int] = {}
+    unique_momenta: list[Momentum] = []
+    path_order: list[int] = []
+
+    for frac in all_fracs:
+        rep = ImmutableDenseMatrix([sy.Rational(f).limit_denominator(10**9) for f in frac])
+        k = Momentum(rep=rep, space=recip)
+        if k not in seen:
+            seen[k] = len(unique_momenta)
+            unique_momenta.append(k)
+        path_order.append(seen[k])
+
+    from ..symbolics.state_space import BzPath, MomentumSpace
+
+    structure: OrderedDict[Momentum, int] = OrderedDict(
+        (k, i) for i, k in enumerate(unique_momenta)
+    )
+    k_space = MomentumSpace(structure=structure)
+
+    all_cart = np.stack(all_fracs) @ basis_mat.T
+    diffs = np.diff(all_cart, axis=0)
+    dists = np.linalg.norm(diffs, axis=1)
+    positions = np.concatenate(([0.0], np.cumsum(dists)))
+
+    if labels is None:
+        labels = tuple(auto_labels)
+    else:
+        if len(labels) != len(resolved_wp):
+            raise ValueError(
+                f"Number of labels ({len(labels)}) must match number of waypoints ({len(resolved_wp)})."
+            )
+        labels = tuple(labels)
+
+    return BzPath(
+        k_space=k_space,
+        labels=labels,
+        waypoint_indices=tuple(waypoint_indices),
+        path_order=tuple(path_order),
+        path_positions=tuple(float(p) for p in positions),
+    )
+
+
+# Backward-compatible alias. Prefer interpolate_reciprocal_path in new code.
+interpolate_path = interpolate_reciprocal_path

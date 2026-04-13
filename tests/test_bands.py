@@ -4,12 +4,18 @@ import torch
 import sympy as sy
 from sympy import ImmutableDenseMatrix
 
-from qten.bands import bandselect, interpolate_path, BzPath
+from qten.bands import bandselect, interpolate_path
 from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
-from qten.symbolics.state_space import IndexSpace, MomentumSpace, brillouin_zone
+from qten.symbolics.state_space import (
+    BzPath,
+    IndexSpace,
+    MomentumSpace,
+    brillouin_zone,
+)
+from qten.geometries import interpolate_reciprocal_path
 
 
 def _space(name: str, n: int) -> HilbertSpace:
@@ -262,4 +268,10 @@ def test_interpolate_path_accessible_via_ops():
 
     recip = _recip_2d()
     path = ip(recip, [(0, 0), (0.5, 0)], n_points=10)
+    assert isinstance(path, BzPath)
+
+
+def test_interpolate_reciprocal_path_accessible_via_geometries():
+    recip = _recip_2d()
+    path = interpolate_reciprocal_path(recip, [(0, 0), (0.5, 0)], n_points=10)
     assert isinstance(path, BzPath)

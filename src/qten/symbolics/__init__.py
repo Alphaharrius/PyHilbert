@@ -1,6 +1,7 @@
 from .base import Multiple as Multiple
 
 from .state_space import (
+    BzPath as BzPath,
     BroadcastSpace as BroadcastSpace,
     IndexSpace as IndexSpace,
     MomentumSpace as MomentumSpace,

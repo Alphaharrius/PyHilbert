@@ -7,12 +7,12 @@ from typing import Optional, Union, Any, cast, Tuple, Sequence
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.state_space import (
+    BzPath,
     MomentumSpace,
     StateSpace,
     same_rays,
 )
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
-from qten.bands import BzPath
 from ._utils import (
     analyze_bandstructure_sampling,
     band_path_positions,
@@ -692,7 +692,7 @@ def plot_bandstructure_mpl(
     nullspace_tol : float, default 1e-9
         Energy tolerance used when hide_nullspace is enabled.
     bz_path : BzPath, optional
-        Brillouin-zone path returned by ``interpolate_path``.  When given,
+        Brillouin-zone path returned by ``interpolate_reciprocal_path``. When given,
         vertical dividers and high-symmetry-point labels are drawn on the
         path-mode x-axis.
     """
