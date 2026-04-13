@@ -208,9 +208,7 @@ def test_interpolate_path_distributes_proportionally():
 
 def test_interpolate_path_path_positions_are_monotonic():
     recip = _recip_2d()
-    path = interpolate_path(
-        recip, [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0)], n_points=60
-    )
+    path = interpolate_path(recip, [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0)], n_points=60)
 
     positions = np.array(path.path_positions)
     assert positions[0] == 0.0
@@ -231,7 +229,9 @@ def test_interpolate_path_closed_loop_deduplicates():
 def test_interpolate_path_named_route_with_points_dict():
     recip = _recip_2d()
     pts = {"Gamma": (0, 0), "X": (0.5, 0), "M": (0.5, 0.5)}
-    path = interpolate_path(recip, ["Gamma", "X", "M", "Gamma"], n_points=40, points=pts)
+    path = interpolate_path(
+        recip, ["Gamma", "X", "M", "Gamma"], n_points=40, points=pts
+    )
 
     assert len(path.path_order) == 40
     assert path.labels == ("Gamma", "X", "M", "Gamma")
