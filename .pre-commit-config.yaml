@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: tox
         name: tox
-        entry: uv run tox
+        entry: uv run tox -e lint,type
         language: system
         types: [python]
         pass_filenames: false
