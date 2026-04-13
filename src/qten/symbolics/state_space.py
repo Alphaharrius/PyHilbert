@@ -6,7 +6,7 @@ from collections.abc import Iterator, Sequence
 from functools import lru_cache
 from itertools import islice
 
-from multipledispatch import dispatch  # type: ignore[import-untyped]
+from multimethod import multimethod
 
 from ..abstracts import Convertible, Operable, Span
 from ..validations import need_validation
@@ -302,7 +302,7 @@ def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-@dispatch(StateSpace, StateSpace)
+@multimethod
 def same_rays(a: StateSpace, b: StateSpace) -> bool:
     return set(a.structure.keys()) == set(b.structure.keys())
 
@@ -457,18 +457,18 @@ class BroadcastSpace(StateSpace[_BAxis]):
     __str__ = __repr__
 
 
-@dispatch(BroadcastSpace, BroadcastSpace)  # type: ignore[no-redef]
-def same_rays(a: BroadcastSpace, b: BroadcastSpace) -> bool:
+@same_rays.register
+def _(a: BroadcastSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(StateSpace, BroadcastSpace)  # type: ignore[no-redef]
-def same_rays(a: StateSpace, b: BroadcastSpace) -> bool:
+@same_rays.register
+def _(a: StateSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
-def same_rays(a: BroadcastSpace, b: StateSpace) -> bool:
+@same_rays.register
+def _(a: BroadcastSpace, b: StateSpace) -> bool:
     return True
 
 

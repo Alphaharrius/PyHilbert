@@ -20,7 +20,6 @@ from itertools import product
 import numpy as np
 import torch
 import sympy as sy
-from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from ..utils.collections_ext import FrozenDict
 from ..utils.types_ext import full_typename
@@ -34,7 +33,7 @@ from ..abstracts import (
     HasRays,
 )
 from ..geometries.spatials import Spatial
-from . import StateSpace, StateSpaceFactorization
+from .state_space import StateSpace, StateSpaceFactorization, same_rays
 from ..linalg.tensors import Tensor
 from ..precision import get_precision_config
 from ..utils.devices import Device
@@ -931,8 +930,8 @@ def _(v: HilbertSpace) -> HilbertSpace:
     return v
 
 
-@dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]
-def same_rays(a: HilbertSpace, b: HilbertSpace) -> bool:
+@same_rays.register
+def _(a: HilbertSpace, b: HilbertSpace) -> bool:
     return set(m.rays() for m in a.structure.keys()) == set(
         m.rays() for m in b.structure.keys()
     )
@@ -1083,8 +1082,8 @@ def _(o: Opr, h: HilbertSpace) -> HilbertSpace:
     return new_h
 
 
-@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
-def same_rays(a: U1Basis, b: U1Basis) -> bool:
+@same_rays.register
+def _(a: U1Basis, b: U1Basis) -> bool:
     """Check if two `U1Basis` define the same ray."""
     return a.rays() == b.rays()
 
@@ -1200,8 +1199,8 @@ def _(f: FuncOpr, psi: U1Basis) -> U1Basis:
     return new_psi
 
 
-@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
-def same_rays(a: U1Span, b: U1Span) -> bool:
+@same_rays.register
+def _(a: U1Span, b: U1Span) -> bool:
     return set(a.rays().span) == set(b.rays().span)
 
 
