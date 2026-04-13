@@ -24,6 +24,7 @@ from .hilbert_space import (
 
 from .ops import (
     hilbert_opr_repr as hilbert_opr_repr,
+    interpolate_reciprocal_path as interpolate_reciprocal_path,
     match_indices as match_indices,
     region_hilbert as region_hilbert,
 )

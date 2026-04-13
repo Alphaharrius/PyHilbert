@@ -4,11 +4,11 @@ from .geometries.fourier import (
 )
 from .geometries import (
     nearest_sites as nearest_sites,
-    interpolate_reciprocal_path as interpolate_reciprocal_path,
 )
 from .symbolics import (
     region_hilbert as region_hilbert,
     hilbert_opr_repr as hilbert_opr_repr,
+    interpolate_reciprocal_path as interpolate_reciprocal_path,
 )
 from .pointgroups.ops import abelian_column_symmetrize as abelian_column_symmetrize
 from .bands import interpolate_path as interpolate_path

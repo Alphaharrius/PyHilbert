@@ -10,7 +10,6 @@ import torch
 
 from .geometries import BasisTransform, Momentum, Offset, ReciprocalLattice
 from .geometries.fourier import fourier_transform
-from .geometries.ops import interpolate_reciprocal_path
 from .linalg import eigh
 from .linalg.tensors import Tensor, zeros
 from .precision import get_precision_config
@@ -23,6 +22,7 @@ from .symbolics import (
     Opr,
     U1Basis,
     brillouin_zone,
+    interpolate_reciprocal_path,
     restructure,
 )
 from .utils.devices import Device
