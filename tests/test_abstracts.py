@@ -6,7 +6,6 @@ from qten.abstracts import (
     Operable,
     Span,
     Updatable,
-    operator_eq,
 )
 
 
@@ -109,9 +108,9 @@ def test_operable_unimplemented():
     # Comparisons
     # Note: MockOperable is a dataclass, so it implements __eq__ automatically.
     # a == b will return True, not raise NotImplementedError.
-    # So we skip testing '==' here or test operator_eq directly.
+    # So we skip testing '==' here or test Operable.__eq__ directly.
     with pytest.raises(NotImplementedError):
-        operator_eq(a, b)
+        Operable.__eq__(a, b)
 
     with pytest.raises(NotImplementedError):
         _ = a < b
@@ -133,7 +132,7 @@ def test_operable_unimplemented():
         _ = a | b
 
 
-def test_span_contains_uses_operator_contains():
+def test_span_contains_uses_dunder_contains():
     sup = MockSpan((1, 2, 3))
     sub = MockSpan((1, 3))
 

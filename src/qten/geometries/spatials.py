@@ -13,7 +13,6 @@ from typing import (
 )
 from typing_extensions import override
 from abc import ABC, abstractmethod
-from multipledispatch import dispatch  # type: ignore[import-untyped]
 from functools import lru_cache
 import sympy as sy
 import numpy as np
@@ -23,6 +22,8 @@ from sympy.matrices.normalforms import smith_normal_form  # type: ignore[import-
 
 from ..utils.collections_ext import FrozenDict
 from ..utils.devices import Device
+from multimethod import parametric
+
 from ..abstracts import Operable, HasDual, HasBase, Convertible
 from ..plottings import Plottable
 from .boundary import BoundaryCondition, PeriodicBoundary
@@ -645,8 +646,8 @@ class Offset(Generic[S], Spatial, HasBase[S]):
         return str(self)
 
 
-@dispatch(Offset, Offset)  # type: ignore[no-redef]
-def operator_lt(a: Offset, b: Offset) -> bool:
+@Operable.__lt__.register
+def _(a: Offset, b: Offset) -> bool:
     if a.dim != b.dim:
         return a.dim < b.dim
     va = a.to_vec(np.ndarray)
@@ -654,8 +655,8 @@ def operator_lt(a: Offset, b: Offset) -> bool:
     return tuple(va) < tuple(vb)
 
 
-@dispatch(Offset, Offset)  # type: ignore[no-redef]
-def operator_gt(a: Offset, b: Offset) -> bool:
+@Operable.__gt__.register
+def _(a: Offset, b: Offset) -> bool:
     if a.dim != b.dim:
         return a.dim > b.dim
     va = a.to_vec(np.ndarray)
@@ -663,8 +664,8 @@ def operator_gt(a: Offset, b: Offset) -> bool:
     return tuple(va) > tuple(vb)
 
 
-@dispatch(Lattice, Offset)  # type: ignore[no-redef]
-def operator_contains(lattice: Lattice, offset: Offset) -> bool:
+@Operable.__contains__.register
+def _(lattice: Lattice, offset: Offset) -> bool:
     rebased = offset.rebase(lattice)
     fractional = rebased.fractional().rep
     unit_cell_offsets = {site.rep for site in lattice.unit_cell.values()}
@@ -721,46 +722,46 @@ class Momentum(Offset[ReciprocalLattice], Convertible):
         return Momentum(rep=ImmutableDenseMatrix(new_rep), space=space)
 
 
-@dispatch(ReciprocalLattice, Momentum)  # type: ignore[no-redef]
-def operator_contains(lattice: ReciprocalLattice, momentum: Momentum) -> bool:
+@Operable.__contains__.register
+def _(lattice: ReciprocalLattice, momentum: Momentum) -> bool:
     if momentum.space != lattice:
         return False
     return _is_reciprocal_grid_point(lattice, momentum, canonical=False)
 
 
-@dispatch(Offset, Offset)  # type: ignore[no-redef]
-def operator_add(a: Offset, b: Offset) -> Offset:
+@Operable.__add__.register
+def _(a: Offset, b: Offset) -> Offset:
     if a.space != b.space:
         b = b.rebase(a.space)
     new_rep = a.rep + b.rep
     return Offset(rep=ImmutableDenseMatrix(new_rep), space=a.space)
 
 
-@dispatch(Momentum, Momentum)  # type: ignore[no-redef]
-def operator_add(a: Momentum, b: Momentum) -> Momentum:
+@Operable.__add__.register
+def _(a: Momentum, b: Momentum) -> Momentum:
     if a.space != b.space:
         b = b.rebase(a.space)
     new_rep = a.rep + b.rep
     return Momentum(rep=ImmutableDenseMatrix(new_rep), space=a.space)
 
 
-@dispatch(Offset)  # type: ignore[no-redef]
-def operator_neg(r: Offset) -> Offset:
+@Operable.__neg__.register
+def _(r: Offset) -> Offset:
     return Offset(rep=-r.rep, space=r.space)
 
 
-@dispatch(Momentum)  # type: ignore[no-redef]
-def operator_neg(r: Momentum) -> Momentum:
+@Operable.__neg__.register
+def _(r: Momentum) -> Momentum:
     return Momentum(rep=-r.rep, space=r.space)
 
 
-@dispatch(Offset, Offset)  # type: ignore[no-redef]
-def operator_sub(a: Offset, b: Offset) -> Offset:
+@Operable.__sub__.register
+def _(a: Offset, b: Offset) -> Offset:
     return a + (-b)
 
 
-@dispatch(Momentum, Momentum)  # type: ignore[no-redef]
-def operator_sub(a: Momentum, b: Momentum) -> Momentum:
+@Operable.__sub__.register
+def _(a: Momentum, b: Momentum) -> Momentum:
     return a + (-b)
 
 
@@ -768,21 +769,24 @@ def _scale_offset(r: _O, scalar: Number | sy.Expr) -> _O:
     return type(r)(rep=ImmutableDenseMatrix(r.rep * scalar), space=r.space)
 
 
-@dispatch(Number, Offset)  # type: ignore[no-redef]
-def operator_mul(left: Number, right: Offset) -> Offset:
+NonNumericExpr = parametric(sy.Expr, lambda expr: not isinstance(expr, Number))
+
+
+@Operable.__mul__.register
+def _(left: Number, right: Offset) -> Offset:
     return _scale_offset(right, left)
 
 
-@dispatch(Offset, Number)  # type: ignore[no-redef]
-def operator_mul(left: Offset, right: Number) -> Offset:
+@Operable.__mul__.register
+def _(left: Offset, right: Number) -> Offset:
     return _scale_offset(left, right)
 
 
-@dispatch(sy.Expr, Offset)  # type: ignore[no-redef]
-def operator_mul(left: sy.Expr, right: Offset) -> Offset:
+@Operable.__mul__.register(NonNumericExpr, Offset)
+def _(left: sy.Expr, right: Offset) -> Offset:
     return _scale_offset(right, left)
 
 
-@dispatch(Offset, sy.Expr)  # type: ignore[no-redef]
-def operator_mul(left: Offset, right: sy.Expr) -> Offset:
+@Operable.__mul__.register(Offset, NonNumericExpr)
+def _(left: Offset, right: sy.Expr) -> Offset:
     return _scale_offset(left, right)

@@ -14,174 +14,114 @@ from typing import (
 )
 from typing_extensions import final
 
-from multipledispatch import dispatch
+from multimethod import multimethod
 
 
 @dataclass(frozen=True)
 class Operable(ABC):
+    @multimethod
     def __contains__(self, other):
-        return operator_contains(self, other)
+        raise NotImplementedError(
+            f"Containment of {type(other)} in {type(self)} is not supported!"
+        )
 
+    @multimethod
     def __add__(self, other):
-        return operator_add(self, other)
+        raise NotImplementedError(
+            f"Addition of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __neg__(self):
-        return operator_neg(self)
+        raise NotImplementedError(f"Negation of {type(self)} is not supported!")
 
+    @multimethod
     def __sub__(self, other):
-        return operator_sub(self, other)
+        return self + (-other)
 
+    @multimethod
     def __mul__(self, other):
-        return operator_mul(self, other)
+        raise NotImplementedError(
+            f"Multiplication of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __matmul__(self, other):
-        return operator_matmul(self, other)
+        raise NotImplementedError(
+            f"Matrix multiplication of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __truediv__(self, other):
-        return operator_truediv(self, other)
+        raise NotImplementedError(
+            f"Division of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __floordiv__(self, other):
-        return operator_floordiv(self, other)
+        raise NotImplementedError(
+            f"Floor division of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __pow__(self, other):
-        return operator_pow(self, other)
+        raise NotImplementedError(
+            f"Exponentiation of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __eq__(self, value):
-        return operator_eq(self, value)
+        raise NotImplementedError(
+            f"Equality comparison of {type(self)} and {type(value)} is not supported!"
+        )
 
+    @multimethod
     def __lt__(self, other):
-        return operator_lt(self, other)
+        raise NotImplementedError(
+            f"Less-than comparison of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __le__(self, other):
-        return operator_le(self, other)
+        raise NotImplementedError(
+            f"Less-than-or-equal comparison of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __gt__(self, other):
-        return operator_gt(self, other)
+        raise NotImplementedError(
+            f"Greater-than comparison of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __ge__(self, other):
-        return operator_ge(self, other)
+        raise NotImplementedError(
+            f"Greater-than-or-equal comparison of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __and__(self, other):
-        return operator_and(self, other)
+        raise NotImplementedError(
+            f"Logical AND of {type(self)} and {type(other)} is not supported!"
+        )
 
+    @multimethod
     def __or__(self, other):
-        return operator_or(self, other)
+        raise NotImplementedError(
+            f"Logical OR of {type(self)} and {type(other)} is not supported!"
+        )
 
     def __radd__(self, other):
-        return operator_add(other, self)
+        return Operable.__add__(other, self)
 
     def __rsub__(self, other):
-        return operator_sub(other, self)
+        return Operable.__sub__(other, self)
 
     def __rmul__(self, other):
-        return operator_mul(other, self)
+        return Operable.__mul__(other, self)
 
     def __rtruediv__(self, other):
-        return operator_truediv(other, self)
-
-
-@dispatch(Operable, Operable)
-def operator_contains(a, b):
-    raise NotImplementedError(
-        f"Containment of {type(b)} in {type(a)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_add(a, b):
-    raise NotImplementedError(f"Addition of {type(a)} and {type(b)} is not supported!")
-
-
-@dispatch(Operable)
-def operator_neg(a):
-    raise NotImplementedError(f"Negation of {type(a)} is not supported!")
-
-
-@dispatch(Operable, Operable)
-def operator_sub(a, b):
-    return a + (-b)
-
-
-@dispatch(Operable, Operable)
-def operator_mul(a, b):
-    raise NotImplementedError(
-        f"Multiplication of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_matmul(a, b):
-    raise NotImplementedError(
-        f"Matrix multiplication of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_truediv(a, b):
-    raise NotImplementedError(f"Division of {type(a)} and {type(b)} is not supported!")
-
-
-@dispatch(Operable, Operable)
-def operator_floordiv(a, b):
-    raise NotImplementedError(
-        f"Floor division of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_pow(a, b):
-    raise NotImplementedError(
-        f"Exponentiation of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_eq(a, b):
-    raise NotImplementedError(
-        f"Equality comparison of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_lt(a, b):
-    raise NotImplementedError(
-        f"Less-than comparison of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_le(a, b):
-    raise NotImplementedError(
-        f"Less-than-or-equal comparison of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_gt(a, b):
-    raise NotImplementedError(
-        f"Greater-than comparison of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_ge(a, b):
-    raise NotImplementedError(
-        f"Greater-than-or-equal comparison of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_and(a, b):
-    raise NotImplementedError(
-        f"Logical AND of {type(a)} and {type(b)} is not supported!"
-    )
-
-
-@dispatch(Operable, Operable)
-def operator_or(a, b):
-    raise NotImplementedError(
-        f"Logical OR of {type(a)} and {type(b)} is not supported!"
-    )
+        return Operable.__truediv__(other, self)
 
 
 UpdatableType = TypeVar("UpdatableType", bound="Updatable")
@@ -461,7 +401,7 @@ class Span(Operable, ABC, Generic[_ElementType]):
     of points might be the smallest closed set containing those points.
 
     Spans participate in `Operable` membership using Python's `in` protocol:
-    `x in span` dispatches to `operator_contains(span, x)`.
+    `x in span` dispatches to `span.__contains__(x)`.
 
     The default containment rules support:
     - `Span` queries, compared by `elements()`.
@@ -483,16 +423,16 @@ class Span(Operable, ABC, Generic[_ElementType]):
         pass
 
 
-@dispatch(Span, Span)  # type: ignore[no-redef]
-def operator_contains(a: Span, b: Span):
+@Operable.__contains__.register
+def _(a: Span, b: Span):
     base = set(a.elements())
     return all(el in base for el in b.elements())
 
 
-@dispatch(Span, object)  # type: ignore[no-redef]
-def operator_contains(a: Span, b):
+@Operable.__contains__.register
+def _(a: Span, b: object):
     if isinstance(b, Convertible):
-        return operator_contains(a, cast(Convertible, b).convert(type(a)))
+        return a.__contains__(cast(Convertible, b).convert(type(a)))
     raise ValueError(f"Cannot convert {type(b).__name__} to {type(a).__name__}!")
 
 

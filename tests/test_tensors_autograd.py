@@ -87,7 +87,7 @@ class TestTensorAutograd:
         x_input = x.attach()
         w_param = w.attach()
 
-        # 3. Forward pass: y = x + w (using operator_add)
+        # 3. Forward pass: y = x + w (using the overloaded + operator)
         y = x_input + w_param
 
         # 4. Compute loss (scalar)

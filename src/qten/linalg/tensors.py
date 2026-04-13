@@ -1329,8 +1329,8 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     return prod
 
 
-@dispatch(Tensor, Tensor)
-def operator_matmul(left: Tensor, right: Tensor) -> Tensor:
+@Operable.__matmul__.register
+def _(left: Tensor, right: Tensor) -> Tensor:
     """Perform matrix multiplication (contraction) between two `Tensor`."""
     return matmul(left, right)
 
@@ -1343,9 +1343,9 @@ def _match_dims_for_tensoradd(left: Tensor, right: Tensor) -> Tuple[Tensor, Tens
     return left, right
 
 
-@dispatch(Tensor, Tensor)
+@Operable.__add__.register
 @auto_promote
-def operator_add(left: Tensor, right: Tensor) -> Tensor:
+def _(left: Tensor, right: Tensor) -> Tensor:
     """
     Add two tensors with the same order of dimensions.
     If the intra-ordering within the `StateSpace`s differ,
@@ -1393,8 +1393,8 @@ def operator_add(left: Tensor, right: Tensor) -> Tensor:
     return Tensor(data=new_data, dims=merged_dims)
 
 
-@dispatch(Tensor, Tensor)
-def operator_eq(left: TensorType, right: Tensor) -> TensorType:
+@Operable.__eq__.register
+def _(left: Tensor, right: Tensor) -> Tensor:
     """
     Perform element-wise equality comparison between two tensors.
 
@@ -1491,80 +1491,80 @@ def _binary_elementwise_mask_op(
     )
 
 
-@dispatch(Tensor, Tensor)
-def operator_lt(left: TensorType, right: Tensor) -> TensorType:
+@Operable.__lt__.register
+def _(left: Tensor, right: Tensor) -> Tensor:
     """Perform element-wise less-than comparison between two tensors."""
     return _tensor_comparison_op(left, right, torch.lt)
 
 
-@dispatch(Tensor, Tensor)
-def operator_le(left: TensorType, right: Tensor) -> TensorType:
+@Operable.__le__.register
+def _(left: Tensor, right: Tensor) -> Tensor:
     """Perform element-wise less-than-or-equal comparison between two tensors."""
     return _tensor_comparison_op(left, right, torch.le)
 
 
-@dispatch(Tensor, Tensor)
-def operator_gt(left: TensorType, right: Tensor) -> TensorType:
+@Operable.__gt__.register
+def _(left: Tensor, right: Tensor) -> Tensor:
     """Perform element-wise greater-than comparison between two tensors."""
     return _tensor_comparison_op(left, right, torch.gt)
 
 
-@dispatch(Tensor, Tensor)
-def operator_ge(left: TensorType, right: Tensor) -> TensorType:
+@Operable.__ge__.register
+def _(left: Tensor, right: Tensor) -> Tensor:
     """Perform element-wise greater-than-or-equal comparison between two tensors."""
     return _tensor_comparison_op(left, right, torch.ge)
 
 
-@dispatch(Tensor, Number)
-def operator_lt(left: TensorType, right: Number) -> TensorType:
+@Operable.__lt__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """Perform element-wise less-than comparison between a tensor and a scalar."""
-    return operator_lt(left, Tensor.scalar(right))
+    return left < Tensor.scalar(right)
 
 
-@dispatch(Number, Tensor)
-def operator_lt(left: Number, right: TensorType) -> TensorType:  # type: ignore[no-redef]
+@Operable.__lt__.register
+def _(left: Number, right: Tensor) -> Tensor:
     """Perform element-wise less-than comparison between a scalar and a tensor."""
-    return operator_lt(Tensor.scalar(left), right)
+    return Tensor.scalar(left) < right
 
 
-@dispatch(Tensor, Number)
-def operator_le(left: TensorType, right: Number) -> TensorType:
+@Operable.__le__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """Perform element-wise less-than-or-equal comparison between a tensor and a scalar."""
-    return operator_le(left, Tensor.scalar(right))
+    return left <= Tensor.scalar(right)
 
 
-@dispatch(Number, Tensor)
-def operator_le(left: Number, right: TensorType) -> TensorType:  # type: ignore[no-redef]
+@Operable.__le__.register
+def _(left: Number, right: Tensor) -> Tensor:
     """Perform element-wise less-than-or-equal comparison between a scalar and a tensor."""
-    return operator_le(Tensor.scalar(left), right)
+    return Tensor.scalar(left) <= right
 
 
-@dispatch(Tensor, Number)
-def operator_gt(left: TensorType, right: Number) -> TensorType:
+@Operable.__gt__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """Perform element-wise greater-than comparison between a tensor and a scalar."""
-    return operator_gt(left, Tensor.scalar(right))
+    return left > Tensor.scalar(right)
 
 
-@dispatch(Number, Tensor)
-def operator_gt(left: Number, right: TensorType) -> TensorType:  # type: ignore[no-redef]
+@Operable.__gt__.register
+def _(left: Number, right: Tensor) -> Tensor:
     """Perform element-wise greater-than comparison between a scalar and a tensor."""
-    return operator_gt(Tensor.scalar(left), right)
+    return Tensor.scalar(left) > right
 
 
-@dispatch(Tensor, Number)
-def operator_ge(left: TensorType, right: Number) -> TensorType:
+@Operable.__ge__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """Perform element-wise greater-than-or-equal comparison between a tensor and a scalar."""
-    return operator_ge(left, Tensor.scalar(right))
+    return left >= Tensor.scalar(right)
 
 
-@dispatch(Number, Tensor)
-def operator_ge(left: Number, right: TensorType) -> TensorType:  # type: ignore[no-redef]
+@Operable.__ge__.register
+def _(left: Number, right: Tensor) -> Tensor:
     """Perform element-wise greater-than-or-equal comparison between a scalar and a tensor."""
-    return operator_ge(Tensor.scalar(left), right)
+    return Tensor.scalar(left) >= right
 
 
-@dispatch(Tensor)
-def operator_neg(tensor: TensorType) -> TensorType:
+@Operable.__neg__.register
+def _(tensor: Tensor) -> Tensor:
     """
     Perform negation on the given tensor.
 
@@ -1581,8 +1581,8 @@ def operator_neg(tensor: TensorType) -> TensorType:
     return replace(tensor, data=-tensor.data)
 
 
-@dispatch(Tensor, Tensor)
-def operator_sub(left: Tensor, right: Tensor) -> Tensor:
+@Operable.__sub__.register
+def _(left: Tensor, right: Tensor) -> Tensor:
     """
     Subtract the right tensor from the left tensor with the same order of dimensions.
     If the intra-ordering within the `StateSpace`s differ, the `right` tensor is
@@ -1603,8 +1603,8 @@ def operator_sub(left: Tensor, right: Tensor) -> Tensor:
     return left + (-right)
 
 
-@dispatch(Number, Tensor)
-def operator_mul(left: Number, right: Tensor) -> Tensor:
+@Operable.__mul__.register
+def _(left: Number, right: Tensor) -> Tensor:
     """
     Perform element-wise multiplication of a number and a tensor.
 
@@ -1622,8 +1622,8 @@ def operator_mul(left: Number, right: Tensor) -> Tensor:
     return Tensor(data=left * right.data, dims=right.dims)
 
 
-@dispatch(Tensor, Number)  # type: ignore[no-redef]
-def operator_mul(left: Tensor, right: Number) -> Tensor:
+@Operable.__mul__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """
     Perform element-wise multiplication of a tensor and a number.
 
@@ -1641,8 +1641,8 @@ def operator_mul(left: Tensor, right: Number) -> Tensor:
     return Tensor(data=left.data * right, dims=left.dims)
 
 
-@dispatch(Number, Tensor)  # type: ignore[no-redef]
-def operator_add(left: Number, right: Tensor) -> Tensor:
+@Operable.__add__.register
+def _(left: Number, right: Tensor) -> Tensor:
     """
     Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
 
@@ -1664,8 +1664,8 @@ def operator_add(left: Number, right: Tensor) -> Tensor:
     return left * iden + right
 
 
-@dispatch(Tensor, Number)  # type: ignore[no-redef]
-def operator_add(left: Tensor, right: Number) -> Tensor:
+@Operable.__add__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """
     Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
 
@@ -1687,8 +1687,8 @@ def operator_add(left: Tensor, right: Number) -> Tensor:
     return left + right * iden
 
 
-@dispatch(Number, Tensor)  # type: ignore[no-redef]
-def operator_sub(left: Number, right: Tensor) -> Tensor:
+@Operable.__sub__.register
+def _(left: Number, right: Tensor) -> Tensor:
     """
     Subtract a tensor from a number (broadcasted on diagonal).
 
@@ -1710,8 +1710,8 @@ def operator_sub(left: Number, right: Tensor) -> Tensor:
     return left * iden + (-right)
 
 
-@dispatch(Tensor, Number)  # type: ignore[no-redef]
-def operator_sub(left: Tensor, right: Number) -> Tensor:
+@Operable.__sub__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """
     Subtract a number from a tensor (broadcasted on diagonal).
 
@@ -1733,8 +1733,8 @@ def operator_sub(left: Tensor, right: Number) -> Tensor:
     return left + (-right) * iden
 
 
-@dispatch(Tensor, Number)
-def operator_truediv(left: Tensor, right: Number) -> Tensor:
+@Operable.__truediv__.register
+def _(left: Tensor, right: Number) -> Tensor:
     """
     Perform element-wise division of a tensor by a number.
     Parameters
