@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from multipledispatch import dispatch
+from multimethod import multimethod
 
 import sympy as sy
 from ..utils.devices import Device
@@ -35,7 +35,7 @@ class FFObservable:
         """Initialize an empty observable with no bond contributions."""
         self._bonds = []
 
-    @dispatch(Bond)
+    @multimethod
     def add_bond(self, bond: Bond):
         """
         Append an already-constructed `Bond` to the observable.
@@ -54,8 +54,8 @@ class FFObservable:
             raise TypeError(f"Expected a Bond instance, got {type(bond).__name__}")
         self._bonds.append(bond)
 
-    @dispatch(sy.Number, U1Basis, U1Basis)  # type: ignore[no-redef]
-    def add_bond(self, coef: sy.Number, src: U1Basis, dst: U1Basis):
+    @add_bond.register
+    def _(self, coef: sy.Number, src: U1Basis, dst: U1Basis):
         """
         Construct and append a `Bond` from its coefficient and endpoints.
 

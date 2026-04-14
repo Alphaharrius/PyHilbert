@@ -20,7 +20,6 @@ from itertools import product
 import numpy as np
 import torch
 import sympy as sy
-from multipledispatch import dispatch  # type: ignore[import-untyped]
 
 from ..utils.collections_ext import FrozenDict
 from ..utils.types_ext import full_typename
@@ -34,7 +33,7 @@ from ..abstracts import (
     HasRays,
 )
 from ..geometries.spatials import Spatial
-from . import StateSpace, StateSpaceFactorization
+from .state_space import StateSpace, StateSpaceFactorization, same_rays
 from ..linalg.tensors import Tensor
 from ..precision import get_precision_config
 from ..utils.devices import Device
@@ -302,8 +301,8 @@ class U1Basis(
         return tuple(type(irrep) for irrep in self.base)
 
 
-@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
-def operator_lt(a: U1Basis, b: U1Basis) -> bool:
+@Operable.__lt__.register
+def _(a: U1Basis, b: U1Basis) -> bool:
     rep_a = a.base
     rep_b = b.base
     if len(rep_a) < len(rep_b):
@@ -319,8 +318,8 @@ def operator_lt(a: U1Basis, b: U1Basis) -> bool:
     return rep_a < rep_b
 
 
-@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
-def operator_gt(a: U1Basis, b: U1Basis) -> bool:
+@Operable.__gt__.register
+def _(a: U1Basis, b: U1Basis) -> bool:
     rep_a = a.base
     rep_b = b.base
     if len(rep_a) > len(rep_b):
@@ -348,7 +347,7 @@ class U1Span(Span[U1Basis], Spatial, HasRays, Convertible):
 
     This type is intentionally lightweight: it does not store amplitudes,
     coefficients, or perform linear-algebra simplification. Duplicate handling
-    is implemented in `operator_add` overloads, which keep only one copy of an
+    is implemented in `__or__` overloads, which keep only one copy of an
     existing state when building a span.
 
     Parameters
@@ -931,8 +930,8 @@ def _(v: HilbertSpace) -> HilbertSpace:
     return v
 
 
-@dispatch(HilbertSpace, HilbertSpace)  # type: ignore[no-redef]
-def same_rays(a: HilbertSpace, b: HilbertSpace) -> bool:
+@same_rays.register
+def _(a: HilbertSpace, b: HilbertSpace) -> bool:
     return set(m.rays() for m in a.structure.keys()) == set(
         m.rays() for m in b.structure.keys()
     )
@@ -955,7 +954,7 @@ class Opr(Functional, Operable, ABC):
 
     2. `Operable` matrix-application syntax
        Because `Operator` is `Operable`, it participates in the overloaded `@`
-       operator. This module defines `operator_matmul(Operator, U1Basis)`,
+       operator. This module defines `Operable.__matmul__(Operator, U1Basis)`,
        so `op @ value` applies the operator and returns only the transformed
        value component.
 
@@ -1051,8 +1050,8 @@ class Opr(Functional, Operable, ABC):
         return result
 
 
-@dispatch(Opr, Operable)
-def operator_matmul(o: Opr, v: Operable):
+@Operable.__matmul__.register
+def _(o: Opr, v: Operable):
     return o(v)
 
 
@@ -1083,8 +1082,8 @@ def _(o: Opr, h: HilbertSpace) -> HilbertSpace:
     return new_h
 
 
-@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
-def same_rays(a: U1Basis, b: U1Basis) -> bool:
+@same_rays.register
+def _(a: U1Basis, b: U1Basis) -> bool:
     """Check if two `U1Basis` define the same ray."""
     return a.rays() == b.rays()
 
@@ -1200,18 +1199,18 @@ def _(f: FuncOpr, psi: U1Basis) -> U1Basis:
     return new_psi
 
 
-@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
-def same_rays(a: U1Span, b: U1Span) -> bool:
+@same_rays.register
+def _(a: U1Span, b: U1Span) -> bool:
     return set(a.rays().span) == set(b.rays().span)
 
 
-@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
-def operator_eq(a: U1Basis, b: U1Basis) -> bool:
+@Operable.__eq__.register
+def _(a: U1Basis, b: U1Basis) -> bool:
     return a.coef == b.coef and a.base == b.base
 
 
-@dispatch(U1Basis, U1Basis)  # type: ignore[no-redef]
-def operator_matmul(a: U1Basis, b: U1Basis) -> U1Basis:
+@Operable.__matmul__.register
+def _(a: U1Basis, b: U1Basis) -> U1Basis:
     if not a.base:
         return b
     if not b.base:
@@ -1219,57 +1218,57 @@ def operator_matmul(a: U1Basis, b: U1Basis) -> U1Basis:
     return U1Basis((a.coef * b.coef).simplify(), a.base + b.base)
 
 
-@dispatch(U1Basis, U1Basis)
-def operator_or(a: U1Basis, b: U1Basis) -> U1Span:
+@Operable.__or__.register
+def _(a: U1Basis, b: U1Basis) -> U1Span:
     if a == b:
         return U1Span((a,))
     return U1Span((a, b))
 
 
-@dispatch(U1Span, U1Basis)  # type: ignore[no-redef]
-def operator_or(span: U1Span, state: U1Basis) -> U1Span:
+@Operable.__or__.register
+def _(span: U1Span, state: U1Basis) -> U1Span:
     if state in span.span:
         return span
     return U1Span(span.span + (state,))
 
 
-@dispatch(U1Basis, U1Span)  # type: ignore[no-redef]
-def operator_or(state: U1Basis, span: U1Span) -> U1Span:
+@Operable.__or__.register
+def _(state: U1Basis, span: U1Span) -> U1Span:
     if state in span.span:
         return span
     return U1Span((state,) + span.span)
 
 
-@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
-def operator_or(a: U1Span, b: U1Span) -> U1Span:
+@Operable.__or__.register
+def _(a: U1Span, b: U1Span) -> U1Span:
     existing = set(a.span)
     new_states = tuple(s for s in b.span if s not in existing)
     return U1Span(a.span + new_states)
 
 
-@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
-def operator_sub(a: U1Span, b: U1Span) -> U1Span:
+@Operable.__sub__.register
+def _(a: U1Span, b: U1Span) -> U1Span:
     b_elements = set(b.span)
     new_states = tuple(s for s in a.span if s not in b_elements)
     return U1Span(new_states)
 
 
-@dispatch(U1Span, U1Span)  # type: ignore[no-redef]
-def operator_and(a: U1Span, b: U1Span) -> U1Span:
+@Operable.__and__.register
+def _(a: U1Span, b: U1Span) -> U1Span:
     b_elements = set(b.span)
     new_states = tuple(s for s in a.span if s in b_elements)
     return U1Span(new_states)
 
 
-@dispatch(HilbertSpace, U1Basis)  # type: ignore[no-redef]
-def operator_or(space: HilbertSpace, state: U1Basis) -> HilbertSpace:
+@Operable.__or__.register
+def _(space: HilbertSpace, state: U1Basis) -> HilbertSpace:
     if state in space.structure:
         return space
     return HilbertSpace.new((*space.elements(), state))
 
 
-@dispatch(U1Basis, HilbertSpace)  # type: ignore[no-redef]
-def operator_or(state: U1Basis, space: HilbertSpace) -> HilbertSpace:
+@Operable.__or__.register
+def _(state: U1Basis, space: HilbertSpace) -> HilbertSpace:
     if state in space.structure:
         return space
     return HilbertSpace.new((state, *space.elements()))
@@ -1374,21 +1373,21 @@ class ComposedOpr(Opr):
         return result
 
 
-@dispatch(Opr, Opr)  # type: ignore[no-redef]
-def operator_matmul(a: Opr, b: Opr) -> ComposedOpr:
+@Operable.__matmul__.register
+def _(a: Opr, b: Opr) -> ComposedOpr:
     return ComposedOpr((a, b))
 
 
-@dispatch(ComposedOpr, Opr)  # type: ignore[no-redef]
-def operator_matmul(a: ComposedOpr, b: Opr) -> ComposedOpr:
+@Operable.__matmul__.register
+def _(a: ComposedOpr, b: Opr) -> ComposedOpr:
     return ComposedOpr((*a.ops, b))
 
 
-@dispatch(Opr, ComposedOpr)  # type: ignore[no-redef]
-def operator_matmul(a: Opr, b: ComposedOpr) -> ComposedOpr:
+@Operable.__matmul__.register
+def _(a: Opr, b: ComposedOpr) -> ComposedOpr:
     return ComposedOpr((a, *b.ops))
 
 
-@dispatch(ComposedOpr, ComposedOpr)  # type: ignore[no-redef]
-def operator_matmul(a: ComposedOpr, b: ComposedOpr) -> ComposedOpr:
+@Operable.__matmul__.register
+def _(a: ComposedOpr, b: ComposedOpr) -> ComposedOpr:
     return ComposedOpr((*a.ops, *b.ops))

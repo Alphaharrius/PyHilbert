@@ -3,11 +3,9 @@ from typing import Dict, Tuple
 from collections import OrderedDict
 from itertools import product
 from functools import lru_cache, reduce
-from multipledispatch import dispatch  # type: ignore[import-untyped]
-
 import sympy as sy
 
-from ..abstracts import HasBase
+from ..abstracts import HasBase, Operable
 from ..geometries import AffineSpace, Momentum, Offset
 from ..geometries.spatials import Spatial
 from ..symbolics import Opr
@@ -58,13 +56,13 @@ class AbelianBasis(Spatial):
         return self.__str__()
 
 
-@dispatch(AbelianBasis, AbelianBasis)
-def operator_lt(a: AbelianBasis, b: AbelianBasis) -> bool:
+@Operable.__lt__.register
+def _(a: AbelianBasis, b: AbelianBasis) -> bool:
     return str(a.expr) < str(b.expr)
 
 
-@dispatch(AbelianBasis, AbelianBasis)
-def operator_gt(a: AbelianBasis, b: AbelianBasis) -> bool:
+@Operable.__gt__.register
+def _(a: AbelianBasis, b: AbelianBasis) -> bool:
     return str(a.expr) > str(b.expr)
 
 

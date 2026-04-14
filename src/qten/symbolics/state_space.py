@@ -6,9 +6,9 @@ from collections.abc import Iterator, Sequence
 from functools import lru_cache
 from itertools import islice
 
-from multipledispatch import dispatch  # type: ignore[import-untyped]
+from multimethod import multimethod
 
-from ..abstracts import Convertible, Span
+from ..abstracts import Convertible, Operable, Span
 from ..validations import need_validation
 from ..geometries import Momentum, ReciprocalLattice
 from ..geometries.spatials import Spatial
@@ -212,8 +212,8 @@ def _(s: StateSpace) -> StateSpace:
     return s
 
 
-@dispatch(StateSpace, StateSpace)
-def operator_matmul(a: StateSpace, b: StateSpace):
+@Operable.__matmul__.register
+def _(a: StateSpace, b: StateSpace):
     return a.tensor_product(b)
 
 
@@ -302,13 +302,13 @@ def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
 
 
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
-@dispatch(StateSpace, StateSpace)
+@multimethod
 def same_rays(a: StateSpace, b: StateSpace) -> bool:
     return set(a.structure.keys()) == set(b.structure.keys())
 
 
-@dispatch(StateSpace, StateSpace)
-def operator_add(a: StateSpace, b: StateSpace):
+@Operable.__add__.register
+def _(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
         raise ValueError(
             f"Cannot add StateSpaces of different types: {type(a)} and {type(b)}!"
@@ -322,8 +322,8 @@ def operator_add(a: StateSpace, b: StateSpace):
     return type(a)(structure=restructure(new_structure))
 
 
-@dispatch(StateSpace, StateSpace)
-def operator_sub(a: StateSpace, b: StateSpace):
+@Operable.__sub__.register
+def _(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
         raise ValueError(
             f"Cannot subtract StateSpaces of different types: {type(a)} and {type(b)}!"
@@ -334,13 +334,13 @@ def operator_sub(a: StateSpace, b: StateSpace):
     return type(a)(structure=restructure(new_structure))
 
 
-@dispatch(StateSpace, StateSpace)
-def operator_or(a: StateSpace, b: StateSpace):
+@Operable.__or__.register
+def _(a: StateSpace, b: StateSpace):
     return a + b
 
 
-@dispatch(StateSpace, StateSpace)
-def operator_and(a: StateSpace, b: StateSpace):
+@Operable.__and__.register
+def _(a: StateSpace, b: StateSpace):
     if type(a) is not type(b):
         raise ValueError(
             f"Cannot intersect StateSpaces of different types: {type(a)} and {type(b)}!"
@@ -351,8 +351,8 @@ def operator_and(a: StateSpace, b: StateSpace):
     return type(a)(structure=restructure(new_structure))
 
 
-@dispatch(StateSpace, StateSpace)
-def operator_eq(a: StateSpace, b: StateSpace):
+@Operable.__eq__.register
+def _(a: StateSpace, b: StateSpace):
     return a.structure == b.structure
 
 
@@ -431,9 +431,9 @@ class BroadcastSpace(StateSpace[_BAxis]):
 
     Compatibility rules
     -------------------
-    Multipledispatch rules in this module treat `BroadcastSpace` as compatible
+    Multimethod rules in this module treat `BroadcastSpace` as compatible
     with any `StateSpace` in `same_rays(...)`, and as neutral in
-    `operator_add(...)`:
+    `__add__(...)`:
     - `BroadcastSpace + X -> X`
     - `X + BroadcastSpace -> X`
     - `BroadcastSpace + BroadcastSpace -> BroadcastSpace`
@@ -457,34 +457,34 @@ class BroadcastSpace(StateSpace[_BAxis]):
     __str__ = __repr__
 
 
-@dispatch(BroadcastSpace, BroadcastSpace)  # type: ignore[no-redef]
-def same_rays(a: BroadcastSpace, b: BroadcastSpace) -> bool:
+@same_rays.register
+def _(a: BroadcastSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(StateSpace, BroadcastSpace)  # type: ignore[no-redef]
-def same_rays(a: StateSpace, b: BroadcastSpace) -> bool:
+@same_rays.register
+def _(a: StateSpace, b: BroadcastSpace) -> bool:
     return True
 
 
-@dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
-def same_rays(a: BroadcastSpace, b: StateSpace) -> bool:
+@same_rays.register
+def _(a: BroadcastSpace, b: StateSpace) -> bool:
     return True
 
 
 # The set union of any StateSpace with a BroadcastSpace is a BroadcastSpace
-@dispatch(BroadcastSpace, BroadcastSpace)  # type: ignore[no-redef]
-def operator_add(a: BroadcastSpace, b: BroadcastSpace):
+@Operable.__add__.register
+def _(a: BroadcastSpace, b: BroadcastSpace):
     return BroadcastSpace()
 
 
-@dispatch(StateSpace, BroadcastSpace)  # type: ignore[no-redef]
-def operator_add(a: StateSpace, b: BroadcastSpace):
+@Operable.__add__.register
+def _(a: StateSpace, b: BroadcastSpace):
     return a
 
 
-@dispatch(BroadcastSpace, StateSpace)  # type: ignore[no-redef]
-def operator_add(a: BroadcastSpace, b: StateSpace):
+@Operable.__add__.register
+def _(a: BroadcastSpace, b: StateSpace):
     return b
 
 
