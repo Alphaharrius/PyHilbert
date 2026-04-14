@@ -7,6 +7,7 @@ import pytest
 import sympy as sy
 import torch
 
+from qten.symbolics import interpolate_reciprocal_path
 from qten.symbolics.hilbert_space import U1Basis, HilbertSpace
 from qten.geometries.spatials import Lattice, Offset
 from qten.geometries.boundary import PeriodicBoundary
@@ -384,3 +385,96 @@ def test_band_path_positions_wraps_across_periodic_boundary():
     step = float(lat.dual.basis[0, 0]) / 16.0
     expected = np.arange(len(reordered), dtype=float) * step
     assert np.allclose(x_vals, expected)
+
+
+def _make_2d_lattice_and_spaces():
+    """Build a 2D square lattice with one orbital, return (lattice, bloch_space, region_space, h_real)."""
+    basis = sy.ImmutableDenseMatrix([[1, 0.0], [0.0, 1]])
+    lat = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    r_0 = Offset(rep=sy.ImmutableDenseMatrix([[0.0], [0.0]]), space=lat.affine)
+    basis_s = U1Basis.new(r_0, "s")
+    bloch_space = HilbertSpace.new([basis_s])
+
+    neighbor_offsets = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)]
+    region_modes = []
+    offset_to_idx = {}
+    for i, (dx, dy) in enumerate(neighbor_offsets):
+        r_vec = sy.ImmutableDenseMatrix([[dx], [dy]])
+        r_off = Offset(rep=r_vec, space=lat.affine)
+        region_modes.append(basis_s.replace(r_off))
+        offset_to_idx[(dx, dy)] = i
+
+    region_space = HilbertSpace.new(region_modes)
+    h_data = torch.zeros((region_space.dim, region_space.dim), dtype=torch.complex128)
+    origin_idx = offset_to_idx[(0, 0)]
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        idx = offset_to_idx[(dx, dy)]
+        h_data[origin_idx, idx] = -1.0 + 0j
+        h_data[idx, origin_idx] = -1.0 + 0j
+
+    h_real = Tensor(data=h_data, dims=(region_space, region_space))
+    return lat, bloch_space, region_space, h_real
+
+
+def test_bandstructure_plot_with_bz_path_plotly():
+    lat, bloch_space, region_space, h_real = _make_2d_lattice_and_spaces()
+    path = interpolate_reciprocal_path(
+        lat.dual,
+        [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0)],
+        n_points=30,
+        labels=["Gamma", "X", "M", "Gamma"],
+    )
+
+    F = fourier_transform(path.k_space, bloch_space, region_space)
+    h_k = F @ h_real @ F.h(1, 2)
+
+    fig = h_k.plot(
+        "bandstructure",
+        backend="plotly",
+        title="Path Bandstructure",
+        show=False,
+        bz_path=path,
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) >= 1
+    assert all(isinstance(trace, go.Scatter) for trace in fig.data)
+    assert fig.layout.xaxis.ticktext is not None
+    tick_labels = list(fig.layout.xaxis.ticktext)
+    assert tick_labels == ["Gamma", "X", "M", "Gamma"]
+
+
+def test_bandstructure_plot_with_bz_path_matplotlib():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    lat, bloch_space, region_space, h_real = _make_2d_lattice_and_spaces()
+    path = interpolate_reciprocal_path(
+        lat.dual,
+        [(0, 0), (0.5, 0), (0.5, 0.5), (0, 0)],
+        n_points=30,
+        labels=["Gamma", "X", "M", "Gamma"],
+    )
+
+    F = fourier_transform(path.k_space, bloch_space, region_space)
+    h_k = F @ h_real @ F.h(1, 2)
+
+    fig = h_k.plot(
+        "bandstructure",
+        backend="matplotlib",
+        title="Path Bandstructure",
+        bz_path=path,
+    )
+
+    assert isinstance(fig, plt.Figure)
+    ax = fig.axes[0]
+    tick_labels = [t.get_text() for t in ax.get_xticklabels()]
+    assert tick_labels == ["Gamma", "X", "M", "Gamma"]
+    plt.close(fig)

@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Callable, Dict, Literal, Optional, Tuple, Union, cast
+from typing import Callable, Dict, Literal, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 import sympy as sy
@@ -14,6 +14,7 @@ from .linalg import eigh
 from .linalg.tensors import Tensor, zeros
 from .precision import get_precision_config
 from .symbolics import (
+    BzPath,
     FuncOpr,
     HilbertSpace,
     IndexSpace,
@@ -21,9 +22,27 @@ from .symbolics import (
     Opr,
     U1Basis,
     brillouin_zone,
+    interpolate_reciprocal_path,
     restructure,
 )
 from .utils.devices import Device
+
+
+def interpolate_path(
+    recip: ReciprocalLattice,
+    waypoints: Sequence[Union[Tuple[float, ...], str]],
+    n_points: int = 100,
+    labels: Optional[Sequence[str]] = None,
+    points: Optional[Dict[str, Tuple[float, ...]]] = None,
+) -> BzPath:
+    """Backward-compatible wrapper for `interpolate_reciprocal_path`."""
+    return interpolate_reciprocal_path(
+        recip=recip,
+        waypoints=waypoints,
+        n_points=n_points,
+        labels=labels,
+        points=points,
+    )
 
 
 def _probe_affine(

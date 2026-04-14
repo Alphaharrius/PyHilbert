@@ -7,12 +7,18 @@ from typing import Optional, Union, Any, cast, Tuple, Sequence
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.state_space import (
+    BzPath,
     MomentumSpace,
     StateSpace,
     same_rays,
 )
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
-from ._utils import analyze_bandstructure_sampling, band_path_positions, compute_bonds
+from ._utils import (
+    analyze_bandstructure_sampling,
+    band_path_positions,
+    compute_bonds,
+    interpolate_path_on_grid,
+)
 from .plottables import PointCloud
 
 
@@ -666,6 +672,7 @@ def plot_bandstructure_mpl(
     mode: str = "auto",
     hide_nullspace: bool = False,
     nullspace_tol: float = 1e-9,
+    bz_path: Optional[BzPath] = None,
     **kwargs,
 ) -> plt.Figure:
     """
@@ -684,6 +691,10 @@ def plot_bandstructure_mpl(
         band surface opens around the nullspace.
     nullspace_tol : float, default 1e-9
         Energy tolerance used when hide_nullspace is enabled.
+    bz_path : BzPath, optional
+        Brillouin-zone path returned by ``interpolate_reciprocal_path``. When given,
+        vertical dividers and high-symmetry-point labels are drawn on the
+        path-mode x-axis.
     """
     # 1. Check Dimensions
     if obj.rank() != 3:
@@ -794,19 +805,38 @@ def plot_bandstructure_mpl(
         else:
             fig = ax.get_figure()
 
-        x_vals = band_path_positions(k_space, k_cart)
+        if bz_path is not None:
+            x_vals = np.array(bz_path.path_positions)
+            if k_space == bz_path.k_space:
+                plot_eigvals = eigvals_np[list(bz_path.path_order)]
+            else:
+                plot_eigvals = interpolate_path_on_grid(
+                    bz_path, k_space, eigvals_np
+                )
+        else:
+            x_vals = band_path_positions(k_space, k_cart)
+            plot_eigvals = eigvals_np
 
         line_width = kwargs.get("line_width", 1.5)
-        for b in range(n_bands):
-            ax.plot(x_vals, eigvals_np[:, b], linewidth=line_width, label=f"Band {b}")
+        for b in range(plot_eigvals.shape[1]):
+            ax.plot(x_vals, plot_eigvals[:, b], linewidth=line_width, label=f"Band {b}")
 
         ax.set_title(title)
-        ax.set_xlabel("k-path (1/A)")
         ax.set_ylabel("Energy (eV)")
         if len(x_vals) > 1 and x_vals[-1] > x_vals[0]:
             ax.set_xlim(float(x_vals[0]), float(x_vals[-1]))
         else:
             ax.set_xlim(-0.5, 0.5)
+
+        if bz_path is not None:
+            wp_x = [float(x_vals[i]) for i in bz_path.waypoint_indices]
+            for x in wp_x:
+                ax.axvline(x, color="k", linewidth=0.8, linestyle="--", alpha=0.5)
+            ax.set_xticks(wp_x)
+            ax.set_xticklabels(list(bz_path.labels))
+        else:
+            ax.set_xlabel("k-path (1/A)")
+
         ax.grid(True, alpha=kwargs.get("grid_alpha", 0.3))
         if kwargs.get("legend", False):
             ax.legend(loc=kwargs.get("legend_loc", "best"))
