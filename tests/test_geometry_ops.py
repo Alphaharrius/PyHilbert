@@ -419,6 +419,25 @@ def test_center_of_region_returns_offset_mean():
     assert center.rep == ImmutableDenseMatrix([1, 1])
 
 
+def test_center_of_region_accounts_for_lattice_wrapping():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(1),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+
+    center = center_of_region(
+        (
+            lattice.at("r", (0,)),
+            lattice.at("r", (3,)),
+        )
+    )
+
+    assert type(center) is Offset
+    assert center.space == lattice
+    assert center.rep == ImmutableDenseMatrix([sy.Rational(7, 2)])
+
+
 def test_center_of_region_returns_momentum_mean():
     lattice = Lattice(
         basis=ImmutableDenseMatrix.eye(1),
@@ -437,6 +456,26 @@ def test_center_of_region_returns_momentum_mean():
     assert type(center) is Momentum
     assert center.space == k
     assert center.rep == ImmutableDenseMatrix([sy.Rational(1, 4)])
+
+
+def test_center_of_region_accounts_for_momentum_wrapping():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(1),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k = lattice.dual
+
+    center = center_of_region(
+        (
+            Momentum(rep=ImmutableDenseMatrix([0]), space=k),
+            Momentum(rep=ImmutableDenseMatrix([sy.Rational(3, 4)]), space=k),
+        )
+    )
+
+    assert type(center) is Momentum
+    assert center.space == k
+    assert center.rep == ImmutableDenseMatrix([sy.Rational(7, 8)])
 
 
 def test_center_of_region_rejects_empty_region():

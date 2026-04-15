@@ -8,7 +8,7 @@ import numpy as np
 import sympy as sy
 from sympy import ImmutableDenseMatrix
 
-from .spatials import AffineSpace, Lattice, Offset, OffsetType
+from .spatials import AffineSpace, Lattice, Offset, OffsetType, ReciprocalLattice
 
 
 def _cutoff_from_sites(
@@ -462,13 +462,51 @@ def center_of_region(region: tuple[OffsetType, ...]) -> OffsetType:
 
     first = region[0]
     point_type = type(first)
-    total = first.rep
 
     for point in region[1:]:
         if type(point) is not point_type:
             raise TypeError("region entries must all have the same concrete type.")
         if point.space != first.space:
             raise TypeError("region entries must all belong to the same space.")
+
+    if isinstance(first.space, Lattice):
+        boundary_basis = np.array(first.space.boundaries.basis.evalf(), dtype=float)
+        wrapped = np.stack(
+            [
+                np.array(
+                    (first.space.boundaries.basis.inv() @ point.rep).evalf(),
+                    dtype=float,
+                ).reshape(-1)
+                for point in region
+            ]
+        )
+        reference = wrapped[0]
+        unwrapped = wrapped.copy()
+        for i in range(1, len(region)):
+            delta = wrapped[i] - reference
+            unwrapped[i] = wrapped[i] - np.round(delta)
+
+        mean_boundary = unwrapped.mean(axis=0) % 1.0
+        mean_rep_np = boundary_basis @ mean_boundary
+        mean_rep = ImmutableDenseMatrix([sy.nsimplify(x) for x in mean_rep_np])
+        return point_type(rep=mean_rep, space=first.space)
+
+    if isinstance(first.space, ReciprocalLattice):
+        wrapped = np.stack(
+            [np.array(point.rep.evalf(), dtype=float).reshape(-1) for point in region]
+        )
+        reference = wrapped[0]
+        unwrapped = wrapped.copy()
+        for i in range(1, len(region)):
+            delta = wrapped[i] - reference
+            unwrapped[i] = wrapped[i] - np.round(delta)
+
+        mean_rep_np = unwrapped.mean(axis=0) % 1.0
+        mean_rep = ImmutableDenseMatrix([sy.nsimplify(x) for x in mean_rep_np])
+        return point_type(rep=mean_rep, space=first.space)
+
+    total = first.rep
+    for point in region[1:]:
         total += point.rep
 
     return point_type(rep=ImmutableDenseMatrix(total / len(region)), space=first.space)
