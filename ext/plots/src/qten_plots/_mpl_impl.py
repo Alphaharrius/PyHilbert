@@ -18,6 +18,8 @@ from ._utils import (
     band_path_positions,
     compute_bonds,
     interpolate_path_on_grid,
+    pointcloud_marker_for_mpl,
+    pointcloud_size_for_mpl,
 )
 from .plottables import PointCloud
 
@@ -180,6 +182,14 @@ def plot_structure_mpl(
             x_group = highlight_np[:, 0]
             y_group = highlight_np[:, 1]
             trace_color = cloud.color or fallback_colors[idx]
+            trace_marker = pointcloud_marker_for_mpl(cloud.marker, default="D")
+            trace_alpha = cloud.opacity
+            trace_size = pointcloud_size_for_mpl(
+                cloud.size, default_area=55 if is_3d else 110
+            )
+            trace_edgecolor = cloud.border_color
+            trace_linewidth = cloud.border_width
+            trace_label = cloud.name or f"Highlight {idx}"
             if is_3d:
                 z_group = highlight_np[:, 2]
                 cast(Any, ax).scatter(
@@ -187,19 +197,25 @@ def plot_structure_mpl(
                     y_group,
                     z_group,
                     c=[trace_color],
-                    s=55,
-                    marker="D",
-                    label=f"Highlight {idx}",
+                    s=trace_size,
+                    marker=trace_marker,
+                    alpha=trace_alpha,
+                    edgecolors=trace_edgecolor,
+                    linewidths=trace_linewidth,
+                    label=trace_label,
                 )
             else:
                 ax.scatter(
                     x_group,
                     y_group,
                     c=[trace_color],
-                    s=110,
-                    marker="D",
+                    s=trace_size,
+                    marker=trace_marker,
+                    alpha=trace_alpha,
+                    edgecolors=trace_edgecolor,
+                    linewidths=trace_linewidth,
                     zorder=6,
-                    label=f"Highlight {idx}",
+                    label=trace_label,
                 )
 
     # Spins
@@ -267,13 +283,43 @@ def plot_pointcloud_mpl(
         fig = ax.get_figure()
 
     trace_color = obj.color or kwargs.get("color", "#d1495b")
+    trace_marker = pointcloud_marker_for_mpl(
+        obj.marker or kwargs.get("marker"), default="o"
+    )
+    trace_alpha = obj.opacity
+    raw_size = obj.size if obj.size is not None else kwargs.get("size")
+    trace_size = pointcloud_size_for_mpl(raw_size, default_area=30 if is_3d else 60)
+    trace_edgecolor = obj.border_color or kwargs.get("border_color")
+    trace_linewidth = (
+        obj.border_width if obj.border_width is not None else kwargs.get("border_width")
+    )
+    trace_label = obj.name or "PointCloud"
     if is_3d:
         cast(Any, ax).scatter(
-            coords_np[:, 0], coords_np[:, 1], coords_np[:, 2], c=trace_color, s=30
+            coords_np[:, 0],
+            coords_np[:, 1],
+            coords_np[:, 2],
+            c=trace_color,
+            s=trace_size,
+            marker=trace_marker,
+            alpha=trace_alpha,
+            edgecolors=trace_edgecolor,
+            linewidths=trace_linewidth,
+            label=trace_label,
         )
         cast(Any, ax).set_zlabel("Z")
     else:
-        ax.scatter(coords_np[:, 0], coords_np[:, 1], c=trace_color, s=60)
+        ax.scatter(
+            coords_np[:, 0],
+            coords_np[:, 1],
+            c=trace_color,
+            s=trace_size,
+            marker=trace_marker,
+            alpha=trace_alpha,
+            edgecolors=trace_edgecolor,
+            linewidths=trace_linewidth,
+            label=trace_label,
+        )
 
     ax.set_xlabel("X")
     ax.set_ylabel("Y")

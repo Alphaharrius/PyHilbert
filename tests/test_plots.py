@@ -320,6 +320,155 @@ def test_pointcloud_scatter_plot():
     assert len(fig.data) == 1
 
 
+def test_pointcloud_scatter_uses_marker_opacity_size_and_border():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0)), lattice.at(cell_offset=(1, 0))],
+        color="#00aa88",
+        marker="square",
+        opacity=0.4,
+        size=17,
+        border_color="#112233",
+        border_width=2.5,
+    )
+
+    fig = cloud.plot("scatter", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].marker.symbol == "square"
+    assert fig.data[0].marker.opacity == 0.4
+    assert fig.data[0].marker.size == 17
+    assert fig.data[0].marker.line.color == "#112233"
+    assert fig.data[0].marker.line.width == 2.5
+
+
+def test_pointcloud_scatter_uses_custom_name_for_legend():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0))],
+        name="My Region",
+    )
+
+    fig = cloud.plot("scatter", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].name == "My Region"
+
+
+def test_pointcloud_scatter_normalizes_shared_marker_aliases():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0))],
+        marker="s",
+    )
+
+    fig = cloud.plot("scatter", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].marker.symbol == "square"
+
+
+def test_pointcloud_rejects_unsupported_marker_name():
+    basis = sy.ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0])},
+    )
+
+    with pytest.raises(ValueError, match="Unsupported PointCloud marker"):
+        PointCloud.of([lattice.at(cell_offset=(0,))], marker="triangle")
+
+
+def test_plot_structure_highlights_use_pointcloud_marker_opacity_size_and_border():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(3, 3)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[
+            PointCloud.of(
+                [lattice.at(cell_offset=(0, 0))],
+                color="#ff0000",
+                marker="square",
+                opacity=0.25,
+                size=21,
+                border_color="#223344",
+                border_width=3,
+            )
+        ],
+    )
+
+    assert isinstance(fig, go.Figure)
+    highlight = fig.data[-1]
+    assert highlight.marker.symbol == "square"
+    assert highlight.marker.opacity == 0.25
+    assert highlight.marker.size == 21
+    assert highlight.marker.line.color == "#223344"
+    assert highlight.marker.line.width == 3
+
+
+def test_plot_structure_highlights_use_pointcloud_name_for_legend():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(3, 3)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[PointCloud.of([lattice.at(cell_offset=(0, 0))], name="Edge Sites")],
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[-1].name == "Edge Sites"
+
+
+def test_pointcloud_scatter_matplotlib_interprets_size_as_linear_extent():
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0))],
+        size=5,
+    )
+
+    fig = cloud.plot("scatter", backend="matplotlib")
+    ax = fig.axes[0]
+    collection = ax.collections[0]
+
+    assert collection.get_sizes().tolist() == [25]
+
+
 def test_bandstructure_plot():
     h_k = _make_square_lattice_band_tensor((4, 4))
 

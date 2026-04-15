@@ -17,6 +17,7 @@ from ._utils import (
     band_path_positions,
     compute_bonds,
     interpolate_path_on_grid,
+    pointcloud_marker_for_plotly,
 )
 from .plottables import PointCloud
 
@@ -238,6 +239,8 @@ def plot_structure(
                 continue
 
             trace_color = cloud.color or fallback_colors[idx]
+            trace_marker = pointcloud_marker_for_plotly(cloud.marker, default="diamond")
+            trace_size = cloud.size or (8 if is_3d else 13)
             highlight_np = highlight_coords.numpy()
             x_group = highlight_np[:, 0]
             y_group = highlight_np[:, 1]
@@ -246,12 +249,20 @@ def plot_structure(
                 y=y_group,
                 mode="markers",
                 marker=dict(
-                    size=8 if is_3d else 13,
+                    size=trace_size,
                     color=trace_color,
-                    symbol="diamond",
+                    symbol=trace_marker,
                 ),
-                name=f"Highlight {idx}",
+                name=cloud.name or f"Highlight {idx}",
             )
+            if cloud.opacity is not None:
+                hl_kw["marker"]["opacity"] = cloud.opacity
+            if cloud.border_color is not None or cloud.border_width is not None:
+                hl_kw["marker"]["line"] = {}
+                if cloud.border_color is not None:
+                    hl_kw["marker"]["line"]["color"] = cloud.border_color
+                if cloud.border_width is not None:
+                    hl_kw["marker"]["line"]["width"] = cloud.border_width
             if is_3d:
                 hl_kw["z"] = highlight_np[:, 2]
             fig.add_trace(_Scatter(**hl_kw))
@@ -286,26 +297,61 @@ def plot_pointcloud(
         fig = go.Figure()
 
     trace_color = obj.color or kwargs.pop("color", "#d1495b")
+    trace_marker = pointcloud_marker_for_plotly(
+        obj.marker or kwargs.pop("marker", None),
+        default="circle" if coords.shape[1] == 2 else "circle",
+    )
+    trace_size = obj.size or kwargs.pop("size", 6 if coords.shape[1] == 3 else 10)
+    trace_border_color = obj.border_color or kwargs.pop("border_color", None)
+    trace_border_width = (
+        obj.border_width
+        if obj.border_width is not None
+        else kwargs.pop("border_width", None)
+    )
     if coords.shape[1] == 3:
+        marker = dict(size=trace_size, color=trace_color)
+        if trace_marker is not None:
+            marker["symbol"] = trace_marker
+        if obj.opacity is not None:
+            marker["opacity"] = obj.opacity
+        if trace_border_color is not None or trace_border_width is not None:
+            marker["line"] = {}
+            if trace_border_color is not None:
+                marker["line"]["color"] = trace_border_color
+            if trace_border_width is not None:
+                marker["line"]["width"] = trace_border_width
         fig.add_trace(
             go.Scatter3d(
                 x=coords_np[:, 0],
                 y=coords_np[:, 1],
                 z=coords_np[:, 2],
                 mode="markers",
-                marker=dict(size=6, color=trace_color),
-                name="PointCloud",
+                marker=marker,
+                name=obj.name or "PointCloud",
             )
         )
         fig.update_layout(title="3D Point Cloud", scene=dict(aspectmode="data"))
     else:
+        marker = dict(
+            size=trace_size,
+            color=trace_color,
+            symbol=trace_marker,
+        )
+        if obj.opacity is not None:
+            marker["opacity"] = obj.opacity
+        if trace_border_color is not None or trace_border_width is not None:
+            marker["line"] = {}
+            if trace_border_color is not None:
+                marker["line"]["color"] = trace_border_color
+            if trace_border_width is not None:
+                marker["line"]["width"] = trace_border_width
         fig.add_trace(
             go.Scatter(
                 x=coords_np[:, 0],
                 y=coords_np[:, 1],
                 mode="markers",
-                marker=dict(size=10, color=trace_color, symbol="circle"),
-                name="PointCloud",
+                marker=marker,
+                name=obj.name or "PointCloud",
             )
         )
         fig.update_layout(
