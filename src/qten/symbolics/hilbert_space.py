@@ -672,6 +672,30 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
             return ()
         return elements[0].repr_types()
 
+    def irrep_of(self, T: Type[_IrrepType]) -> Tuple[_IrrepType, ...]:
+        """
+        Return the irrep of type `T` for each basis state in this space.
+
+        This is the `HilbertSpace` analogue of `U1Basis.irrep_of(T)`, lifted
+        across the ordered basis of the space.
+
+        Parameters
+        ----------
+        `T` : `Type[_IrrepType]`
+            Concrete irrep type to retrieve.
+
+        Returns
+        -------
+        `Tuple[_IrrepType, ...]`
+            The irrep instance of type `T` for each basis state, in basis order.
+
+        Raises
+        ------
+        `ValueError`
+            If any basis state does not contain an irrep of type `T`.
+        """
+        return tuple(el.irrep_of(T) for el in self.elements())
+
     def factorize(
         self, *irrep_types: Tuple[Type, ...], coef_on: Optional[int] = None
     ) -> StateSpaceFactorization:

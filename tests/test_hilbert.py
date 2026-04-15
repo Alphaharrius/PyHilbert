@@ -188,6 +188,45 @@ def test_hilbert_space_group_by_returns_tuple_of_hilbertspace():
     assert tuple(groups[2].elements()) == (d3,)
 
 
+def test_hilbert_space_irrep_of_returns_irrep_tuple():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = _lattice(basis, (3,))
+    orb = Orb("s")
+    hs = HilbertSpace.new(
+        [
+            U1Basis(
+                coef=sy.Integer(1),
+                base=(Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine), orb),
+            ),
+            U1Basis(
+                coef=sy.Integer(1),
+                base=(Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine), orb),
+            ),
+        ]
+    )
+
+    assert hs.irrep_of(Orb) == (orb, orb)
+
+
+def test_hilbert_space_irrep_of_preserves_basis_order():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = _lattice(basis, (2,))
+    hs = HilbertSpace.new(
+        [
+            _state(Offset(rep=ImmutableDenseMatrix([0]), space=lat.affine), "s"),
+            _state(Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine), "p"),
+        ]
+    )
+
+    assert hs.irrep_of(Orb) == (Orb("s"), Orb("p"))
+
+
+def test_hilbert_space_irrep_of_returns_empty_tuple_for_empty_space():
+    hs = HilbertSpace.new([])
+
+    assert hs.irrep_of(Orb) == ()
+
+
 def test_statespace_getitem_variants():
     basis = ImmutableDenseMatrix([[1]])
     lat = _lattice(basis, (3,))
