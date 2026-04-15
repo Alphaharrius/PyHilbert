@@ -33,7 +33,8 @@ def nearest_sites(
     Sites are ordered by increasing distance from `center`, with lattice-site
     ordering used to break ties deterministically. `n_nearest=1` returns the
     nearest-distance shell, `n_nearest=2` returns the first two distinct
-    distance shells, and so on.
+    distance shells, and so on. The center itself is included only when it
+    coincides with a lattice site.
 
     Parameters
     ----------

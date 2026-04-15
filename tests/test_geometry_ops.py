@@ -46,6 +46,29 @@ def test_nearest_sites_with_affine_center_includes_all_tied_sites():
     )
 
 
+def test_nearest_sites_excludes_off_lattice_center():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    center = Offset(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 2), sy.Rational(1, 2)]),
+        space=AffineSpace(ImmutableDenseMatrix.eye(2)),
+    )
+
+    region = nearest_sites(lattice, center, n_nearest=1)
+
+    assert center not in lattice
+    assert center.rebase(lattice) not in region
+    assert tuple(tuple(site.rep) for site in region) == (
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+    )
+
+
 def test_nearest_sites_uses_distinct_distance_shells():
     lattice = Lattice(
         basis=ImmutableDenseMatrix.eye(2),
