@@ -7,6 +7,7 @@ from qten.geometries.ops import (
     center_of_region,
     interstitial_centers,
     nearest_sites,
+    region_tile,
 )
 from qten.geometries.spatials import AffineSpace, Lattice, Momentum, Offset
 
@@ -230,3 +231,72 @@ def test_interstitial_centers_finds_nontrivial_voids_for_diamond_lattice():
         )
         in centers
     )
+
+
+def test_region_tile_translates_region_by_integer_basis_combinations():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(8, 8)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    region = (
+        lattice.at("r", (0, 0)),
+        lattice.at("r", (0, 1)),
+    )
+    bases = (
+        lattice.at("r", (1, 0)),
+        lattice.at("r", (0, 2)),
+    )
+
+    tiled = region_tile(region, bases, counts=(2, 2))
+
+    assert tuple(tuple(point.rep) for point in tiled) == (
+        (0, 0),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (1, 0),
+        (1, 1),
+        (1, 2),
+        (1, 3),
+    )
+
+
+def test_region_tile_deduplicates_after_periodic_wrapping():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(1),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(3)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+
+    tiled = region_tile(
+        region=(lattice.at("r", (0,)),),
+        bases=(lattice.at("r", (1,)),),
+        counts=(5,),
+    )
+
+    assert tuple(tuple(point.rep) for point in tiled) == ((0,), (1,), (2,))
+
+
+def test_region_tile_rejects_invalid_counts_and_basis_space():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    region = (lattice.at("r", (0, 0)),)
+    wrong_space_basis = (
+        Offset(
+            rep=ImmutableDenseMatrix([1, 0]),
+            space=AffineSpace(ImmutableDenseMatrix.eye(2)),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="same length"):
+        region_tile(region, (lattice.at("r", (1, 0)),), counts=(1, 2))
+
+    with pytest.raises(ValueError, match="non-negative"):
+        region_tile(region, (lattice.at("r", (1, 0)),), counts=(-1,))
+
+    with pytest.raises(TypeError, match="same space as the region"):
+        region_tile(region, wrong_space_basis, counts=(1,))

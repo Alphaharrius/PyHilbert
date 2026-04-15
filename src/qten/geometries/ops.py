@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from itertools import combinations, product
+from typing import cast
 
 import numpy as np
 import sympy as sy
@@ -196,6 +197,97 @@ def center_of_region(region: tuple[OffsetType, ...]) -> OffsetType:
         total += point.rep
 
     return point_type(rep=ImmutableDenseMatrix(total / len(region)), space=first.space)
+
+
+def region_tile(
+    region: tuple[OffsetType, ...],
+    bases: tuple[OffsetType, ...],
+    counts: tuple[int, ...],
+) -> tuple[OffsetType, ...]:
+    """
+    Tile a region by integer combinations of the supplied translation bases.
+
+    The returned region contains translations of every point in `region` by
+    offsets
+
+    .. math::
+
+        \\sum_i n_i b_i, \\qquad 0 \\le n_i < \\mathrm{counts}[i],
+
+    where `b_i` are the entries of `bases`.
+
+    Parameters
+    ----------
+    `region` : `tuple[Offset, ...] | tuple[Momentum, ...]`
+        Region to translate. All entries must share the same concrete type and
+        affine space.
+    `bases` : `tuple[Offset, ...] | tuple[Momentum, ...]`
+        Translation basis vectors. All entries must share the same concrete
+        type and affine space as the region entries.
+    `counts` : `tuple[int, ...]`
+        Number of repetitions along each translation basis. Each entry must be
+        non-negative.
+
+    Returns
+    -------
+    `tuple[Offset, ...] | tuple[Momentum, ...]`
+        Deduplicated tiled region, ordered by the point ordering.
+
+    Raises
+    ------
+    `TypeError`
+        If region or basis entries do not all share the same concrete type and
+        space.
+    `ValueError`
+        If `counts` has the wrong length or contains negative entries.
+    """
+    if len(region) == 0:
+        return ()
+
+    if len(bases) != len(counts):
+        raise ValueError(
+            f"bases and counts must have the same length, got {len(bases)} and {len(counts)}."
+        )
+    if any(count < 0 for count in counts):
+        raise ValueError(f"counts must be non-negative, got {counts}.")
+    if any(count == 0 for count in counts):
+        return ()
+
+    first = region[0]
+    point_type = type(first)
+
+    for point in region[1:]:
+        if type(point) is not point_type:
+            raise TypeError("region entries must all have the same concrete type.")
+        if point.space != first.space:
+            raise TypeError("region entries must all belong to the same space.")
+
+    for basis in bases:
+        if type(basis) is not point_type:
+            raise TypeError(
+                "basis entries must all have the same concrete type as the region entries."
+            )
+        if basis.space != first.space:
+            raise TypeError(
+                "basis entries must all belong to the same space as the region entries."
+            )
+
+    tiled: dict[OffsetType, None] = {}
+    for coefficients in product(*(range(count) for count in counts)):
+        translation_rep = sum(
+            (
+                coefficient * basis.rep
+                for coefficient, basis in zip(coefficients, bases)
+            ),
+            ImmutableDenseMatrix.zeros(first.dim, 1),
+        )
+        translation = point_type(
+            rep=ImmutableDenseMatrix(translation_rep), space=first.space
+        )
+        for point in region:
+            tiled[cast(OffsetType, point + translation)] = None
+
+    return tuple(sorted(tiled))
 
 
 def _circumcenter(points: np.ndarray) -> np.ndarray | None:

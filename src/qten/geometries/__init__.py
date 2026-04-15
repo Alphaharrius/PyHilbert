@@ -16,4 +16,5 @@ from .ops import (
     center_of_region as center_of_region,
     interstitial_centers as interstitial_centers,
     nearest_sites as nearest_sites,
+    region_tile as region_tile,
 )
