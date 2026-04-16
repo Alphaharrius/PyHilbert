@@ -232,28 +232,30 @@ def get_strip_region_2d(
 
     This helper is defined only for 2D lattices.
 
-    Let `r_0` be the supplied `origin` (or the lattice origin when omitted),
-    `d` be the primitive integer version of `direction`, and let
-    `n = (-d_y, d_x)` be the integer normal. `side="lhs"` grows toward
-    positive `n` and `side="rhs"` grows toward negative `n`. A lattice site
-    belongs to the strip when some periodic image of that site satisfies
+    Let `r0` be the supplied `origin` (or the lattice origin when omitted).
+    Let `(dx, dy)` be the supplied direction coordinates. Let
+    `p = (px, py)` be the associated primitive integer direction, and let
+    `n = (-py, px)` be the primitive integer normal. `side="lhs"` grows
+    toward positive `n` and `side="rhs"` grows toward negative `n`.
 
-    .. math::
+    A lattice site belongs to the strip when some periodic image of that site
+    satisfies both of the following:
 
-        \\mathrm{trim\\_step} \\, d \\cdot d \\le d \\cdot (r - r_0) \\le
-        (\\mathrm{length\\_step} - 1) \\, d \\cdot d
-
-    and
-
-    .. math::
-
-        0 \\le s \\, n \\cdot (r - r_0) \\le \\mathrm{width\\_step} - 1,
+    - Longitudinal bound:
+      `trim_step * (dx**2 + dy**2) <= dx * (rx - r0x) + dy * (ry - r0y) <= (length_step - 1) * (dx**2 + dy**2)`
+    - Transverse bound:
+      `0 <= s * (-py * (rx - r0x) + px * (ry - r0y)) <= width_step - 1`
 
     where `s = 1` for `"lhs"` and `s = -1` for `"rhs"`.
 
-    `width_step` counts the true transverse shell thickness including the main
-    axis row. `trim_step` is a tail trimmer only: it advances the strip start
-    along the longitudinal axis without affecting the transverse width.
+    For integer directions, `(dx, dy) = (px, py)`. For rational directions,
+    longitudinal shell spacing is computed from the supplied direction
+    `(dx, dy)`, while transverse shelling is computed from the primitive
+    integer direction `p`.
+
+    `width_step` counts the transverse shell thickness including the main axis
+    row. `trim_step` is a tail trimmer only: it advances the strip start along
+    the longitudinal axis without affecting the transverse width.
 
     Parameters
     ----------
