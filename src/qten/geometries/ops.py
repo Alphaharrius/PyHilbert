@@ -27,15 +27,6 @@ def _cutoff_from_sites(
     return None
 
 
-def _extended_gcd(a: int, b: int) -> tuple[int, int, int]:
-    if b == 0:
-        sign = 1 if a >= 0 else -1
-        return sign, 0, abs(a)
-
-    x1, y1, g = _extended_gcd(b, a % b)
-    return y1, x1 - (a // b) * y1, g
-
-
 def _primitive_integer_direction(
     direction: Offset[Lattice],
 ) -> tuple[Lattice, int, int]:
@@ -93,78 +84,6 @@ def _strip_direction_data(
     px = integer_coords[0] // g
     py = integer_coords[1] // g
     return lattice, float(coords[0]), float(coords[1]), px, py
-
-
-def _cluster_levels(
-    values: np.ndarray, *, atol: float = 1e-9
-) -> tuple[list[float], list[int]]:
-    if values.size == 0:
-        return [], []
-
-    order = np.argsort(values)
-    levels: list[float] = []
-    assignments = [0] * len(values)
-    current_level = float(values[order[0]])
-    current_members = [current_level]
-    current_index = 0
-    levels.append(current_level)
-    assignments[int(order[0])] = current_index
-
-    for raw_idx in order[1:]:
-        value = float(values[raw_idx])
-        if math.isclose(value, current_level, rel_tol=atol, abs_tol=atol):
-            current_members.append(value)
-            current_level = sum(current_members) / len(current_members)
-            levels[current_index] = current_level
-            assignments[int(raw_idx)] = current_index
-            continue
-
-        current_index += 1
-        current_level = value
-        current_members = [value]
-        levels.append(current_level)
-        assignments[int(raw_idx)] = current_index
-
-    return levels, assignments
-
-
-def _nearest_periodic_strip_projections(
-    lattice: Lattice,
-    sites: tuple[Offset[Lattice], ...],
-    direction_cart: np.ndarray,
-    orthogonal_cart: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    boundary_basis = np.array(lattice.boundaries.basis.tolist(), dtype=int)
-    image_shifts = [
-        boundary_basis @ np.array(shift, dtype=int)
-        for shift in product((-1, 0, 1), repeat=lattice.dim)
-    ]
-
-    longitudinal = np.empty(len(sites), dtype=float)
-    transverse = np.empty(len(sites), dtype=float)
-    for i, site in enumerate(sites):
-        base_rep = np.array(site.rep, dtype=float).reshape(-1)
-        best_key: tuple[float, float, float] | None = None
-        best_longitudinal = 0.0
-        best_transverse = 0.0
-        for shift in image_shifts:
-            image_rep = base_rep + shift
-            image_cart = np.array(lattice.basis.evalf(), dtype=float) @ image_rep
-            signed_transverse = float(image_cart @ orthogonal_cart)
-            signed_longitudinal = float(image_cart @ direction_cart)
-            key = (
-                abs(signed_transverse),
-                abs(signed_longitudinal),
-                signed_longitudinal,
-            )
-            if best_key is None or key < best_key:
-                best_key = key
-                best_longitudinal = signed_longitudinal
-                best_transverse = signed_transverse
-        longitudinal[i] = best_longitudinal
-        transverse[i] = best_transverse
-
-    return longitudinal, transverse
 
 
 def nearest_sites(
