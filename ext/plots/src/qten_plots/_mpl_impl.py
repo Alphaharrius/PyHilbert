@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Union, Any, cast, Tuple, Sequence
+from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.state_space import (
@@ -28,11 +29,47 @@ from .plottables import PointCloud
 
 
 def _pointcloud_coords(obj: PointCloud) -> torch.Tensor:
-    if not obj.offsets:
+    ordered_offsets = tuple(sorted(obj.offsets))
+    if not ordered_offsets:
         return torch.empty((0, 0), dtype=torch.float64)
 
-    coords = np.stack([offset.to_vec(np.ndarray) for offset in obj.offsets])
+    coords = np.stack([offset.to_vec(np.ndarray) for offset in ordered_offsets])
     return torch.tensor(coords, dtype=torch.float64)
+
+
+def _minimal_periodic_highlight_groups(
+    lattice: Lattice, cloud: PointCloud
+) -> list[np.ndarray]:
+    ordered_offsets = tuple(sorted(cloud.offsets))
+    if len(ordered_offsets) <= 1:
+        return []
+
+    reps = np.stack(
+        [
+            np.array(offset.rebase(lattice.affine).rep.evalf(), dtype=float).reshape(-1)
+            for offset in ordered_offsets
+        ]
+    )
+    cart = np.stack([offset.to_vec(np.ndarray) for offset in ordered_offsets])
+    boundary_basis = np.array(lattice.boundaries.basis.evalf(), dtype=float)
+    boundary_basis_inv = np.linalg.inv(boundary_basis)
+    lattice_basis = np.array(lattice.basis.evalf(), dtype=float)
+
+    anchor = reps[0]
+    grouped: dict[tuple[float, ...], list[np.ndarray]] = {}
+    for rep, cart_point in zip(reps, cart):
+        diff = rep - anchor
+        coeffs = diff @ boundary_basis_inv.T
+        wrapped_coeffs = coeffs - np.round(coeffs)
+        unwrapped_rep = anchor + wrapped_coeffs @ boundary_basis.T
+        shift_rep = unwrapped_rep - rep
+        if np.allclose(shift_rep, 0.0, atol=1e-10):
+            continue
+        shift_cart = shift_rep @ lattice_basis.T
+        shift_key = tuple(np.round(shift_cart, 12))
+        grouped.setdefault(shift_key, []).append(cart_point + shift_cart)
+
+    return [np.stack(points) for points in grouped.values()]
 
 
 def _complex_phase_colors(values: np.ndarray) -> list[tuple[float, float, float]]:
@@ -66,6 +103,7 @@ def plot_structure_mpl(
     color_by: str = "basis",
     highlights: Sequence[PointCloud] | None = None,
     use_lattice_coords: bool = False,
+    periodic_image_opacity: float = 0.5,
     **kwargs,
 ) -> plt.Figure:
     """
@@ -105,6 +143,10 @@ def plot_structure_mpl(
     valid_color_by = ["basis", "unit_cell"]
     if color_by not in valid_color_by:
         raise ValueError(f"Invalid color_by '{color_by}'. Options: {valid_color_by}")
+    if not (0.0 <= periodic_image_opacity <= 1.0):
+        raise ValueError(
+            f"periodic_image_opacity must lie in [0, 1], got {periodic_image_opacity}."
+        )
 
     coords = obj.cartes(torch.Tensor)
     coords_np = coords.numpy()
@@ -205,6 +247,20 @@ def plot_structure_mpl(
                     linewidths=trace_linewidth,
                     label=trace_label,
                 )
+                if isinstance(obj.boundaries, PeriodicBoundary):
+                    for ghost_points in _minimal_periodic_highlight_groups(obj, cloud):
+                        cast(Any, ax).scatter(
+                            ghost_points[:, 0],
+                            ghost_points[:, 1],
+                            ghost_points[:, 2],
+                            c=[trace_color],
+                            s=trace_size,
+                            marker=trace_marker,
+                            alpha=periodic_image_opacity,
+                            edgecolors=trace_edgecolor,
+                            linewidths=trace_linewidth,
+                            label="_nolegend_",
+                        )
             else:
                 ax.scatter(
                     x_group,
@@ -218,6 +274,20 @@ def plot_structure_mpl(
                     zorder=6,
                     label=trace_label,
                 )
+                if isinstance(obj.boundaries, PeriodicBoundary):
+                    for ghost_points in _minimal_periodic_highlight_groups(obj, cloud):
+                        ax.scatter(
+                            ghost_points[:, 0],
+                            ghost_points[:, 1],
+                            c=[trace_color],
+                            s=trace_size,
+                            marker=trace_marker,
+                            alpha=periodic_image_opacity,
+                            edgecolors=trace_edgecolor,
+                            linewidths=trace_linewidth,
+                            zorder=5.5,
+                            label="_nolegend_",
+                        )
 
     # Spins
     if spin_data is not None:

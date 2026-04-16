@@ -467,6 +467,91 @@ def test_plot_structure_hover_can_use_lattice_coords():
     assert "(1/2, 0)" == basis_b_trace.text[0]
 
 
+def test_plot_structure_can_show_dim_periodic_images_for_highlights():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0)),
+                    lattice.at(cell_offset=(3, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    assert isinstance(fig, go.Figure)
+    ghost_highlight_traces = [
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity == pytest.approx(0.2)
+    ]
+    assert len(ghost_highlight_traces) == 1
+    main_highlight = next(
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity != pytest.approx(0.2)
+    )
+    assert fig.layout.legend.groupclick == "togglegroup"
+    assert ghost_highlight_traces[0].legendgroup == main_highlight.legendgroup
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].x), np.array([-1.0]))
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].y), np.array([0.0]))
+    assert all(trace.hoverinfo == "skip" for trace in ghost_highlight_traces)
+
+
+def test_plot_structure_can_show_dim_periodic_images_for_highlights_3d():
+    basis = sy.ImmutableDenseMatrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0, 0)),
+                    lattice.at(cell_offset=(3, 0, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    assert isinstance(fig, go.Figure)
+    ghost_highlight_traces = [
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity == pytest.approx(0.2)
+    ]
+    assert len(ghost_highlight_traces) == 1
+    main_highlight = next(
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity != pytest.approx(0.2)
+    )
+    assert fig.layout.legend.groupclick == "togglegroup"
+    assert ghost_highlight_traces[0].legendgroup == main_highlight.legendgroup
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].x), np.array([-1.0]))
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].y), np.array([0.0]))
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].z), np.array([0.0]))
+    assert all(trace.hoverinfo == "skip" for trace in ghost_highlight_traces)
+
+
 def test_pointcloud_scatter_hover_can_use_lattice_coords():
     basis = sy.ImmutableDenseMatrix([[2, 0], [0, 1]])
     lattice = Lattice(
@@ -511,6 +596,78 @@ def test_pointcloud_scatter_matplotlib_interprets_size_as_linear_extent():
     collection = ax.collections[0]
 
     assert collection.get_sizes().tolist() == [25]
+
+
+def test_plot_structure_matplotlib_shows_dim_periodic_images_for_highlights():
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        backend="matplotlib",
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0)),
+                    lattice.at(cell_offset=(3, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    ax = fig.axes[0]
+    assert len(ax.collections) >= 3
+    ghost = ax.collections[-1]
+    offsets = ghost.get_offsets()
+    assert np.allclose(offsets, np.array([[-1.0, 0.0]]))
+    assert ghost.get_alpha() == pytest.approx(0.2)
+
+
+def test_plot_structure_matplotlib_shows_dim_periodic_images_for_highlights_3d():
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    basis = sy.ImmutableDenseMatrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        backend="matplotlib",
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0, 0)),
+                    lattice.at(cell_offset=(3, 0, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    ax = fig.axes[0]
+    assert len(ax.collections) >= 3
+    ghost = ax.collections[-1]
+    xg, yg, zg = ghost._offsets3d
+    assert np.allclose(np.asarray(xg), np.array([-1.0]))
+    assert np.allclose(np.asarray(yg), np.array([0.0]))
+    assert np.allclose(np.asarray(zg), np.array([0.0]))
+    assert ghost.get_alpha() == pytest.approx(0.2)
 
 
 def test_plot_column_scatter_hover_can_use_lattice_coords():
