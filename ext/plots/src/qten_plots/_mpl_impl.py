@@ -21,6 +21,7 @@ from ._utils import (
     interpolate_path_on_grid,
     pointcloud_marker_for_mpl,
     pointcloud_size_for_mpl,
+    unwrap_periodic_offsets,
 )
 from .plottables import PointCloud
 
@@ -680,6 +681,7 @@ def plot_tensor_column_scatter_mpl(
     default_size: float = 16.0,
     ncols: int = 3,
     use_lattice_coords: bool = False,
+    unwrap_periodic: bool = True,
     **kwargs,
 ) -> plt.Figure:
     if obj.rank() != 2:
@@ -714,8 +716,17 @@ def plot_tensor_column_scatter_mpl(
 
     row_offsets = [basis.irrep_of(Offset) for basis in row_basis]
     if row_offsets:
-        coords = np.stack(
-            [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+        plot_coords = (
+            unwrap_periodic_offsets(row_offsets, use_lattice_coords=False)
+            if unwrap_periodic
+            else None
+        )
+        coords = (
+            plot_coords
+            if plot_coords is not None
+            else np.stack(
+                [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+            )
         )
         spatial_dim = coords.shape[1]
     else:

@@ -20,6 +20,7 @@ from ._utils import (
     compute_bonds,
     interpolate_path_on_grid,
     pointcloud_marker_for_plotly,
+    unwrap_periodic_offsets,
 )
 from .plottables import PointCloud
 
@@ -654,6 +655,7 @@ def plot_tensor_scatter(
     default_size: float = 16.0,
     ncols: int = 3,
     use_lattice_coords: bool = False,
+    unwrap_periodic: bool = True,
     **kwargs,
 ) -> go.Figure:
     """
@@ -693,17 +695,49 @@ def plot_tensor_scatter(
             ) from exc
 
     row_offsets = [basis.irrep_of(Offset) for basis in row_basis]
-    coord_lines = [
-        _offset_hover_line(offset, use_lattice_coords=use_lattice_coords)
-        for offset in row_offsets
-    ]
     if row_offsets:
-        coords = np.stack(
-            [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+        plot_coords = (
+            unwrap_periodic_offsets(row_offsets, use_lattice_coords=False)
+            if unwrap_periodic
+            else None
         )
+        coords = (
+            plot_coords
+            if plot_coords is not None
+            else np.stack(
+                [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+            )
+        )
+        hover_coords = (
+            unwrap_periodic_offsets(row_offsets, use_lattice_coords=True)
+            if unwrap_periodic and use_lattice_coords
+            else (
+                plot_coords
+                if plot_coords is not None
+                else np.stack(
+                    [
+                        (
+                            np.array(offset.rep.evalf(), dtype=float).reshape(-1)
+                            if use_lattice_coords
+                            else offset.to_vec(np.ndarray).reshape(-1)
+                        )
+                        for offset in row_offsets
+                    ]
+                )
+            )
+        )
+        coord_lines = [
+            (
+                _format_symbolic_coord_vector(tuple(hover_coords[i]))
+                if use_lattice_coords
+                else _format_coord_vector(tuple(hover_coords[i]))
+            )
+            for i in range(len(row_offsets))
+        ]
         spatial_dim = coords.shape[1]
     else:
         coords = np.empty((0, 0), dtype=float)
+        coord_lines = []
         spatial_dim = 0
     if spatial_dim not in (1, 2, 3):
         raise ValueError(

@@ -705,6 +705,45 @@ def test_plot_column_scatter_hover_can_use_lattice_coords():
     assert "(1/2, 0)" in fig.data[0].text[0]
 
 
+def test_plot_column_scatter_can_unwrap_periodic_display_coordinates():
+    basis = sy.ImmutableDenseMatrix([[2, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    row_space = HilbertSpace.new(
+        [
+            U1Basis.new(Offset(rep=sy.ImmutableDenseMatrix([[0], [0]]), space=lattice)),
+            U1Basis.new(Offset(rep=sy.ImmutableDenseMatrix([[3], [3]]), space=lattice)),
+        ]
+    )
+    col_space = IndexSpace.linear(1)
+    tensor = Tensor(
+        data=torch.tensor([[1.0 + 0.0j], [0.5 + 0.5j]], dtype=torch.complex128),
+        dims=(row_space, col_space),
+    )
+
+    fig = tensor.plot("column_scatter", show=False, unwrap_periodic=True)
+
+    assert isinstance(fig, go.Figure)
+    assert list(fig.data[0].x) == [0.0, -2.0]
+    assert list(fig.data[0].y) == [0.0, -1.0]
+
+    fig_lattice = tensor.plot(
+        "column_scatter",
+        show=False,
+        use_lattice_coords=True,
+        unwrap_periodic=True,
+    )
+
+    assert list(fig_lattice.data[0].x) == [0.0, -2.0]
+    assert list(fig_lattice.data[0].y) == [0.0, -1.0]
+    assert "(0, 0)" in fig_lattice.data[0].text[0]
+    assert "(-1, -1)" in fig_lattice.data[0].text[1]
+
+
 def test_bandstructure_plot():
     h_k = _make_square_lattice_band_tensor((4, 4))
 

@@ -1,10 +1,11 @@
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 from scipy.spatial import cKDTree
 
-from qten.geometries.spatials import ReciprocalLattice
+from qten.geometries.boundary import PeriodicBoundary
+from qten.geometries.spatials import Lattice, Offset, ReciprocalLattice
 from qten.symbolics.state_space import BzPath, MomentumSpace, brillouin_zone
 
 
@@ -121,6 +122,65 @@ def compute_bonds(
     z_lines = flat[:, 2] if dim == 3 and n_cols >= 3 else None
 
     return x_lines, y_lines, z_lines
+
+
+def unwrap_periodic_offsets(
+    offsets: Sequence[Offset], *, use_lattice_coords: bool = False
+) -> np.ndarray:
+    """
+    Return display coordinates for offsets with an optional periodic unwrapping step.
+
+    For lattice offsets, the stored representatives are canonical wrapped images.
+    This helper chooses a nearby branch in boundary coordinates so plotting can
+    show a spatially continuous cluster, while leaving the underlying offsets
+    unchanged.
+    """
+    if len(offsets) == 0:
+        return np.empty((0, 0), dtype=float)
+
+    first_space = offsets[0].space
+    if not all(offset.space == first_space for offset in offsets):
+        raise ValueError("All offsets must belong to the same space to unwrap.")
+
+    if not (
+        isinstance(first_space, Lattice)
+        and isinstance(first_space.boundaries, PeriodicBoundary)
+    ):
+        if use_lattice_coords:
+            return np.stack(
+                [
+                    np.array(offset.rep.evalf(), dtype=float).reshape(-1)
+                    for offset in offsets
+                ]
+            )
+        return np.stack([offset.to_vec(np.ndarray).reshape(-1) for offset in offsets])
+
+    lattice = first_space
+    reps = np.stack(
+        [
+            np.array(offset.rebase(lattice.affine).rep.evalf(), dtype=float).reshape(-1)
+            for offset in offsets
+        ]
+    )
+    boundary_basis = np.array(lattice.boundaries.basis.evalf(), dtype=float)
+    boundary_basis_inv = np.linalg.inv(boundary_basis)
+
+    coeffs = reps @ boundary_basis_inv.T
+    angles = 2.0 * np.pi * coeffs
+    mean_angles = np.arctan2(np.sin(angles).mean(axis=0), np.cos(angles).mean(axis=0))
+    centers = (mean_angles / (2.0 * np.pi)) % 1.0
+
+    centered = coeffs - centers
+    centered -= np.round(centered)
+    unwrapped_coeffs = centers + centered
+    unwrapped_coeffs -= np.round(unwrapped_coeffs.mean(axis=0))
+    unwrapped_reps = unwrapped_coeffs @ boundary_basis.T
+
+    if use_lattice_coords:
+        return unwrapped_reps
+
+    lattice_basis = np.array(lattice.basis.evalf(), dtype=float)
+    return unwrapped_reps @ lattice_basis.T
 
 
 def analyze_bandstructure_sampling(
