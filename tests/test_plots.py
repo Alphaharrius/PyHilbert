@@ -320,6 +320,430 @@ def test_pointcloud_scatter_plot():
     assert len(fig.data) == 1
 
 
+def test_pointcloud_scatter_uses_marker_opacity_size_and_border():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0)), lattice.at(cell_offset=(1, 0))],
+        color="#00aa88",
+        marker="square",
+        opacity=0.4,
+        size=17,
+        border_color="#112233",
+        border_width=2.5,
+    )
+
+    fig = cloud.plot("scatter", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].marker.symbol == "square"
+    assert fig.data[0].marker.opacity == 0.4
+    assert fig.data[0].marker.size == 17
+    assert fig.data[0].marker.line.color == "#112233"
+    assert fig.data[0].marker.line.width == 2.5
+
+
+def test_pointcloud_scatter_uses_custom_name_for_legend():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0))],
+        name="My Region",
+    )
+
+    fig = cloud.plot("scatter", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].name == "My Region"
+
+
+def test_pointcloud_scatter_normalizes_shared_marker_aliases():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0))],
+        marker="s",
+    )
+
+    fig = cloud.plot("scatter", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].marker.symbol == "square"
+
+
+def test_pointcloud_rejects_unsupported_marker_name():
+    basis = sy.ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0])},
+    )
+
+    with pytest.raises(ValueError, match="Unsupported PointCloud marker"):
+        PointCloud.of([lattice.at(cell_offset=(0,))], marker="triangle")
+
+
+def test_plot_structure_highlights_use_pointcloud_marker_opacity_size_and_border():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(3, 3)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[
+            PointCloud.of(
+                [lattice.at(cell_offset=(0, 0))],
+                color="#ff0000",
+                marker="square",
+                opacity=0.25,
+                size=21,
+                border_color="#223344",
+                border_width=3,
+            )
+        ],
+    )
+
+    assert isinstance(fig, go.Figure)
+    highlight = fig.data[-1]
+    assert highlight.marker.symbol == "square"
+    assert highlight.marker.opacity == 0.25
+    assert highlight.marker.size == 21
+    assert highlight.marker.line.color == "#223344"
+    assert highlight.marker.line.width == 3
+
+
+def test_plot_structure_highlights_use_pointcloud_name_for_legend():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(3, 3)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[PointCloud.of([lattice.at(cell_offset=(0, 0))], name="Edge Sites")],
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[-1].name == "Edge Sites"
+
+
+def test_plot_structure_hover_can_use_lattice_coords():
+    basis = sy.ImmutableDenseMatrix([[2, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 1)),
+        unit_cell=OrderedDict(
+            [
+                ("a", sy.ImmutableDenseMatrix([0, 0])),
+                ("b", sy.ImmutableDenseMatrix([sy.Rational(1, 2), 0])),
+            ]
+        ),
+    )
+
+    fig = lattice.plot("structure", show=False, use_lattice_coords=True)
+
+    assert isinstance(fig, go.Figure)
+    basis_b_trace = next(trace for trace in fig.data if trace.name == "Basis 1")
+    assert basis_b_trace.hovertemplate == "%{text}<extra></extra>"
+    assert "(1/2, 0)" == basis_b_trace.text[0]
+
+
+def test_plot_structure_can_show_dim_periodic_images_for_highlights():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0)),
+                    lattice.at(cell_offset=(3, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    assert isinstance(fig, go.Figure)
+    ghost_highlight_traces = [
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity == pytest.approx(0.2)
+    ]
+    assert len(ghost_highlight_traces) == 1
+    main_highlight = next(
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity != pytest.approx(0.2)
+    )
+    assert fig.layout.legend.groupclick == "togglegroup"
+    assert ghost_highlight_traces[0].legendgroup == main_highlight.legendgroup
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].x), np.array([-1.0]))
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].y), np.array([0.0]))
+    assert all(trace.hoverinfo == "skip" for trace in ghost_highlight_traces)
+
+
+def test_plot_structure_can_show_dim_periodic_images_for_highlights_3d():
+    basis = sy.ImmutableDenseMatrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        show=False,
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0, 0)),
+                    lattice.at(cell_offset=(3, 0, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    assert isinstance(fig, go.Figure)
+    ghost_highlight_traces = [
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity == pytest.approx(0.2)
+    ]
+    assert len(ghost_highlight_traces) == 1
+    main_highlight = next(
+        trace
+        for trace in fig.data
+        if trace.name == "Edge Sites" and trace.marker.opacity != pytest.approx(0.2)
+    )
+    assert fig.layout.legend.groupclick == "togglegroup"
+    assert ghost_highlight_traces[0].legendgroup == main_highlight.legendgroup
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].x), np.array([-1.0]))
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].y), np.array([0.0]))
+    assert np.allclose(np.asarray(ghost_highlight_traces[0].z), np.array([0.0]))
+    assert all(trace.hoverinfo == "skip" for trace in ghost_highlight_traces)
+
+
+def test_pointcloud_scatter_hover_can_use_lattice_coords():
+    basis = sy.ImmutableDenseMatrix([[2, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [
+            Offset(
+                rep=sy.ImmutableDenseMatrix([sy.Rational(1, 2), 0]),
+                space=lattice.affine,
+            )
+        ]
+    )
+
+    fig = cloud.plot("scatter", show=False, use_lattice_coords=True)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].hovertemplate == "%{text}<extra></extra>"
+    assert "(1/2, 0)" == fig.data[0].text[0]
+
+
+def test_pointcloud_scatter_matplotlib_interprets_size_as_linear_extent():
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    cloud = PointCloud.of(
+        [lattice.at(cell_offset=(0, 0))],
+        size=5,
+    )
+
+    fig = cloud.plot("scatter", backend="matplotlib")
+    ax = fig.axes[0]
+    collection = ax.collections[0]
+
+    assert collection.get_sizes().tolist() == [25]
+
+
+def test_plot_structure_matplotlib_shows_dim_periodic_images_for_highlights():
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        backend="matplotlib",
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0)),
+                    lattice.at(cell_offset=(3, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    ax = fig.axes[0]
+    assert len(ax.collections) >= 3
+    ghost = ax.collections[-1]
+    offsets = ghost.get_offsets()
+    assert np.allclose(offsets, np.array([[-1.0, 0.0]]))
+    assert ghost.get_alpha() == pytest.approx(0.2)
+
+
+def test_plot_structure_matplotlib_shows_dim_periodic_images_for_highlights_3d():
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    basis = sy.ImmutableDenseMatrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 1, 1)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0, 0])},
+    )
+
+    fig = lattice.plot(
+        "structure",
+        backend="matplotlib",
+        highlights=[
+            PointCloud.of(
+                [
+                    lattice.at(cell_offset=(0, 0, 0)),
+                    lattice.at(cell_offset=(3, 0, 0)),
+                ],
+                name="Edge Sites",
+            )
+        ],
+        periodic_image_opacity=0.2,
+    )
+
+    ax = fig.axes[0]
+    assert len(ax.collections) >= 3
+    ghost = ax.collections[-1]
+    xg, yg, zg = ghost._offsets3d
+    assert np.allclose(np.asarray(xg), np.array([-1.0]))
+    assert np.allclose(np.asarray(yg), np.array([0.0]))
+    assert np.allclose(np.asarray(zg), np.array([0.0]))
+    assert ghost.get_alpha() == pytest.approx(0.2)
+
+
+def test_plot_column_scatter_hover_can_use_lattice_coords():
+    basis = sy.ImmutableDenseMatrix([[2, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    row_space = HilbertSpace.new(
+        [
+            U1Basis.new(
+                Offset(
+                    rep=sy.ImmutableDenseMatrix([[sy.Rational(1, 2)], [0]]),
+                    space=lattice.affine,
+                )
+            ),
+            U1Basis.new(
+                Offset(rep=sy.ImmutableDenseMatrix([[1], [0]]), space=lattice.affine)
+            ),
+        ]
+    )
+    col_space = IndexSpace.linear(1)
+    tensor = Tensor(
+        data=torch.tensor([[1.0 + 0.0j], [0.5 + 0.5j]], dtype=torch.complex128),
+        dims=(row_space, col_space),
+    )
+
+    fig = tensor.plot("column_scatter", show=False, use_lattice_coords=True)
+
+    assert isinstance(fig, go.Figure)
+    assert fig.data[0].hovertemplate == "%{text}<extra></extra>"
+    assert "|value|=1" in fig.data[0].text[0]
+    assert "(1/2, 0)" in fig.data[0].text[0]
+
+
+def test_plot_column_scatter_can_unwrap_periodic_display_coordinates():
+    basis = sy.ImmutableDenseMatrix([[2, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    row_space = HilbertSpace.new(
+        [
+            U1Basis.new(Offset(rep=sy.ImmutableDenseMatrix([[0], [0]]), space=lattice)),
+            U1Basis.new(Offset(rep=sy.ImmutableDenseMatrix([[3], [3]]), space=lattice)),
+        ]
+    )
+    col_space = IndexSpace.linear(1)
+    tensor = Tensor(
+        data=torch.tensor([[1.0 + 0.0j], [0.5 + 0.5j]], dtype=torch.complex128),
+        dims=(row_space, col_space),
+    )
+
+    fig = tensor.plot("column_scatter", show=False, unwrap_periodic=True)
+
+    assert isinstance(fig, go.Figure)
+    assert list(fig.data[0].x) == [0.0, -2.0]
+    assert list(fig.data[0].y) == [0.0, -1.0]
+
+    fig_lattice = tensor.plot(
+        "column_scatter",
+        show=False,
+        use_lattice_coords=True,
+        unwrap_periodic=True,
+    )
+
+    assert list(fig_lattice.data[0].x) == [0.0, -2.0]
+    assert list(fig_lattice.data[0].y) == [0.0, -1.0]
+    assert "(0, 0)" in fig_lattice.data[0].text[0]
+    assert "(-1, -1)" in fig_lattice.data[0].text[1]
+
+
 def test_bandstructure_plot():
     h_k = _make_square_lattice_band_tensor((4, 4))
 

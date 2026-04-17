@@ -6,8 +6,10 @@ import torch
 import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
+import sympy as sy
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
+from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
@@ -17,16 +19,94 @@ from ._utils import (
     band_path_positions,
     compute_bonds,
     interpolate_path_on_grid,
+    pointcloud_marker_for_plotly,
+    unwrap_periodic_offsets,
 )
 from .plottables import PointCloud
 
 
+def _format_coord_vector(coords: Sequence[float]) -> str:
+    return "(" + ", ".join(f"{float(value):.6g}" for value in coords) + ")"
+
+
+def _format_symbolic_coord_vector(coords: Sequence[object]) -> str:
+    return (
+        "(" + ", ".join(str(sy.nsimplify(sy.sympify(value))) for value in coords) + ")"
+    )
+
+
+def _offset_hover_line(offset: Offset, *, use_lattice_coords: bool) -> str:
+    if use_lattice_coords:
+        return _format_symbolic_coord_vector(tuple(offset.rep))
+
+    coords = offset.to_vec(np.ndarray).reshape(-1)
+    return _format_coord_vector(coords)
+
+
 def _pointcloud_coords(obj: PointCloud) -> torch.Tensor:
-    if not obj.offsets:
+    ordered_offsets = tuple(sorted(obj.offsets))
+    if not ordered_offsets:
         return torch.empty((0, 0), dtype=torch.float64)
 
-    coords = np.stack([offset.to_vec(np.ndarray) for offset in obj.offsets])
+    coords = np.stack([offset.to_vec(np.ndarray) for offset in ordered_offsets])
     return torch.tensor(coords, dtype=torch.float64)
+
+
+def _pointcloud_hovertext(
+    obj: PointCloud, *, use_lattice_coords: bool
+) -> list[str] | None:
+    ordered_offsets = tuple(sorted(obj.offsets))
+    if not ordered_offsets:
+        return None
+    return [
+        _offset_hover_line(offset, use_lattice_coords=use_lattice_coords)
+        for offset in ordered_offsets
+    ]
+
+
+def _lattice_site_offsets(lattice: Lattice) -> tuple[Offset, ...]:
+    cell_reps = lattice.boundaries.representatives()
+    sorted_unit_cell = sorted(lattice.unit_cell.items(), key=lambda x: str(x[0]))
+    return tuple(
+        Offset(rep=cell_rep + site.rep, space=lattice)
+        for cell_rep in cell_reps
+        for _, site in sorted_unit_cell
+    )
+
+
+def _minimal_periodic_highlight_groups(
+    lattice: Lattice, cloud: PointCloud
+) -> list[np.ndarray]:
+    ordered_offsets = tuple(sorted(cloud.offsets))
+    if len(ordered_offsets) <= 1:
+        return []
+
+    reps = np.stack(
+        [
+            np.array(offset.rebase(lattice.affine).rep.evalf(), dtype=float).reshape(-1)
+            for offset in ordered_offsets
+        ]
+    )
+    cart = np.stack([offset.to_vec(np.ndarray) for offset in ordered_offsets])
+    boundary_basis = np.array(lattice.boundaries.basis.evalf(), dtype=float)
+    boundary_basis_inv = np.linalg.inv(boundary_basis)
+    lattice_basis = np.array(lattice.basis.evalf(), dtype=float)
+
+    anchor = reps[0]
+    grouped: dict[tuple[float, ...], list[np.ndarray]] = {}
+    for rep, cart_point in zip(reps, cart):
+        diff = rep - anchor
+        coeffs = diff @ boundary_basis_inv.T
+        wrapped_coeffs = coeffs - np.round(coeffs)
+        unwrapped_rep = anchor + wrapped_coeffs @ boundary_basis.T
+        shift_rep = unwrapped_rep - rep
+        if np.allclose(shift_rep, 0.0, atol=1e-10):
+            continue
+        shift_cart = shift_rep @ lattice_basis.T
+        shift_key = tuple(np.round(shift_cart, 12))
+        grouped.setdefault(shift_key, []).append(cart_point + shift_cart)
+
+    return [np.stack(points) for points in grouped.values()]
 
 
 def _complex_phase_colors(values: np.ndarray) -> list[str]:
@@ -61,6 +141,8 @@ def plot_structure(
     fig: Optional[go.Figure] = None,
     color_by: str = "basis",
     highlights: Sequence[PointCloud] | None = None,
+    use_lattice_coords: bool = False,
+    periodic_image_opacity: float = 0.5,
     **kwargs,
 ) -> go.Figure:
     """
@@ -98,9 +180,18 @@ def plot_structure(
     valid_color_by = ["basis", "unit_cell"]
     if color_by not in valid_color_by:
         raise ValueError(f"Invalid color_by '{color_by}'. Options: {valid_color_by}")
+    if not (0.0 <= periodic_image_opacity <= 1.0):
+        raise ValueError(
+            f"periodic_image_opacity must lie in [0, 1], got {periodic_image_opacity}."
+        )
 
     coords = obj.cartes(torch.Tensor)
     coords_np = coords.numpy()
+    site_offsets = _lattice_site_offsets(obj)
+    hovertext = [
+        _offset_hover_line(offset, use_lattice_coords=use_lattice_coords)
+        for offset in site_offsets
+    ]
 
     x = coords_np[:, 0]
     y = coords_np[:, 1]
@@ -111,7 +202,6 @@ def plot_structure(
 
     if fig is None:
         fig = go.Figure()
-
     # Bonds (Only for 'edge-and-node')
     if plot_type == "edge-and-node":
         x_lines, y_lines, z_lines = compute_bonds(coords, obj.dim)
@@ -123,6 +213,7 @@ def plot_structure(
                 line=dict(color="black", width=1 if is_3d else 2),
                 name="Bonds",
                 showlegend=False,
+                hoverinfo="skip",
             )
             if is_3d:
                 bond_kwargs["z"] = z_lines
@@ -151,6 +242,8 @@ def plot_structure(
                 mode="markers",
                 marker=dict(size=marker_size, color=basis_colors[b]),
                 name=f"Basis {b}",
+                text=[hovertext[i] for i in idx],
+                hovertemplate="%{text}<extra></extra>",
             )
             if is_3d:
                 scatter_kw["z"] = z[idx]  # type: ignore[index]
@@ -169,6 +262,8 @@ def plot_structure(
             mode="markers",
             marker=dict(size=marker_size, color=color_per_site.tolist()),
             name="Sites",
+            text=hovertext,
+            hovertemplate="%{text}<extra></extra>",
         )
         if is_3d:
             scatter_kw["z"] = z
@@ -238,6 +333,10 @@ def plot_structure(
                 continue
 
             trace_color = cloud.color or fallback_colors[idx]
+            trace_marker = pointcloud_marker_for_plotly(cloud.marker, default="diamond")
+            trace_size = cloud.size or (8 if is_3d else 13)
+            trace_name = cloud.name or f"Highlight {idx}"
+            legend_group = f"highlight-{idx}"
             highlight_np = highlight_coords.numpy()
             x_group = highlight_np[:, 0]
             y_group = highlight_np[:, 1]
@@ -246,21 +345,58 @@ def plot_structure(
                 y=y_group,
                 mode="markers",
                 marker=dict(
-                    size=8 if is_3d else 13,
+                    size=trace_size,
                     color=trace_color,
-                    symbol="diamond",
+                    symbol=trace_marker,
                 ),
-                name=f"Highlight {idx}",
+                name=trace_name,
+                legendgroup=legend_group,
+                text=_pointcloud_hovertext(
+                    cloud,
+                    use_lattice_coords=use_lattice_coords,
+                ),
+                hovertemplate="%{text}<extra></extra>",
             )
+            if cloud.opacity is not None:
+                hl_kw["marker"]["opacity"] = cloud.opacity
+            if cloud.border_color is not None or cloud.border_width is not None:
+                hl_kw["marker"]["line"] = {}
+                if cloud.border_color is not None:
+                    hl_kw["marker"]["line"]["color"] = cloud.border_color
+                if cloud.border_width is not None:
+                    hl_kw["marker"]["line"]["width"] = cloud.border_width
             if is_3d:
                 hl_kw["z"] = highlight_np[:, 2]
             fig.add_trace(_Scatter(**hl_kw))
+            if not isinstance(obj.boundaries, PeriodicBoundary):
+                continue
+            for ghost_points in _minimal_periodic_highlight_groups(obj, cloud):
+                ghost_hl_kw = dict(hl_kw)
+                ghost_hl_kw["x"] = ghost_points[:, 0]
+                ghost_hl_kw["y"] = ghost_points[:, 1]
+                ghost_hl_kw["showlegend"] = False
+                ghost_hl_kw["hoverinfo"] = "skip"
+                ghost_hl_kw.pop("text", None)
+                ghost_hl_kw.pop("hovertemplate", None)
+                ghost_hl_kw["legendgroup"] = legend_group
+                ghost_marker = dict(hl_kw["marker"])
+                ghost_marker["opacity"] = periodic_image_opacity
+                ghost_hl_kw["marker"] = ghost_marker
+                if is_3d:
+                    ghost_hl_kw["z"] = ghost_points[:, 2]
+                fig.add_trace(_Scatter(**ghost_hl_kw))
 
     if obj.dim == 3:
-        fig.update_layout(title="3D Lattice System", scene=dict(aspectmode="data"))
+        fig.update_layout(
+            title="3D Lattice System",
+            scene=dict(aspectmode="data"),
+            legend=dict(groupclick="togglegroup"),
+        )
     else:
         fig.update_layout(
-            title="2D Lattice System", yaxis=dict(scaleanchor="x", scaleratio=1)
+            title="2D Lattice System",
+            yaxis=dict(scaleanchor="x", scaleratio=1),
+            legend=dict(groupclick="togglegroup"),
         )
 
     if show:
@@ -273,6 +409,7 @@ def plot_pointcloud(
     obj: PointCloud,
     show: bool = True,
     fig: Optional[go.Figure] = None,
+    use_lattice_coords: bool = False,
     **kwargs,
 ) -> go.Figure:
     coords = _pointcloud_coords(obj)
@@ -284,28 +421,68 @@ def plot_pointcloud(
     coords_np = coords.numpy()
     if fig is None:
         fig = go.Figure()
+    hovertext = _pointcloud_hovertext(obj, use_lattice_coords=use_lattice_coords)
 
     trace_color = obj.color or kwargs.pop("color", "#d1495b")
+    trace_marker = pointcloud_marker_for_plotly(
+        obj.marker or kwargs.pop("marker", None),
+        default="circle" if coords.shape[1] == 2 else "circle",
+    )
+    trace_size = obj.size or kwargs.pop("size", 6 if coords.shape[1] == 3 else 10)
+    trace_border_color = obj.border_color or kwargs.pop("border_color", None)
+    trace_border_width = (
+        obj.border_width
+        if obj.border_width is not None
+        else kwargs.pop("border_width", None)
+    )
     if coords.shape[1] == 3:
+        marker = dict(size=trace_size, color=trace_color)
+        if trace_marker is not None:
+            marker["symbol"] = trace_marker
+        if obj.opacity is not None:
+            marker["opacity"] = obj.opacity
+        if trace_border_color is not None or trace_border_width is not None:
+            marker["line"] = {}
+            if trace_border_color is not None:
+                marker["line"]["color"] = trace_border_color
+            if trace_border_width is not None:
+                marker["line"]["width"] = trace_border_width
         fig.add_trace(
             go.Scatter3d(
                 x=coords_np[:, 0],
                 y=coords_np[:, 1],
                 z=coords_np[:, 2],
                 mode="markers",
-                marker=dict(size=6, color=trace_color),
-                name="PointCloud",
+                marker=marker,
+                name=obj.name or "PointCloud",
+                text=hovertext,
+                hovertemplate="%{text}<extra></extra>",
             )
         )
         fig.update_layout(title="3D Point Cloud", scene=dict(aspectmode="data"))
     else:
+        marker = dict(
+            size=trace_size,
+            color=trace_color,
+            symbol=trace_marker,
+        )
+        if obj.opacity is not None:
+            marker["opacity"] = obj.opacity
+        if trace_border_color is not None or trace_border_width is not None:
+            marker["line"] = {}
+            if trace_border_color is not None:
+                marker["line"]["color"] = trace_border_color
+            if trace_border_width is not None:
+                marker["line"]["width"] = trace_border_width
         fig.add_trace(
             go.Scatter(
                 x=coords_np[:, 0],
                 y=coords_np[:, 1],
                 mode="markers",
-                marker=dict(size=10, color=trace_color, symbol="circle"),
-                name="PointCloud",
+                marker=marker,
+                name=obj.name or "PointCloud",
+                text=hovertext,
+                hovertemplate="%{text}<extra></extra>",
             )
         )
         fig.update_layout(
@@ -477,6 +654,8 @@ def plot_tensor_scatter(
     show: bool = True,
     default_size: float = 16.0,
     ncols: int = 3,
+    use_lattice_coords: bool = False,
+    unwrap_periodic: bool = True,
     **kwargs,
 ) -> go.Figure:
     """
@@ -517,12 +696,48 @@ def plot_tensor_scatter(
 
     row_offsets = [basis.irrep_of(Offset) for basis in row_basis]
     if row_offsets:
-        coords = np.stack(
-            [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+        plot_coords = (
+            unwrap_periodic_offsets(row_offsets, use_lattice_coords=False)
+            if unwrap_periodic
+            else None
         )
+        coords = (
+            plot_coords
+            if plot_coords is not None
+            else np.stack(
+                [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+            )
+        )
+        hover_coords = (
+            unwrap_periodic_offsets(row_offsets, use_lattice_coords=True)
+            if unwrap_periodic and use_lattice_coords
+            else (
+                plot_coords
+                if plot_coords is not None
+                else np.stack(
+                    [
+                        (
+                            np.array(offset.rep.evalf(), dtype=float).reshape(-1)
+                            if use_lattice_coords
+                            else offset.to_vec(np.ndarray).reshape(-1)
+                        )
+                        for offset in row_offsets
+                    ]
+                )
+            )
+        )
+        coord_lines = [
+            (
+                _format_symbolic_coord_vector(tuple(hover_coords[i]))
+                if use_lattice_coords
+                else _format_coord_vector(tuple(hover_coords[i]))
+            )
+            for i in range(len(row_offsets))
+        ]
         spatial_dim = coords.shape[1]
     else:
         coords = np.empty((0, 0), dtype=float)
+        coord_lines = []
         spatial_dim = 0
     if spatial_dim not in (1, 2, 3):
         raise ValueError(
@@ -572,7 +787,8 @@ def plot_tensor_scatter(
                 f"column={column_label}<br>"
                 f"value={value.real:.6g}{value.imag:+.6g}j<br>"
                 f"|value|={abs(value):.6g}<br>"
-                f"phase={np.angle(value):.6g}"
+                f"phase={np.angle(value):.6g}<br>"
+                f"{coord_lines[i]}"
             )
             for i, value in enumerate(column)
         ]
@@ -586,8 +802,8 @@ def plot_tensor_scatter(
                     mode="markers",
                     marker=marker,
                     name=column_label,
-                    hovertext=hovertext,
-                    hoverinfo="text",
+                    text=hovertext,
+                    hovertemplate="%{text}<extra></extra>",
                     showlegend=False,
                 ),
                 row=panel_row,
@@ -602,8 +818,8 @@ def plot_tensor_scatter(
                     mode="markers",
                     marker=marker,
                     name=column_label,
-                    hovertext=hovertext,
-                    hoverinfo="text",
+                    text=hovertext,
+                    hovertemplate="%{text}<extra></extra>",
                     showlegend=False,
                 ),
                 row=panel_row,

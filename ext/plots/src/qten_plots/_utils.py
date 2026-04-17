@@ -1,11 +1,79 @@
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 from scipy.spatial import cKDTree
 
-from qten.geometries.spatials import ReciprocalLattice
+from qten.geometries.boundary import PeriodicBoundary
+from qten.geometries.spatials import Lattice, Offset, ReciprocalLattice
 from qten.symbolics.state_space import BzPath, MomentumSpace, brillouin_zone
+
+
+_COMMON_MARKER_ALIASES: dict[str, str] = {
+    "o": "circle",
+    "circle": "circle",
+    "s": "square",
+    "square": "square",
+    "d": "diamond",
+    "D": "diamond",
+    "diamond": "diamond",
+    "+": "cross",
+    "plus": "cross",
+    "cross": "cross",
+    "x": "x",
+}
+
+_MARKER_TO_MPL: dict[str, str] = {
+    "circle": "o",
+    "square": "s",
+    "diamond": "D",
+    "cross": "+",
+    "x": "x",
+}
+
+_MARKER_TO_PLOTLY: dict[str, str] = {
+    "circle": "circle",
+    "square": "square",
+    "diamond": "diamond",
+    "cross": "cross",
+    "x": "x",
+}
+
+
+def normalize_pointcloud_marker(marker: str | None) -> str | None:
+    if marker is None:
+        return None
+    try:
+        return _COMMON_MARKER_ALIASES[marker]
+    except KeyError as e:
+        supported = ", ".join(sorted(set(_COMMON_MARKER_ALIASES.values())))
+        raise ValueError(
+            f"Unsupported PointCloud marker {marker!r}. Supported markers: {supported}."
+        ) from e
+
+
+def pointcloud_marker_for_mpl(marker: str | None, *, default: str) -> str:
+    canonical = normalize_pointcloud_marker(marker)
+    return _MARKER_TO_MPL[canonical] if canonical is not None else default
+
+
+def pointcloud_marker_for_plotly(marker: str | None, *, default: str) -> str:
+    canonical = normalize_pointcloud_marker(marker)
+    return _MARKER_TO_PLOTLY[canonical] if canonical is not None else default
+
+
+def pointcloud_size_for_mpl(size: float | None, *, default_area: float) -> float:
+    """
+    Convert a backend-agnostic marker size into matplotlib scatter area.
+
+    Plotly marker size is interpreted approximately as a linear marker extent,
+    while matplotlib `scatter(..., s=...)` expects area in points^2. We therefore
+    square explicit `PointCloud.size` values for matplotlib, while preserving the
+    historical default scatter areas when no explicit size is supplied.
+    """
+    if size is None:
+        return default_area
+    return float(size) ** 2
 
 
 def compute_bonds(
@@ -54,6 +122,65 @@ def compute_bonds(
     z_lines = flat[:, 2] if dim == 3 and n_cols >= 3 else None
 
     return x_lines, y_lines, z_lines
+
+
+def unwrap_periodic_offsets(
+    offsets: Sequence[Offset], *, use_lattice_coords: bool = False
+) -> np.ndarray:
+    """
+    Return display coordinates for offsets with an optional periodic unwrapping step.
+
+    For lattice offsets, the stored representatives are canonical wrapped images.
+    This helper chooses a nearby branch in boundary coordinates so plotting can
+    show a spatially continuous cluster, while leaving the underlying offsets
+    unchanged.
+    """
+    if len(offsets) == 0:
+        return np.empty((0, 0), dtype=float)
+
+    first_space = offsets[0].space
+    if not all(offset.space == first_space for offset in offsets):
+        raise ValueError("All offsets must belong to the same space to unwrap.")
+
+    if not (
+        isinstance(first_space, Lattice)
+        and isinstance(first_space.boundaries, PeriodicBoundary)
+    ):
+        if use_lattice_coords:
+            return np.stack(
+                [
+                    np.array(offset.rep.evalf(), dtype=float).reshape(-1)
+                    for offset in offsets
+                ]
+            )
+        return np.stack([offset.to_vec(np.ndarray).reshape(-1) for offset in offsets])
+
+    lattice = first_space
+    reps = np.stack(
+        [
+            np.array(offset.rebase(lattice.affine).rep.evalf(), dtype=float).reshape(-1)
+            for offset in offsets
+        ]
+    )
+    boundary_basis = np.array(lattice.boundaries.basis.evalf(), dtype=float)
+    boundary_basis_inv = np.linalg.inv(boundary_basis)
+
+    coeffs = reps @ boundary_basis_inv.T
+    angles = 2.0 * np.pi * coeffs
+    mean_angles = np.arctan2(np.sin(angles).mean(axis=0), np.cos(angles).mean(axis=0))
+    centers = (mean_angles / (2.0 * np.pi)) % 1.0
+
+    centered = coeffs - centers
+    centered -= np.round(centered)
+    unwrapped_coeffs = centers + centered
+    unwrapped_coeffs -= np.round(unwrapped_coeffs.mean(axis=0))
+    unwrapped_reps = unwrapped_coeffs @ boundary_basis.T
+
+    if use_lattice_coords:
+        return unwrapped_reps
+
+    lattice_basis = np.array(lattice.basis.evalf(), dtype=float)
+    return unwrapped_reps @ lattice_basis.T
 
 
 def analyze_bandstructure_sampling(

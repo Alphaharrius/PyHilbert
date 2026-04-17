@@ -42,6 +42,7 @@ class AffineSpace(Spatial):
     basis: ImmutableDenseMatrix
     @property
     def dim(self) -> int: ...
+    def origin(self) -> Offset[AffineSpace]: ...
 
 @dataclass(frozen=True)
 class AbstractLattice(AffineSpace, HasDual, Generic[_O], metaclass=abc.ABCMeta):
@@ -101,6 +102,7 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
     def basis_vectors(self) -> tuple["Offset[Any]", ...]: ...
 
 S = TypeVar("S", bound=AffineSpace)
+OffsetType = TypeVar("OffsetType", bound="Offset[Any]")
 
 @dataclass(frozen=True)
 class Offset(Spatial, HasBase[S], Generic[S]):

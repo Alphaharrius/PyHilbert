@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Union, Any, cast, Tuple, Sequence
+from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.state_space import (
@@ -18,6 +19,9 @@ from ._utils import (
     band_path_positions,
     compute_bonds,
     interpolate_path_on_grid,
+    pointcloud_marker_for_mpl,
+    pointcloud_size_for_mpl,
+    unwrap_periodic_offsets,
 )
 from .plottables import PointCloud
 
@@ -26,11 +30,47 @@ from .plottables import PointCloud
 
 
 def _pointcloud_coords(obj: PointCloud) -> torch.Tensor:
-    if not obj.offsets:
+    ordered_offsets = tuple(sorted(obj.offsets))
+    if not ordered_offsets:
         return torch.empty((0, 0), dtype=torch.float64)
 
-    coords = np.stack([offset.to_vec(np.ndarray) for offset in obj.offsets])
+    coords = np.stack([offset.to_vec(np.ndarray) for offset in ordered_offsets])
     return torch.tensor(coords, dtype=torch.float64)
+
+
+def _minimal_periodic_highlight_groups(
+    lattice: Lattice, cloud: PointCloud
+) -> list[np.ndarray]:
+    ordered_offsets = tuple(sorted(cloud.offsets))
+    if len(ordered_offsets) <= 1:
+        return []
+
+    reps = np.stack(
+        [
+            np.array(offset.rebase(lattice.affine).rep.evalf(), dtype=float).reshape(-1)
+            for offset in ordered_offsets
+        ]
+    )
+    cart = np.stack([offset.to_vec(np.ndarray) for offset in ordered_offsets])
+    boundary_basis = np.array(lattice.boundaries.basis.evalf(), dtype=float)
+    boundary_basis_inv = np.linalg.inv(boundary_basis)
+    lattice_basis = np.array(lattice.basis.evalf(), dtype=float)
+
+    anchor = reps[0]
+    grouped: dict[tuple[float, ...], list[np.ndarray]] = {}
+    for rep, cart_point in zip(reps, cart):
+        diff = rep - anchor
+        coeffs = diff @ boundary_basis_inv.T
+        wrapped_coeffs = coeffs - np.round(coeffs)
+        unwrapped_rep = anchor + wrapped_coeffs @ boundary_basis.T
+        shift_rep = unwrapped_rep - rep
+        if np.allclose(shift_rep, 0.0, atol=1e-10):
+            continue
+        shift_cart = shift_rep @ lattice_basis.T
+        shift_key = tuple(np.round(shift_cart, 12))
+        grouped.setdefault(shift_key, []).append(cart_point + shift_cart)
+
+    return [np.stack(points) for points in grouped.values()]
 
 
 def _complex_phase_colors(values: np.ndarray) -> list[tuple[float, float, float]]:
@@ -63,6 +103,8 @@ def plot_structure_mpl(
     ax: Optional[Any] = None,
     color_by: str = "basis",
     highlights: Sequence[PointCloud] | None = None,
+    use_lattice_coords: bool = False,
+    periodic_image_opacity: float = 0.5,
     **kwargs,
 ) -> plt.Figure:
     """
@@ -102,6 +144,10 @@ def plot_structure_mpl(
     valid_color_by = ["basis", "unit_cell"]
     if color_by not in valid_color_by:
         raise ValueError(f"Invalid color_by '{color_by}'. Options: {valid_color_by}")
+    if not (0.0 <= periodic_image_opacity <= 1.0):
+        raise ValueError(
+            f"periodic_image_opacity must lie in [0, 1], got {periodic_image_opacity}."
+        )
 
     coords = obj.cartes(torch.Tensor)
     coords_np = coords.numpy()
@@ -180,6 +226,14 @@ def plot_structure_mpl(
             x_group = highlight_np[:, 0]
             y_group = highlight_np[:, 1]
             trace_color = cloud.color or fallback_colors[idx]
+            trace_marker = pointcloud_marker_for_mpl(cloud.marker, default="D")
+            trace_alpha = cloud.opacity
+            trace_size = pointcloud_size_for_mpl(
+                cloud.size, default_area=55 if is_3d else 110
+            )
+            trace_edgecolor = cloud.border_color
+            trace_linewidth = cloud.border_width
+            trace_label = cloud.name or f"Highlight {idx}"
             if is_3d:
                 z_group = highlight_np[:, 2]
                 cast(Any, ax).scatter(
@@ -187,20 +241,54 @@ def plot_structure_mpl(
                     y_group,
                     z_group,
                     c=[trace_color],
-                    s=55,
-                    marker="D",
-                    label=f"Highlight {idx}",
+                    s=trace_size,
+                    marker=trace_marker,
+                    alpha=trace_alpha,
+                    edgecolors=trace_edgecolor,
+                    linewidths=trace_linewidth,
+                    label=trace_label,
                 )
+                if isinstance(obj.boundaries, PeriodicBoundary):
+                    for ghost_points in _minimal_periodic_highlight_groups(obj, cloud):
+                        cast(Any, ax).scatter(
+                            ghost_points[:, 0],
+                            ghost_points[:, 1],
+                            ghost_points[:, 2],
+                            c=[trace_color],
+                            s=trace_size,
+                            marker=trace_marker,
+                            alpha=periodic_image_opacity,
+                            edgecolors=trace_edgecolor,
+                            linewidths=trace_linewidth,
+                            label="_nolegend_",
+                        )
             else:
                 ax.scatter(
                     x_group,
                     y_group,
                     c=[trace_color],
-                    s=110,
-                    marker="D",
+                    s=trace_size,
+                    marker=trace_marker,
+                    alpha=trace_alpha,
+                    edgecolors=trace_edgecolor,
+                    linewidths=trace_linewidth,
                     zorder=6,
-                    label=f"Highlight {idx}",
+                    label=trace_label,
                 )
+                if isinstance(obj.boundaries, PeriodicBoundary):
+                    for ghost_points in _minimal_periodic_highlight_groups(obj, cloud):
+                        ax.scatter(
+                            ghost_points[:, 0],
+                            ghost_points[:, 1],
+                            c=[trace_color],
+                            s=trace_size,
+                            marker=trace_marker,
+                            alpha=periodic_image_opacity,
+                            edgecolors=trace_edgecolor,
+                            linewidths=trace_linewidth,
+                            zorder=5.5,
+                            label="_nolegend_",
+                        )
 
     # Spins
     if spin_data is not None:
@@ -243,6 +331,7 @@ def plot_pointcloud_mpl(
     obj: PointCloud,
     ax: Optional[Any] = None,
     save_path: Optional[str] = None,
+    use_lattice_coords: bool = False,
     **kwargs,
 ) -> plt.Figure:
     coords = _pointcloud_coords(obj)
@@ -267,13 +356,43 @@ def plot_pointcloud_mpl(
         fig = ax.get_figure()
 
     trace_color = obj.color or kwargs.get("color", "#d1495b")
+    trace_marker = pointcloud_marker_for_mpl(
+        obj.marker or kwargs.get("marker"), default="o"
+    )
+    trace_alpha = obj.opacity
+    raw_size = obj.size if obj.size is not None else kwargs.get("size")
+    trace_size = pointcloud_size_for_mpl(raw_size, default_area=30 if is_3d else 60)
+    trace_edgecolor = obj.border_color or kwargs.get("border_color")
+    trace_linewidth = (
+        obj.border_width if obj.border_width is not None else kwargs.get("border_width")
+    )
+    trace_label = obj.name or "PointCloud"
     if is_3d:
         cast(Any, ax).scatter(
-            coords_np[:, 0], coords_np[:, 1], coords_np[:, 2], c=trace_color, s=30
+            coords_np[:, 0],
+            coords_np[:, 1],
+            coords_np[:, 2],
+            c=trace_color,
+            s=trace_size,
+            marker=trace_marker,
+            alpha=trace_alpha,
+            edgecolors=trace_edgecolor,
+            linewidths=trace_linewidth,
+            label=trace_label,
         )
         cast(Any, ax).set_zlabel("Z")
     else:
-        ax.scatter(coords_np[:, 0], coords_np[:, 1], c=trace_color, s=60)
+        ax.scatter(
+            coords_np[:, 0],
+            coords_np[:, 1],
+            c=trace_color,
+            s=trace_size,
+            marker=trace_marker,
+            alpha=trace_alpha,
+            edgecolors=trace_edgecolor,
+            linewidths=trace_linewidth,
+            label=trace_label,
+        )
 
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
@@ -561,6 +680,8 @@ def plot_tensor_column_scatter_mpl(
     save_path: Optional[str] = None,
     default_size: float = 16.0,
     ncols: int = 3,
+    use_lattice_coords: bool = False,
+    unwrap_periodic: bool = True,
     **kwargs,
 ) -> plt.Figure:
     if obj.rank() != 2:
@@ -595,8 +716,17 @@ def plot_tensor_column_scatter_mpl(
 
     row_offsets = [basis.irrep_of(Offset) for basis in row_basis]
     if row_offsets:
-        coords = np.stack(
-            [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+        plot_coords = (
+            unwrap_periodic_offsets(row_offsets, use_lattice_coords=False)
+            if unwrap_periodic
+            else None
+        )
+        coords = (
+            plot_coords
+            if plot_coords is not None
+            else np.stack(
+                [offset.to_vec(np.ndarray).reshape(-1) for offset in row_offsets]
+            )
         )
         spatial_dim = coords.shape[1]
     else:

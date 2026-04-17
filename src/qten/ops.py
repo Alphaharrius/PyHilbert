@@ -3,7 +3,11 @@ from .geometries.fourier import (
     region_restrict as region_restrict,
 )
 from .geometries import (
+    center_of_region as center_of_region,
+    get_strip_region_2d as get_strip_region_2d,
+    interstitial_centers as interstitial_centers,
     nearest_sites as nearest_sites,
+    region_tile as region_tile,
 )
 from .symbolics import (
     region_hilbert as region_hilbert,
