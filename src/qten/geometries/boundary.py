@@ -145,6 +145,13 @@ class PeriodicBoundary(BoundaryCondition):
         )
         return float(np.linalg.norm(candidate_displacements, axis=1).min())
 
+    def __str__(self):
+        data = [[str(sy.sympify(x)) for x in row] for row in self._basis.tolist()]
+        return f"PeriodicBoundary(basis={data})"
+
+    def __repr__(self):
+        return str(self)
+
     @staticmethod
     def _snf_periods(S: ImmutableDenseMatrix) -> tuple[int, ...]:
         periods: list[int] = []
