@@ -124,6 +124,13 @@ class Lattice(AbstractLattice["Offset"]):
     boundaries: BoundaryCondition
     _unit_cell_fractional: FrozenDict = field(init=False, repr=False, compare=True)
 
+    def __str__(self):
+        basis_data = [[str(sympify(x)) for x in row] for row in self.basis.tolist()]
+        return f"Lattice(basis={basis_data}, boundaries={self.boundaries})"
+
+    def __repr__(self):
+        return str(self)
+
     @property
     @lru_cache
     def shape(self) -> Tuple[int, ...]:
@@ -357,6 +364,13 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
     """
 
     lattice: Lattice
+
+    def __str__(self):
+        basis_data = [[str(sympify(x)) for x in row] for row in self.basis.tolist()]
+        return f"ReciprocalLattice(basis={basis_data}, shape={self.shape})"
+
+    def __repr__(self):
+        return str(self)
 
     @property
     @lru_cache
