@@ -570,7 +570,7 @@ class TestTensorAdvancedGetitem:
         assert torch.equal(out.data, expected)
         assert out.dims == (a, b, c)
 
-    def test_getitem_with_tensor_advanced_bool_mask_raises_not_implemented(self):
+    def test_getitem_with_tensor_advanced_bool_mask_rank1(self):
         src = IndexSpace.linear(5)
         data = torch.arange(5, dtype=torch.float64)
         tensor = Tensor(data=data, dims=(src,))
@@ -579,10 +579,54 @@ class TestTensorAdvancedGetitem:
             data=torch.tensor([True, False, True, False, True], dtype=torch.bool),
             dims=(src,),
         )
-        with pytest.raises(
-            NotImplementedError, match="Boolean Tensor indexing is not supported yet"
-        ):
-            _ = tensor[mask]
+        out = tensor[mask]
+        
+        expected = data[mask.data]
+        expected_space = src[[0, 2, 4]]
+        
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (expected_space,)
+
+    def test_getitem_with_tensor_advanced_bool_mask_higher_rank(self):
+        row = IndexSpace.linear(3)
+        col = IndexSpace.linear(4)
+        data = torch.arange(12, dtype=torch.float64).reshape(3, 4)
+        tensor = Tensor(data=data, dims=(row, col))
+        
+        mask_data = torch.zeros(3, 4, dtype=torch.bool)
+        mask_data[0, 1] = True
+        mask_data[1, 3] = True
+        mask_data[2, 0] = True
+        
+        mask = Tensor(data=mask_data, dims=(row, col))
+        out = tensor[mask]
+        
+        expected = data[mask_data]
+        expected_space = IndexSpace.linear(3)
+        
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (expected_space,)
+
+    def test_getitem_with_tensor_advanced_bool_mask_with_other_slices(self):
+        a = IndexSpace.linear(2)
+        b = IndexSpace.linear(3)
+        c = IndexSpace.linear(4)
+        data = torch.arange(24, dtype=torch.float64).reshape(2, 3, 4)
+        tensor = Tensor(data=data, dims=(a, b, c))
+        
+        mask_data = torch.zeros(3, 4, dtype=torch.bool)
+        mask_data[0, 1] = True
+        mask_data[1, 3] = True
+        mask = Tensor(data=mask_data, dims=(b, c))
+        
+        out = tensor[:, mask]
+        expected = data[:, mask_data]
+        
+        assert isinstance(out, Tensor)
+        assert torch.equal(out.data, expected)
+        assert out.dims == (a, IndexSpace.linear(2))
 
     def test_getitem_with_tensor_advanced_ellipsis_at_end(self):
         a = IndexSpace.linear(2)
