@@ -855,7 +855,6 @@ def plot_bandstructure_mpl(
     n_bands = eigvals_np.shape[1]
 
     # 3. Build Cartesian reciprocal coordinates once for both modes.
-    k_points = list(k_space)
     k_cart, recip, is_canonical_2d_bz, effective_dim = analyze_bandstructure_sampling(
         k_space
     )

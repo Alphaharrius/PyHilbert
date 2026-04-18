@@ -1051,7 +1051,6 @@ def plot_bandstructure(
         raise ValueError(f"nullspace_tol must be non-negative, got {nullspace_tol}")
 
     k_space = obj.dims[0]
-    k_points = list(k_space)
 
     # 2. Diagonalize
     eigvals = torch.linalg.eigvalsh(obj.data)  # (K, N_bands)
