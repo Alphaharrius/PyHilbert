@@ -3572,6 +3572,39 @@ class TensorIndexing:
         self,
         entries: list[Tuple[TensorIndexType, Tuple[StateSpace, ...], TorchIndexType]],
     ) -> Tuple[StateSpace, ...]:
+        tensor_positions_all = [
+            i for i, (idx, _, _) in enumerate(entries) if isinstance(idx, Tensor)
+        ]
+        if len(tensor_positions_all) == 0:
+            return tuple(dim for _, dims, _ in entries for dim in dims)
+
+        has_bool_tensor = any(
+            isinstance(idx, Tensor) and idx.data.dtype == torch.bool
+            for idx, _, _ in entries
+        )
+        if has_bool_tensor and len(tensor_positions_all) > 1:
+            advanced_dims = self._mixed_bool_advanced_dims(entries)
+            first_tensor_pos = tensor_positions_all[0]
+            last_tensor_pos = tensor_positions_all[-1]
+
+            if last_tensor_pos - first_tensor_pos + 1 != len(tensor_positions_all):
+                non_tensor_dims = tuple(
+                    dim
+                    for idx, dims, _ in entries
+                    if not isinstance(idx, Tensor)
+                    for dim in dims
+                )
+                return advanced_dims + non_tensor_dims
+
+            compiled_dims: Tuple[StateSpace, ...] = tuple()
+            for i, (idx, dims, _) in enumerate(entries):
+                if i == first_tensor_pos:
+                    compiled_dims += advanced_dims
+                if isinstance(idx, Tensor):
+                    continue
+                compiled_dims += dims
+            return compiled_dims
+
         tensor_positions = [
             i
             for i, (idx, _, _) in enumerate(entries)
@@ -3599,6 +3632,25 @@ class TensorIndexing:
                 continue
             compiled_dims += dims
         return compiled_dims
+
+    def _mixed_bool_advanced_dims(
+        self,
+        entries: list[Tuple[TensorIndexType, Tuple[StateSpace, ...], TorchIndexType]],
+    ) -> Tuple[StateSpace, ...]:
+        shapes: list[Tuple[int, ...]] = []
+        if self.tensor_union_dims:
+            shapes.append(tuple(dim.dim for dim in self.tensor_union_dims))
+
+        for idx, _, _ in entries:
+            if not isinstance(idx, Tensor) or idx.data.dtype != torch.bool:
+                continue
+            shapes.append((int(idx.data.count_nonzero().item()),))
+
+        if not shapes:
+            return tuple()
+
+        broadcast_shape = torch.broadcast_shapes(*shapes)
+        return tuple(IndexSpace.linear(size) for size in broadcast_shape)
 
     def compile(self) -> CompiledIndices:
         """
