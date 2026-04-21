@@ -11,9 +11,12 @@ from .geometries import (
     region_tile as region_tile,
 )
 from .symbolics import (
+    fractional_opr as fractional_opr,
     region_hilbert as region_hilbert,
     hilbert_opr_repr as hilbert_opr_repr,
     interpolate_reciprocal_path as interpolate_reciprocal_path,
+    rebase_opr as rebase_opr,
+    translate_opr as translate_opr,
 )
 from .bands import interpolate_path as interpolate_path
 from .pointgroups.ops import (
