@@ -8,7 +8,14 @@ from sympy import ImmutableDenseMatrix
 # TODO: Avoid using torch explicitly here.
 import torch
 
-from .geometries import BasisTransform, Momentum, Offset, ReciprocalLattice
+from .geometries import (
+    BasisTransform,
+    Lattice,
+    Momentum,
+    Offset,
+    PeriodicBoundary,
+    ReciprocalLattice,
+)
 from .geometries.fourier import fourier_transform
 from .linalg import eigh
 from .linalg.tensors import Tensor, zeros
@@ -457,6 +464,128 @@ def bandfold(
 
 
 # TODO: add bandunfold function
+def bandunfold(
+    transform: BasisTransform,
+    tensor: Tensor,
+    opt: Literal["both", "left", "right"] = "both",
+) -> Tensor:
+    """
+    Unfold a folded momentum-resolved band tensor back to a primitive cell.
+
+    This function is the inverse-style counterpart of `bandfold` for operator
+    tensors. The input is expected to have dimensions
+    `(MomentumSpace, HilbertSpace, HilbertSpace)` where the momentum axis lives
+    on a transformed (folded) Brillouin zone. The function reconstructs the
+    primitive Brillouin zone and recovers a tensor with dimensions
+    `(K_primitive, B_primitive, B_primitive)`.
+
+    As with `bandfold`, `opt` selects which Hilbert-space leg is used to infer
+    the folded supercell basis (`"left"` uses axis 1, `"right"` and `"both"`
+    use axis 2).
+    """
+    if opt not in ("both", "left", "right"):
+        raise ValueError(f"Invalid option {opt} for bandunfold!")
+    if tensor.rank() != 3:
+        raise ValueError(
+            f"Input tensor must be of rank 3, but has rank {tensor.rank()}"
+        )
+    if not isinstance(tensor.dims[0], MomentumSpace):
+        raise TypeError(
+            "The first dimension of the tensor must be a MomentumSpace, "
+            f"but is of type {type(tensor.dims[0])}"
+        )
+    if not isinstance(tensor.dims[1], HilbertSpace):
+        raise TypeError(
+            "The second dimension of the tensor must be a HilbertSpace, "
+            f"but is of type {type(tensor.dims[1])}"
+        )
+    if not isinstance(tensor.dims[2], HilbertSpace):
+        raise TypeError(
+            "The third dimension of the tensor must be a HilbertSpace, "
+            f"but is of type {type(tensor.dims[2])}"
+        )
+
+    k_space = cast(MomentumSpace, tensor.dims[0])
+    if not k_space.elements():
+        raise ValueError("MomentumSpace is empty")
+    lattice_set = set(map(lambda k: k.space, k_space))
+    if len(lattice_set) != 1:
+        raise ValueError("Invalid BZ")
+    folded_reciprocal_lattice = lattice_set.pop()
+    if not isinstance(folded_reciprocal_lattice, ReciprocalLattice):
+        raise TypeError(
+            "Space of momentum should be ReciprocalLattice, but got "
+            f"{type(folded_reciprocal_lattice)}"
+        )
+    folded_reciprocal_lattice = cast(ReciprocalLattice, folded_reciprocal_lattice)
+    folded_lattice = folded_reciprocal_lattice.dual
+
+    # Reconstruct the primitive lattice by inverting the basis update:
+    # folded_basis = primitive_basis @ M.
+    primitive_basis = ImmutableDenseMatrix(folded_lattice.basis @ transform.M.inv())
+    primitive_boundary_basis = transform.M @ folded_lattice.boundaries.basis
+    if any(not sy.cancel(x).is_integer for x in primitive_boundary_basis):
+        raise ValueError(
+            "Unfolded boundary basis must remain integral for PeriodicBoundary."
+        )
+    primitive_lattice = Lattice(
+        basis=primitive_basis,
+        boundaries=PeriodicBoundary(
+            ImmutableDenseMatrix(primitive_boundary_basis.applyfunc(int))
+        ),
+    )
+    primitive_reciprocal_lattice = primitive_lattice.dual
+    primitive_k_space = brillouin_zone(primitive_reciprocal_lattice)
+
+    switch_index = -2 if opt == "left" else -1
+    target_space = tensor.dims[switch_index]
+    if not isinstance(target_space, HilbertSpace):
+        raise TypeError(
+            f"Dimension at index {switch_index} must be a HilbertSpace, "
+            f"but got {type(target_space)}"
+        )
+    folded_hilbert = cast(HilbertSpace, target_space)
+
+    rebased_hilbert = HilbertSpace.new(
+        cast(U1Basis, psi).replace(cast(U1Basis, psi).irrep_of(Offset).rebase(primitive_lattice))
+        for psi in folded_hilbert
+    )
+
+    primitive_states: "OrderedDict[U1Basis, int]" = OrderedDict()
+    for psi in rebased_hilbert:
+        primitive_state = cast(U1Basis, psi).replace(
+            cast(U1Basis, psi).irrep_of(Offset).fractional()
+        )
+        if primitive_state not in primitive_states:
+            primitive_states[primitive_state] = len(primitive_states)
+    primitive_hilbert = HilbertSpace(structure=primitive_states)
+
+    # Route each primitive-k sector to its folded-k parent.
+    precision = get_precision_config()
+    primitive_basis_np = np.array(
+        primitive_reciprocal_lattice.basis.evalf(), dtype=precision.np_float
+    )
+    folded_basis_np = np.array(folded_reciprocal_lattice.basis.evalf(), dtype=precision.np_float)
+    M_rebase = np.linalg.solve(folded_basis_np, primitive_basis_np)
+    k_indices = _momentum_match_indices(
+        primitive_k_space, k_space, M_rebase, device=tensor.device
+    )
+
+    gathered = Tensor(
+        data=tensor.data[k_indices.data],
+        dims=(primitive_k_space, tensor.dims[1], tensor.dims[2]),
+    )
+    for dim in (1, 2):
+        if gathered.dims[dim] == folded_hilbert:
+            gathered = gathered.replace_dim(dim, rebased_hilbert)
+
+    f = fourier_transform(
+        primitive_k_space, primitive_hilbert, rebased_hilbert, device=tensor.device
+    )
+    vratio = np.sqrt(rebased_hilbert.dim / primitive_hilbert.dim)
+    f = f / vratio
+    unfolded = f @ gathered @ f.h(-2, -1)
+    return unfolded
 
 
 def bandfillings(tensor: Tensor, frac: float) -> Tensor:

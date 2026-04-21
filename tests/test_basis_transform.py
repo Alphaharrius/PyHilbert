@@ -15,7 +15,7 @@ from qten.symbolics.state_space import brillouin_zone
 from qten.symbolics.hilbert_space import U1Basis, HilbertSpace
 from qten.linalg.tensors import Tensor
 from qten.geometries.basis_transform import BasisTransform
-from qten.bands import bandfold
+from qten.bands import bandfold, bandunfold
 from qten.geometries.boundary import PeriodicBoundary
 
 
@@ -141,6 +141,30 @@ def test_bandfold_2d():
 
     assert torch.allclose(tensor_out.data[0].real, expected_matrix)
     assert torch.allclose(tensor_out.data[0].imag, torch.zeros_like(expected_matrix))
+
+
+def test_bandunfold_handles_fractional_sector_collisions():
+    basis = ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
+    h_space = HilbertSpace.new([_mode(r_offset)])
+
+    data = torch.arange(4, dtype=torch.float64).reshape(4, 1, 1)
+    tensor_in = Tensor(data=data, dims=(k_space, h_space, h_space))
+    transform = BasisTransform(ImmutableDenseMatrix([[2]]))
+
+    folded = bandfold(transform, tensor_in)
+    unfolded = bandunfold(transform, folded)
+
+    assert unfolded.dims[0].dim == tensor_in.dims[0].dim
+    assert unfolded.dims[1].dim == tensor_in.dims[1].dim
+    assert unfolded.dims[2].dim == tensor_in.dims[2].dim
+    assert torch.allclose(unfolded.data, tensor_in.data.to(unfolded.data.dtype), atol=1e-10)
 
 
 def test_affine_space_transform():
