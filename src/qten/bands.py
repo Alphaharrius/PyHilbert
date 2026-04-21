@@ -8,7 +8,14 @@ from sympy import ImmutableDenseMatrix
 # TODO: Avoid using torch explicitly here.
 import torch
 
-from .geometries import BasisTransform, Momentum, Offset, ReciprocalLattice
+from .geometries import (
+    BasisTransform,
+    InverseBasisTransform,
+    Lattice,
+    Momentum,
+    Offset,
+    ReciprocalLattice,
+)
 from .geometries.fourier import fourier_transform
 from .linalg import eigh
 from .linalg.tensors import Tensor, zeros
@@ -130,21 +137,38 @@ def _momentum_match_indices(
     )
     D = abs(int(round(np.linalg.det(boundary_np))))
     mapped_scaled = np.rint(mapped_wrapped * D).astype(np.int64) % D
+    dest_items = list(dest.structure.items())
+    dest_coords = np.array(
+        [
+            [int(round(float(k.rep[j, 0]) * D)) % D for j in range(dim)]
+            for k, _ in dest_items
+        ],
+        dtype=np.int64,
+    )
+    dest_indices = np.array([idx for _, idx in dest_items], dtype=np.int64)
 
-    lookup: Dict[Tuple[int, ...], int] = {}
-    for k, idx in dest.structure.items():
-        gcoord = tuple(int(round(float(k.rep[j, 0]) * D)) % D for j in range(dim))
-        lookup[gcoord] = idx
+    def _row_keys(arr: np.ndarray) -> np.ndarray:
+        arr_c = np.ascontiguousarray(arr)
+        return arr_c.view(np.dtype((np.void, arr_c.dtype.itemsize * arr_c.shape[1])))
 
-    indices: list[int] = []
-    for i in range(mapped_scaled.shape[0]):
-        gcoord = tuple(int(mapped_scaled[i, j]) for j in range(dim))
-        if gcoord not in lookup:
-            raise ValueError(
-                f"Source momentum maps to scaled coord {gcoord} (D={D}), "
-                f"not in destination BZ."
-            )
-        indices.append(lookup[gcoord])
+    src_keys = _row_keys(mapped_scaled).reshape(-1)
+    dest_keys = _row_keys(dest_coords).reshape(-1)
+    order = np.argsort(dest_keys)
+    sorted_dest_keys = dest_keys[order]
+
+    pos = np.searchsorted(sorted_dest_keys, src_keys)
+    in_range = pos < sorted_dest_keys.size
+    matched = np.zeros_like(in_range, dtype=bool)
+    matched[in_range] = sorted_dest_keys[pos[in_range]] == src_keys[in_range]
+    if not np.all(matched):
+        bad_idx = int(np.flatnonzero(~matched)[0])
+        gcoord = tuple(int(x) for x in mapped_scaled[bad_idx])
+        raise ValueError(
+            f"Source momentum maps to scaled coord {gcoord} (D={D}), "
+            f"not in destination BZ."
+        )
+
+    indices = dest_indices[order[pos]]
 
     torch_device = device.torch_device() if device is not None else None
     return Tensor(
@@ -456,7 +480,110 @@ def bandfold(
     return transformed
 
 
-# TODO: add bandunfold function
+def bandunfold(
+    inverse_transform: InverseBasisTransform,
+    tensor: Tensor,
+) -> Tensor:
+    """
+    Unfold a folded momentum-resolved band tensor using an inverse basis transform.
+
+    The input is expected to have dimensions `(MomentumSpace, HilbertSpace,
+    HilbertSpace)` where the momentum axis lives on a transformed (folded)
+    Brillouin zone. The inverse transform maps that folded lattice back to the
+    primitive one and recovers dimensions `(K_primitive, B_primitive,
+    B_primitive)`.
+
+    """
+    if not isinstance(inverse_transform, InverseBasisTransform):
+        raise TypeError(
+            "bandunfold requires InverseBasisTransform, "
+            f"but got {type(inverse_transform)}"
+        )
+    if tensor.rank() != 3:
+        raise ValueError(
+            f"Input tensor must be of rank 3, but has rank {tensor.rank()}"
+        )
+    if not isinstance(tensor.dims[0], MomentumSpace):
+        raise TypeError(
+            "The first dimension of the tensor must be a MomentumSpace, "
+            f"but is of type {type(tensor.dims[0])}"
+        )
+    if not isinstance(tensor.dims[1], HilbertSpace):
+        raise TypeError(
+            "The second dimension of the tensor must be a HilbertSpace, "
+            f"but is of type {type(tensor.dims[1])}"
+        )
+    if not isinstance(tensor.dims[2], HilbertSpace):
+        raise TypeError(
+            "The third dimension of the tensor must be a HilbertSpace, "
+            f"but is of type {type(tensor.dims[2])}"
+        )
+
+    k_space = cast(MomentumSpace, tensor.dims[0])
+    if not k_space.elements():
+        raise ValueError("MomentumSpace is empty")
+    lattice_set = set(map(lambda k: k.space, k_space))
+    if len(lattice_set) != 1:
+        raise ValueError("Invalid BZ")
+    folded_reciprocal_lattice = lattice_set.pop()
+    if not isinstance(folded_reciprocal_lattice, ReciprocalLattice):
+        raise TypeError(
+            "Space of momentum should be ReciprocalLattice, but got "
+            f"{type(folded_reciprocal_lattice)}"
+        )
+    folded_reciprocal_lattice = cast(ReciprocalLattice, folded_reciprocal_lattice)
+    folded_lattice = folded_reciprocal_lattice.dual
+
+    primitive_lattice = cast(Lattice, inverse_transform(folded_lattice))
+
+    folded_hilbert = cast(HilbertSpace, tensor.dims[2])
+
+    primitive_reciprocal_lattice = primitive_lattice.dual
+    primitive_k_space = brillouin_zone(primitive_reciprocal_lattice)
+
+    rebased_states = []
+    for psi in folded_hilbert:
+        u1_psi = cast(U1Basis, psi)
+        rebased_states.append(
+            u1_psi.replace(u1_psi.irrep_of(Offset).rebase(primitive_lattice))
+        )
+    rebased_hilbert = HilbertSpace.new(rebased_states)
+
+    primitive_states: "OrderedDict[U1Basis, int]" = OrderedDict()
+    for psi in rebased_states:
+        primitive_state = psi.replace(psi.irrep_of(Offset).fractional())
+        if primitive_state not in primitive_states:
+            primitive_states[primitive_state] = len(primitive_states)
+    primitive_hilbert = HilbertSpace(structure=primitive_states)
+
+    # Route each primitive-k sector to its folded-k parent.
+    precision = get_precision_config()
+    primitive_basis_np = np.array(
+        primitive_reciprocal_lattice.basis.evalf(), dtype=precision.np_float
+    )
+    folded_basis_np = np.array(
+        folded_reciprocal_lattice.basis.evalf(), dtype=precision.np_float
+    )
+    M_rebase = np.linalg.solve(folded_basis_np, primitive_basis_np)
+    k_indices = _momentum_match_indices(
+        primitive_k_space, k_space, M_rebase, device=tensor.device
+    )
+
+    gathered = Tensor(
+        data=tensor.data[k_indices.data],
+        dims=(primitive_k_space, tensor.dims[1], tensor.dims[2]),
+    )
+    for dim in (1, 2):
+        if gathered.dims[dim] == folded_hilbert:
+            gathered = gathered.replace_dim(dim, rebased_hilbert)
+
+    f = fourier_transform(
+        primitive_k_space, primitive_hilbert, rebased_hilbert, device=tensor.device
+    )
+    vratio = np.sqrt(rebased_hilbert.dim / primitive_hilbert.dim)
+    f = f / vratio
+    unfolded = f @ gathered @ f.h(-2, -1)
+    return unfolded
 
 
 def bandfillings(tensor: Tensor, frac: float) -> Tensor:
