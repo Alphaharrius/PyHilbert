@@ -3402,7 +3402,9 @@ class TensorIndexing:
         self.non_none_indices = tuple(idx for idx in self.indices if idx is not None)
 
         tensor_indices = tuple(
-            cast(Tensor, idx) for idx in self.indices if isinstance(idx, Tensor)
+            cast(Tensor, idx)
+            for idx in self.indices
+            if isinstance(idx, Tensor) and idx.data.dtype != torch.bool
         )
         self.tensor_union_dims = (
             union_dims(*(idx.dims for idx in tensor_indices), allow_merge=False)
@@ -3416,7 +3418,9 @@ class TensorIndexing:
     ) -> list[TensorIndexType]:
         promoted: list[TensorIndexType] = list(indices)
         tensor_positions = [
-            i for i, idx in enumerate(indices) if isinstance(idx, Tensor)
+            i
+            for i, idx in enumerate(indices)
+            if isinstance(idx, Tensor) and idx.data.dtype != torch.bool
         ]
         if tensor_positions:
             tensor_entries = tuple(cast(Tensor, indices[i]) for i in tensor_positions)
@@ -3431,6 +3435,14 @@ class TensorIndexing:
     def _normalize(self) -> Tuple[TensorIndexType, ...]:
         return self._pad_missing_slices(self._expand_ellipsis())
 
+    @staticmethod
+    def _consumed_axes(idx: TensorIndexType) -> int:
+        if idx is None:
+            return 0
+        if isinstance(idx, Tensor) and idx.data.dtype == torch.bool:
+            return idx.rank()
+        return 1
+
     def _expand_ellipsis(self) -> Tuple[TensorIndexType, ...]:
         if not any(idx is Ellipsis for idx in self.indices):
             # No need to expand if ellipsis is not present
@@ -3444,20 +3456,19 @@ class TensorIndexing:
         left_indices = self.indices[:ellipsis_pos]
         right_indices = self.indices[ellipsis_pos + 1 :]
 
-        # None inserts output axes and does not consume source axes.
-        consumed = sum(idx is not None for idx in left_indices + right_indices)
         # Calculate how many dimensions the ellipsis should expand to
+        consumed = sum(self._consumed_axes(idx) for idx in left_indices + right_indices)
         num_full_slices = self.rank - consumed
         return left_indices + (slice(None),) * num_full_slices + right_indices
 
     def _pad_missing_slices(
         self, indices: Tuple[TensorIndexType, ...]
     ) -> Tuple[TensorIndexType, ...]:
-        non_none = sum(idx is not None for idx in indices)
-        if non_none > self.rank:
+        consumed = sum(self._consumed_axes(idx) for idx in indices)
+        if consumed > self.rank:
             raise IndexError("Too many indices for tensor")
-        if non_none < self.rank:
-            return indices + (slice(None),) * (self.rank - non_none)
+        if consumed < self.rank:
+            return indices + (slice(None),) * (self.rank - consumed)
         return indices
 
     @multimethod
@@ -3522,7 +3533,15 @@ class TensorIndexing:
         self, idx: int, v: Tensor
     ) -> Tuple[int, Tuple[StateSpace, ...], torch.Tensor]:
         if v.data.dtype == torch.bool:
-            raise NotImplementedError("Boolean Tensor indexing is not supported yet")
+            target_dims = self.dims[idx : idx + v.rank()]
+            v = v.align_all(target_dims)
+            nnz = v.data.count_nonzero().item()
+            if v.rank() == 1:
+                out_dim = v.nonzero(index_type=StateSpace)
+            else:
+                out_dim = IndexSpace.linear(int(nnz))
+            return idx + v.rank(), (out_dim,), v.data
+
         v = v.align_all(self.tensor_union_dims)
         return idx + 1, self.tensor_union_dims, v.data
 
@@ -3553,8 +3572,43 @@ class TensorIndexing:
         self,
         entries: list[Tuple[TensorIndexType, Tuple[StateSpace, ...], TorchIndexType]],
     ) -> Tuple[StateSpace, ...]:
-        tensor_positions = [
+        tensor_positions_all = [
             i for i, (idx, _, _) in enumerate(entries) if isinstance(idx, Tensor)
+        ]
+        if len(tensor_positions_all) == 0:
+            return tuple(dim for _, dims, _ in entries for dim in dims)
+
+        has_bool_tensor = any(
+            isinstance(idx, Tensor) and idx.data.dtype == torch.bool
+            for idx, _, _ in entries
+        )
+        if has_bool_tensor and len(tensor_positions_all) > 1:
+            advanced_dims = self._mixed_bool_advanced_dims(entries)
+            first_tensor_pos = tensor_positions_all[0]
+            last_tensor_pos = tensor_positions_all[-1]
+
+            if last_tensor_pos - first_tensor_pos + 1 != len(tensor_positions_all):
+                non_tensor_dims = tuple(
+                    dim
+                    for idx, dims, _ in entries
+                    if not isinstance(idx, Tensor)
+                    for dim in dims
+                )
+                return advanced_dims + non_tensor_dims
+
+            compiled_dims: Tuple[StateSpace, ...] = tuple()
+            for i, (idx, dims, _) in enumerate(entries):
+                if i == first_tensor_pos:
+                    compiled_dims += advanced_dims
+                if isinstance(idx, Tensor):
+                    continue
+                compiled_dims += dims
+            return compiled_dims
+
+        tensor_positions = [
+            i
+            for i, (idx, _, _) in enumerate(entries)
+            if isinstance(idx, Tensor) and idx.data.dtype != torch.bool
         ]
         if len(tensor_positions) == 0:
             return tuple(dim for _, dims, _ in entries for dim in dims)
@@ -3565,7 +3619,7 @@ class TensorIndexing:
             non_tensor_dims = tuple(
                 dim
                 for idx, dims, _ in entries
-                if not isinstance(idx, Tensor)
+                if not (isinstance(idx, Tensor) and idx.data.dtype != torch.bool)
                 for dim in dims
             )
             return self.tensor_union_dims + non_tensor_dims
@@ -3574,10 +3628,29 @@ class TensorIndexing:
         for i, (idx, dims, _) in enumerate(entries):
             if i == first_tensor_pos:
                 compiled_dims += self.tensor_union_dims
-            if isinstance(idx, Tensor):
+            if isinstance(idx, Tensor) and idx.data.dtype != torch.bool:
                 continue
             compiled_dims += dims
         return compiled_dims
+
+    def _mixed_bool_advanced_dims(
+        self,
+        entries: list[Tuple[TensorIndexType, Tuple[StateSpace, ...], TorchIndexType]],
+    ) -> Tuple[StateSpace, ...]:
+        shapes: list[Tuple[int, ...]] = []
+        if self.tensor_union_dims:
+            shapes.append(tuple(dim.dim for dim in self.tensor_union_dims))
+
+        for idx, _, _ in entries:
+            if not isinstance(idx, Tensor) or idx.data.dtype != torch.bool:
+                continue
+            shapes.append((int(idx.data.count_nonzero().item()),))
+
+        if not shapes:
+            return tuple()
+
+        broadcast_shape = torch.broadcast_shapes(*shapes)
+        return tuple(IndexSpace.linear(size) for size in broadcast_shape)
 
     def compile(self) -> CompiledIndices:
         """
