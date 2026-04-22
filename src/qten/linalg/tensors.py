@@ -85,6 +85,18 @@ class at_device(ContextDecorator):
         self.device = Device.new(device) if isinstance(device, str) else device
 
     def __enter__(self) -> "at_device":
+        """
+        Activate the context for the current thread.
+
+        The target device is validated eagerly by resolving its underlying
+        `torch.device`. The resolved device is then pushed onto the thread-local
+        device stack used by `Tensor.__post_init__`.
+
+        Returns
+        -------
+        `at_device`
+            This context manager instance.
+        """
         self.device.torch_device()
         _tensor_device_stack().append(self.device)
         return self
@@ -95,6 +107,24 @@ class at_device(ContextDecorator):
         exc: BaseException | None,
         tb: Any,
     ) -> None:
+        """
+        Deactivate the current device-forcing scope.
+
+        Parameters
+        ----------
+        exc_type : `type[BaseException] | None`
+            Exception type raised inside the context, if any.
+        exc : `BaseException | None`
+            Exception instance raised inside the context, if any.
+        tb : `Any`
+            Traceback object associated with `exc`, if any.
+
+        Notes
+        -----
+        The exception information is ignored; this method only restores the
+        previous thread-local device stack. Any active exception continues to
+        propagate normally.
+        """
         stack = _tensor_device_stack()
         stack.pop()
         if not stack:
@@ -265,6 +295,19 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     dims: Tuple[StateSpace, ...]
 
     def __post_init__(self) -> None:
+        """
+        Finalize construction after dataclass initialization.
+
+        If an `at_device` context is active for the current thread, this method
+        moves `data` onto that forced device before the frozen dataclass
+        instance escapes to user code. When no device-forcing context is
+        active, construction is left unchanged.
+
+        Notes
+        -----
+        Because `Tensor` is a frozen dataclass, the post-init device update uses
+        `object.__setattr__` to replace `data` in-place during initialization.
+        """
         forced_device = _forced_tensor_device()
         if forced_device is None:
             return
@@ -1039,6 +1082,20 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         """
         Index tensor data with `TensorIndexing` and return a new `Tensor`.
 
+        Parameters
+        ----------
+        key : `Any`
+            Index expression accepted by QTen tensor indexing. Supported tokens
+            include Python integers, slices, `None`, `...`, `StateSpace`
+            objects, `Convertible` objects that can be converted to
+            `StateSpace`, and QTen `Tensor` index tensors.
+
+        Returns
+        -------
+        `Tensor`
+            A new tensor with indexed data and output metadata compiled from the
+            provided key.
+
         Index normalization
         -------------------
         - A non-tuple key is treated as a 1-tuple.
@@ -1094,6 +1151,25 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
           `tensor_union_dims` is inserted at that block position.
         - If tensor index tokens are separated by non-tensor tokens,
           `tensor_union_dims` is moved to the front of output dims.
+
+        Raises
+        ------
+        `IndexError`
+            If the key contains too many indices, incompatible `StateSpace`
+            metadata, or more than one ellipsis.
+        `ValueError`
+            If tensor indices are mixed with `StateSpace` / `Convertible`
+            indices in one indexing operation.
+        `NotImplementedError`
+            If boolean tensor indices are used in a mode that QTen does not
+            support through `__getitem__`.
+
+        Notes
+        -----
+        This method delegates key analysis to `TensorIndexing`. When advanced
+        tensor indexing is present, indexing is executed in one torch call. In
+        all other cases, indexing is applied step-by-step so QTen can preserve
+        per-axis `StateSpace` semantics.
         """
         if not isinstance(key, tuple):
             key = (key,)
@@ -1196,6 +1272,20 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         return tuple(type(dim) for dim in self.dims)
 
     def __repr__(self) -> str:
+        """
+        Return a compact developer-facing representation of the tensor.
+
+        The representation summarizes:
+
+        - the execution device class (`CPU` or `GPU`),
+        - whether gradients are tracked,
+        - and one `TypeName:size` entry per axis in `dims`.
+
+        Returns
+        -------
+        `str`
+            A one-line summary suitable for debugging and interactive use.
+        """
         device_type = self.data.device.type
         device = "GPU" if device_type in {"cuda", "mps"} else "CPU"
         if self.dims:
@@ -1356,7 +1446,26 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
 
 @Operable.__matmul__.register
 def _(left: Tensor, right: Tensor) -> Tensor:
-    """Perform matrix multiplication (contraction) between two `Tensor`."""
+    """
+    Contract two tensors with `@` using StateSpace-aware matrix multiplication.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Left operand.
+    right : `Tensor`
+        Right operand.
+
+    Returns
+    -------
+    `Tensor`
+        Product tensor returned by `matmul(left, right)`.
+
+    Notes
+    -----
+    The actual contraction logic, batch broadcasting, and metadata alignment
+    are implemented by `matmul`.
+    """
     return matmul(left, right)
 
 
@@ -1423,11 +1532,27 @@ def _(left: Tensor, right: Tensor) -> Tensor:
     """
     Perform element-wise equality comparison between two tensors.
 
-    Behavior follows symmetric broadcast comparison:
-    - computes strict shared union dims with `union_dims(..., allow_merge=False)`
-    - aligns both operands to the union dims
-    - relies on torch runtime broadcasting for singleton/broadcast-backed axes
-    - returns output with `dims == union_dims`
+    Parameters
+    ----------
+    left : `Tensor`
+        Left operand.
+    right : `Tensor`
+        Right operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with merged `StateSpace` metadata.
+
+    Notes
+    -----
+    Comparison follows symmetric broadcast semantics:
+
+    - compute strict shared union dims with
+      `union_dims(..., allow_merge=False)`,
+    - align both operands to those dims,
+    - rely on torch runtime broadcasting for any singleton axes,
+    - return a boolean tensor with `dims == union_dims`.
     """
     return _tensor_comparison_op(left, right, torch.eq)
 
@@ -1518,73 +1643,243 @@ def _binary_elementwise_mask_op(
 
 @Operable.__lt__.register
 def _(left: Tensor, right: Tensor) -> Tensor:
-    """Perform element-wise less-than comparison between two tensors."""
+    """
+    Perform element-wise less-than comparison between two tensors.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Left operand.
+    right : `Tensor`
+        Right operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor on the merged output metadata.
+    """
     return _tensor_comparison_op(left, right, torch.lt)
 
 
 @Operable.__le__.register
 def _(left: Tensor, right: Tensor) -> Tensor:
-    """Perform element-wise less-than-or-equal comparison between two tensors."""
+    """
+    Perform element-wise less-than-or-equal comparison between two tensors.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Left operand.
+    right : `Tensor`
+        Right operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor on the merged output metadata.
+    """
     return _tensor_comparison_op(left, right, torch.le)
 
 
 @Operable.__gt__.register
 def _(left: Tensor, right: Tensor) -> Tensor:
-    """Perform element-wise greater-than comparison between two tensors."""
+    """
+    Perform element-wise greater-than comparison between two tensors.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Left operand.
+    right : `Tensor`
+        Right operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor on the merged output metadata.
+    """
     return _tensor_comparison_op(left, right, torch.gt)
 
 
 @Operable.__ge__.register
 def _(left: Tensor, right: Tensor) -> Tensor:
-    """Perform element-wise greater-than-or-equal comparison between two tensors."""
+    """
+    Perform element-wise greater-than-or-equal comparison between two tensors.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Left operand.
+    right : `Tensor`
+        Right operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor on the merged output metadata.
+    """
     return _tensor_comparison_op(left, right, torch.ge)
 
 
 @Operable.__lt__.register
 def _(left: Tensor, right: Number) -> Tensor:
-    """Perform element-wise less-than comparison between a tensor and a scalar."""
+    """
+    Compare a tensor to a scalar with element-wise `<`.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Tensor operand.
+    right : `Number`
+        Scalar operand promoted to `Tensor.scalar(right)`.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with the same comparison semantics as tensor-tensor
+        comparison.
+    """
     return left < Tensor.scalar(right)
 
 
 @Operable.__lt__.register
 def _(left: Number, right: Tensor) -> Tensor:
-    """Perform element-wise less-than comparison between a scalar and a tensor."""
+    """
+    Compare a scalar to a tensor with element-wise `<`.
+
+    Parameters
+    ----------
+    left : `Number`
+        Scalar operand promoted to `Tensor.scalar(left)`.
+    right : `Tensor`
+        Tensor operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with the same comparison semantics as tensor-tensor
+        comparison.
+    """
     return Tensor.scalar(left) < right
 
 
 @Operable.__le__.register
 def _(left: Tensor, right: Number) -> Tensor:
-    """Perform element-wise less-than-or-equal comparison between a tensor and a scalar."""
+    """
+    Compare a tensor to a scalar with element-wise `<=`.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Tensor operand.
+    right : `Number`
+        Scalar operand promoted to `Tensor.scalar(right)`.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with merged comparison metadata.
+    """
     return left <= Tensor.scalar(right)
 
 
 @Operable.__le__.register
 def _(left: Number, right: Tensor) -> Tensor:
-    """Perform element-wise less-than-or-equal comparison between a scalar and a tensor."""
+    """
+    Compare a scalar to a tensor with element-wise `<=`.
+
+    Parameters
+    ----------
+    left : `Number`
+        Scalar operand promoted to `Tensor.scalar(left)`.
+    right : `Tensor`
+        Tensor operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with merged comparison metadata.
+    """
     return Tensor.scalar(left) <= right
 
 
 @Operable.__gt__.register
 def _(left: Tensor, right: Number) -> Tensor:
-    """Perform element-wise greater-than comparison between a tensor and a scalar."""
+    """
+    Compare a tensor to a scalar with element-wise `>`.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Tensor operand.
+    right : `Number`
+        Scalar operand promoted to `Tensor.scalar(right)`.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with merged comparison metadata.
+    """
     return left > Tensor.scalar(right)
 
 
 @Operable.__gt__.register
 def _(left: Number, right: Tensor) -> Tensor:
-    """Perform element-wise greater-than comparison between a scalar and a tensor."""
+    """
+    Compare a scalar to a tensor with element-wise `>`.
+
+    Parameters
+    ----------
+    left : `Number`
+        Scalar operand promoted to `Tensor.scalar(left)`.
+    right : `Tensor`
+        Tensor operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with merged comparison metadata.
+    """
     return Tensor.scalar(left) > right
 
 
 @Operable.__ge__.register
 def _(left: Tensor, right: Number) -> Tensor:
-    """Perform element-wise greater-than-or-equal comparison between a tensor and a scalar."""
+    """
+    Compare a tensor to a scalar with element-wise `>=`.
+
+    Parameters
+    ----------
+    left : `Tensor`
+        Tensor operand.
+    right : `Number`
+        Scalar operand promoted to `Tensor.scalar(right)`.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with merged comparison metadata.
+    """
     return left >= Tensor.scalar(right)
 
 
 @Operable.__ge__.register
 def _(left: Number, right: Tensor) -> Tensor:
-    """Perform element-wise greater-than-or-equal comparison between a scalar and a tensor."""
+    """
+    Compare a scalar to a tensor with element-wise `>=`.
+
+    Parameters
+    ----------
+    left : `Number`
+        Scalar operand promoted to `Tensor.scalar(left)`.
+    right : `Tensor`
+        Tensor operand.
+
+    Returns
+    -------
+    `Tensor`
+        Boolean tensor with merged comparison metadata.
+    """
     return Tensor.scalar(left) >= right
 
 
@@ -1639,6 +1934,7 @@ def _(left: Number, right: Tensor) -> Tensor:
         The scalar value.
     right : `Tensor`
         The tensor.
+
     Returns
     -------
     `Tensor`
@@ -1658,6 +1954,7 @@ def _(left: Tensor, right: Number) -> Tensor:
         The tensor.
     right : `Number`
         The scalar value.
+
     Returns
     -------
     `Tensor`
@@ -1671,15 +1968,17 @@ def _(left: Number, right: Tensor) -> Tensor:
     """
     Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
 
-    This treats the tensor as a batch of matrices (defined by the last two dimensions).
-    The scalar is added to the diagonal elements of these matrices.
-    For rank-2 tensors, this is equivalent to M + c*I.
+    This treats the tensor as a batch of matrices defined by the last two
+    dimensions. The scalar is added to the diagonal elements of each matrix.
+    For rank-2 tensors this is equivalent to `c * I + M`.
+
     Parameters
     ----------
     left : `Number`
         The scalar value to add to the diagonal.
     right : `Tensor`
         The target tensor (must be at least rank 2).
+
     Returns
     -------
     `Tensor`
@@ -1694,15 +1993,17 @@ def _(left: Tensor, right: Number) -> Tensor:
     """
     Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
 
-    This treats the tensor as a batch of matrices (defined by the last two dimensions).
-    The scalar is added to the diagonal elements of these matrices.
-    For rank-2 tensors, this is equivalent to M + c*I.
+    This treats the tensor as a batch of matrices defined by the last two
+    dimensions. The scalar is added to the diagonal elements of each matrix.
+    For rank-2 tensors this is equivalent to `M + c * I`.
+
     Parameters
     ----------
     left : `Tensor`
         The target tensor (must be at least rank 2).
     right : `Number`
         The scalar value to add to the diagonal.
+
     Returns
     -------
     `Tensor`
@@ -1717,15 +2018,17 @@ def _(left: Number, right: Tensor) -> Tensor:
     """
     Subtract a tensor from a number (broadcasted on diagonal).
 
-    This treats the tensor as a batch of matrices (defined by the last two dimensions).
-    The operation is performed as (c*I - T), where I is the identity matrix broadcasted
-    over the batch dimensions.
+    This treats the tensor as a batch of matrices defined by the last two
+    dimensions. The operation is performed as `c * I - T`, where `I` is the
+    identity matrix broadcast over batch dimensions.
+
     Parameters
     ----------
     left : `Number`
         The scalar value.
     right : `Tensor`
         The tensor to subtract.
+
     Returns
     -------
     `Tensor`
@@ -1740,15 +2043,17 @@ def _(left: Tensor, right: Number) -> Tensor:
     """
     Subtract a number from a tensor (broadcasted on diagonal).
 
-    This treats the tensor as a batch of matrices (defined by the last two dimensions).
-    The operation is performed as (T - c*I), where I is the identity matrix broadcasted
-    over the batch dimensions.
+    This treats the tensor as a batch of matrices defined by the last two
+    dimensions. The operation is performed as `T - c * I`, where `I` is the
+    identity matrix broadcast over batch dimensions.
+
     Parameters
     ----------
     left : `Tensor`
         The tensor.
     right : `Number`
         The scalar value to subtract from the diagonal.
+
     Returns
     -------
     `Tensor`
@@ -1762,12 +2067,14 @@ def _(left: Tensor, right: Number) -> Tensor:
 def _(left: Tensor, right: Number) -> Tensor:
     """
     Perform element-wise division of a tensor by a number.
+
     Parameters
     ----------
     left : `Tensor`
         The tensor.
     right : `Number`
         The scalar divisor.
+
     Returns
     -------
     `Tensor`
@@ -3207,7 +3514,30 @@ def _(
     StateSpace,
 ]:
     """
-    Implementation for `Tensor.where()` and `Tensor.where(index_type=...)`.
+    Return the nonzero locations of a boolean condition tensor.
+
+    Parameters
+    ----------
+    condition : `Tensor`
+        Boolean tensor whose nonzero entries are to be reported.
+    index_type : `Type[Any]`, optional
+        Output representation. Supported values are:
+
+        - `Tensor`: return one integer index tensor per axis,
+        - `tuple` / `Tuple`: return Python index tuples,
+        - `StateSpace`: for rank-1 conditions, return the selected subspace.
+
+    Returns
+    -------
+    `Tuple[Tensor, ...] | Tuple[Tuple[int, ...], ...] | StateSpace`
+        Nonzero indices encoded according to `index_type`.
+
+    Raises
+    ------
+    `TypeError`
+        If `condition` is not boolean or `index_type` is unsupported.
+    `ValueError`
+        If `index_type is StateSpace` but `condition` is not rank 1.
     """
     if condition.data.dtype != torch.bool:
         raise TypeError("where expects condition.data to have dtype torch.bool")
