@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Callable, Dict, Literal, Optional, Sequence, Tuple, Union, cast
+from typing import Callable, Dict, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 import sympy as sy
@@ -227,15 +227,14 @@ def _momentum_map(
 def bandtransform(
     t: Opr,
     tensor: Tensor,
-    opt: Literal["left", "right", "both"] = "both",
 ) -> Tensor:
     """
     Apply a basis transform to a momentum-resolved operator tensor.
 
     The expected tensor shape is `(K, B_left, B_right)` where `K` is a
-    `MomentumSpace` and `B_left`, `B_right` are `HilbertSpace`s. Depending on
-    `opt`, this function applies the operator-induced basis transform on the
-    left side, right side, or both sides of the band tensor.
+    `MomentumSpace` and `B_left`, `B_right` are `HilbertSpace`s. This
+    function applies the operator-induced basis transform on both Hilbert-space
+    legs of the band tensor.
 
     For each transformed side, a k-dependent matrix is built from:
     - the action of `t` on the Hilbert-space basis (`t(space)`), and
@@ -243,10 +242,10 @@ def bandtransform(
 
     Momentum handling:
     - The action on `Momentum` is treated as a relabeling/permutation of sectors.
-    - We align the k-axis of the transform tensors to the canonical `kspace`
-      ordering before multiplication.
-    - The input tensor itself is not pre-remapped in k; remapping is used only
-      to align transform blocks with each momentum sector.
+    - The output tensor carries the transformed momentum axis
+      `mapped_kspace = {t @ k | k in kspace}`.
+    - Each output k-block is populated from the preimage source block before
+      the Hilbert-space conjugation is applied.
 
     Notes
     -----
@@ -276,9 +275,6 @@ def bandtransform(
     `tensor` : `Tensor`
         Momentum-space tensor with dims
         `(MomentumSpace, HilbertSpace, HilbertSpace)`.
-    `opt` : `Literal["left", "right", "both"]`, default `"both"`
-        Which side(s) to transform.
-
     Returns
     -------
     `Tensor`
@@ -287,12 +283,10 @@ def bandtransform(
     Raises
     ------
     `ValueError`
-        If `opt` is invalid, if `tensor` is not rank-3 with dims
-        `(MomentumSpace, HilbertSpace, HilbertSpace)`, or if a Hilbert space
-        side is not closed under the action of `t`.
+        If `tensor` is not rank-3 with dims `(MomentumSpace, HilbertSpace,
+        HilbertSpace)`, or if a Hilbert space side is not closed under the
+        action of `t`.
     """
-    if opt not in ("both", "left", "right"):
-        raise ValueError(f"Invalid option {opt} for bandtransform!")
     if not len(tensor.dims) == 3:
         raise ValueError("Input tensor must have exactly 3 dimensions.")
     if not isinstance(tensor.dims[0], MomentumSpace):
@@ -305,41 +299,48 @@ def bandtransform(
     kspace: MomentumSpace = cast(MomentumSpace, tensor.dims[0])
     transform_cache: Dict[HilbertSpace, Tensor] = {}
 
+    mapped_kspace = _momentum_map(kspace, lambda k: cast(Momentum, t @ k))
+
     def build_transform(space: HilbertSpace) -> Tensor:
         cached = transform_cache.get(space)
         if cached is not None:
             return cached
 
         fractional = FuncOpr(Offset, Offset.fractional)
-        new_space = cast(HilbertSpace, fractional @ t @ space)
+        raw_space = cast(HilbertSpace, t @ space)
+        new_space = cast(HilbertSpace, fractional @ raw_space)
         # The transformation will distort the unit-cell of the Hilbert space,
         # we will use fractional to return it to the original unit-cell.
         if not space.same_rays(new_space):
             raise ValueError(
                 f"Hilbert space {space} is not closed under the transform {t}!"
             )
-        bloch_transform = cast(
+        # `raw_space` keeps the transformed positions before wrapping them back
+        # into the home cell; `new_space` is the corresponding wrapped basis.
+        # Their difference is the lattice translation whose Bloch phase is
+        # encoded by the Fourier transform below.
+        transformed_fourier = fourier_transform(
+            mapped_kspace, new_space, raw_space, device=tensor.device
+        ).replace_dim(2, space)  # (K, B, B')
+        # This is the home-cell basis map analogous to the Julia
+        # `homefocktransform`: it relabels the wrapped transformed basis back
+        # onto the original Hilbert-space labels.
+        home_transform = cast(
             Tensor, space.cross_gram(new_space, device=tensor.device)
-        ).h(-2, -1)
-        f = fourier_transform(kspace, space, space, device=tensor.device)  # (K, B, B')
-        # Keep the transformed unit-cell labels explicit on the region leg so
-        # StateSpace auto-alignment does not erase the site permutation.
-        # (K, B, B) @ (B, B) @ (K, B, B)
-        transform = f @ bloch_transform @ f.h(-2, -1)  # (K, B, B)
+        ).replace_dim(1, new_space)
+        transform = home_transform @ transformed_fourier  # (K, B, B)
         transform_cache[space] = transform
         return transform
 
-    mapped_kspace = _momentum_map(kspace, lambda k: cast(Momentum, t @ k))
+    tensor = tensor.replace_dim(0, mapped_kspace)
 
-    if opt in ("both", "left"):
-        left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
-        left_fourier = left_fourier.replace_dim(0, mapped_kspace)  # (K, B, B)
-        tensor = cast(Tensor, (left_fourier @ tensor))  # (K, B, B)
+    left_fourier = build_transform(cast(HilbertSpace, tensor.dims[1]))  # (K, B, B)
+    left_fourier = left_fourier.replace_dim(0, mapped_kspace)  # (K, B, B)
+    tensor = cast(Tensor, (left_fourier @ tensor))  # (K, B, B)
 
-    if opt in ("both", "right"):
-        right_fourier = build_transform(cast(HilbertSpace, tensor.dims[2]))  # (K, B, B)
-        right_fourier = right_fourier.replace_dim(0, mapped_kspace)  # (K, B, B)
-        tensor = cast(Tensor, (tensor @ right_fourier.h(-2, -1)))  # (K, B, B)
+    right_fourier = build_transform(cast(HilbertSpace, tensor.dims[2]))  # (K, B, B)
+    right_fourier = right_fourier.replace_dim(0, mapped_kspace)  # (K, B, B)
+    tensor = cast(Tensor, (tensor @ right_fourier.h(-2, -1)))  # (K, B, B)
 
     return tensor
 
@@ -347,7 +348,6 @@ def bandtransform(
 def bandfold(
     transform: BasisTransform,
     tensor: Tensor,
-    opt: Literal["both", "left", "right"] = "both",
 ) -> Tensor:
     """
     Fold a momentum-resolved band tensor into the Brillouin zone of a
@@ -361,10 +361,6 @@ def bandfold(
     change of basis is applied, and the momentum sectors are then gathered into
     the new momentum grid.
 
-    `opt` selects which Hilbert-space leg defines the enlarged basis:
-    - `"left"` uses `tensor.dims[1]`
-    - `"right"` and `"both"` use `tensor.dims[2]`
-
     Parameters
     ----------
     transform : BasisTransform
@@ -373,10 +369,6 @@ def bandfold(
     tensor : Tensor
         Rank-3 tensor with dimensions
         `(MomentumSpace, HilbertSpace, HilbertSpace)`.
-    opt : Literal["both", "left", "right"], default "both"
-        Selects which Hilbert-space leg is rebuilt in the transformed unit
-        cell. `"both"` currently follows the right-leg branch.
-
     Returns
     -------
     Tensor
@@ -428,13 +420,11 @@ def bandfold(
     # the transformed offsets on the output Hilbert-space labels.
     enlarge_unit_cell = tuple(r.rebase(lattice) for r in transformed_unit_cell)
 
-    # Transform based on opt
-    switch_index = -2 if opt == "left" else -1
-    target_space = tensor.dims[switch_index]
+    # Follow the existing "both" branch behavior by rebuilding the right leg.
+    target_space = tensor.dims[-1]
     if not isinstance(target_space, HilbertSpace):
         raise TypeError(
-            f"Dimension at index {switch_index} must be a HilbertSpace, "
-            f"but got {type(target_space)}"
+            f"The last dimension must be a HilbertSpace, but got {type(target_space)}"
         )
     rebased_hilbert = HilbertSpace.new(
         cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
@@ -448,7 +438,7 @@ def bandfold(
     )
     # # Transform both sides
     f = fourier_transform(
-        k_space, tensor.dims[switch_index], rebased_hilbert, device=tensor.device
+        k_space, tensor.dims[-1], rebased_hilbert, device=tensor.device
     )
     vratio = np.sqrt(len(enlarge_unit_cell) / len(lattice.unit_cell))
     f = f / vratio
