@@ -4,9 +4,20 @@ from dataclasses import dataclass
 from sympy import ImmutableDenseMatrix
 
 from qten.symbolics.hilbert_space import U1Basis, U1Span, HilbertSpace
-from qten.symbolics.ops import region_hilbert
+from qten.symbolics.ops import (
+    fractional_opr,
+    rebase_opr,
+    region_hilbert,
+    translate_opr,
+)
 from qten.symbolics.state_space import MomentumSpace, brillouin_zone
-from qten.geometries.spatials import Lattice, Offset, Momentum, ReciprocalLattice
+from qten.geometries.spatials import (
+    AffineSpace,
+    Lattice,
+    Offset,
+    Momentum,
+    ReciprocalLattice,
+)
 from qten.utils.collections_ext import FrozenDict
 from qten.geometries.boundary import PeriodicBoundary
 
@@ -381,6 +392,59 @@ def test_region_hilbert_raises_for_missing_fractional_offset():
 
     with pytest.raises(ValueError, match="fractional part"):
         region_hilbert(bloch_space, [missing])
+
+
+def test_translate_opr_shifts_offset_irrep():
+    lat = _lattice(ImmutableDenseMatrix.eye(1), (5,))
+    psi = _state(Offset(rep=ImmutableDenseMatrix([1]), space=lat.affine))
+
+    translated = (
+        translate_opr(Offset(rep=ImmutableDenseMatrix([2]), space=lat.affine)) @ psi
+    )
+
+    assert translated.irrep_of(Offset) == Offset(
+        rep=ImmutableDenseMatrix([3]), space=lat.affine
+    )
+
+
+def test_rebase_opr_rebases_offset_irrep():
+    old_space = AffineSpace(ImmutableDenseMatrix([[2]]))
+    new_space = AffineSpace(ImmutableDenseMatrix([[1]]))
+    psi = _state(Offset(rep=ImmutableDenseMatrix([1]), space=old_space))
+
+    rebased = rebase_opr(new_space) @ psi
+
+    assert rebased.irrep_of(Offset) == Offset(
+        rep=ImmutableDenseMatrix([2]), space=new_space
+    )
+
+
+def test_fractional_opr_fractionalizes_offset_irrep():
+    lat = _lattice(ImmutableDenseMatrix.eye(1), (5,))
+    psi = _state(
+        Offset(rep=ImmutableDenseMatrix([sy.Rational(5, 2)]), space=lat.affine)
+    )
+
+    fractionalized = fractional_opr() @ psi
+
+    assert fractionalized.irrep_of(Offset) == Offset(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 2)]), space=lat.affine
+    )
+
+
+def test_fractional_opr_fractionalizes_momentum_irrep():
+    lat = _lattice(ImmutableDenseMatrix.eye(1), (4,))
+    recip = lat.dual
+    psi = U1Basis(
+        coef=sy.Integer(1),
+        base=(Momentum(rep=ImmutableDenseMatrix([sy.Rational(5, 4)]), space=recip),),
+    )
+
+    fractionalized = fractional_opr(Momentum) @ psi
+
+    assert fractionalized.irrep_of(Momentum) == Momentum(
+        rep=ImmutableDenseMatrix([sy.Rational(1, 4)]), space=recip
+    )
 
 
 def test_hilbert_space_lookup_errors_for_no_or_multiple_matches():

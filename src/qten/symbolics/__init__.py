@@ -23,8 +23,11 @@ from .hilbert_space import (
 )
 
 from .ops import (
+    fractional_opr as fractional_opr,
     hilbert_opr_repr as hilbert_opr_repr,
     interpolate_reciprocal_path as interpolate_reciprocal_path,
     match_indices as match_indices,
+    rebase_opr as rebase_opr,
     region_hilbert as region_hilbert,
+    translate_opr as translate_opr,
 )

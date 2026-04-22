@@ -7,12 +7,16 @@ from .geometries import (
     get_strip_region_2d as get_strip_region_2d,
     interstitial_centers as interstitial_centers,
     nearest_sites as nearest_sites,
+    region_centering as region_centering,
     region_tile as region_tile,
 )
 from .symbolics import (
+    fractional_opr as fractional_opr,
     region_hilbert as region_hilbert,
     hilbert_opr_repr as hilbert_opr_repr,
     interpolate_reciprocal_path as interpolate_reciprocal_path,
+    rebase_opr as rebase_opr,
+    translate_opr as translate_opr,
 )
 from .bands import interpolate_path as interpolate_path
 from .pointgroups.ops import (

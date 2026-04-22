@@ -1,17 +1,77 @@
 from collections import OrderedDict
-from typing import Callable, Dict, Optional, Sequence, TypeVar, Union, cast
+from typing import Callable, Dict, Optional, Sequence, TypeVar, Union, cast, overload
 import numpy as np
 import sympy as sy
 from sympy import ImmutableDenseMatrix
 import torch
 
-from ..geometries import Momentum, Offset, ReciprocalLattice
+from ..geometries import AffineSpace, Momentum, Offset, ReciprocalLattice
+from ..geometries.spatials import OffsetType
 from ..linalg.tensors import Tensor
-from . import HilbertSpace, Opr, StateSpace
+from . import FuncOpr, HilbertSpace, Opr, StateSpace
 from .state_space import BzPath, MomentumSpace
 from ..utils.devices import Device
 
 T = TypeVar("T")
+S = TypeVar("S", bound=AffineSpace)
+
+
+def translate_opr(d: OffsetType) -> FuncOpr[OffsetType]:
+    """
+    Build an operator that translates irreps of the same concrete type by `d`.
+
+    Parameters
+    ----------
+    `d` : `Offset | Momentum`
+        Translation to add to the targeted irrep.
+
+    Returns
+    -------
+    `FuncOpr`
+        Operator applying `x -> x + d` to irreps whose concrete type matches
+        `type(d)`.
+    """
+    point_type = cast(type[OffsetType], type(d))
+    return FuncOpr(point_type, lambda r: cast(OffsetType, r + d))
+
+
+def rebase_opr(space: S) -> FuncOpr[OffsetType]:
+    """
+    Build an operator that rebases spatial irreps into `space`.
+
+    For affine spaces this targets `Offset` irreps. For reciprocal lattices it
+    targets `Momentum` irreps.
+    """
+    point_type = cast(
+        type[OffsetType], Momentum if isinstance(space, ReciprocalLattice) else Offset
+    )
+    return FuncOpr(point_type, lambda r: cast(OffsetType, r.rebase(space)))
+
+
+@overload
+def fractional_opr() -> FuncOpr[Offset]: ...
+
+
+@overload
+def fractional_opr(T: type[OffsetType]) -> FuncOpr[OffsetType]: ...
+
+
+def fractional_opr(
+    T: type[OffsetType] | None = None,
+) -> FuncOpr[Offset] | FuncOpr[OffsetType]:
+    """
+    Build an operator that replaces a spatial irrep by its fractional form.
+
+    Parameters
+    ----------
+    `T` : `type[Offset] | type[Momentum] | None`, optional
+        Exact irrep type to target. Because `FuncOpr` matches exact runtime
+        types, reciprocal-space basis states should use
+        `fractional_opr(Momentum)`. If omitted, `Offset` is targeted.
+    """
+    if T is None:
+        return FuncOpr(Offset, Offset.fractional)
+    return FuncOpr(T, lambda r: cast(OffsetType, r.fractional()))
 
 
 def region_hilbert(bloch_space: HilbertSpace, region: Sequence[Offset]) -> HilbertSpace:
