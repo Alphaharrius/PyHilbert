@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import mkdocs_gen_files
@@ -23,8 +24,32 @@ def write_module_page(module_name: str, doc_path: Path, source_path: Path) -> No
         else:
             fd.write(f"Module reference for `{module_name}`.\n\n")
         fd.write(f"::: {module_name}\n")
+        if source_path.name == "__init__.py":
+            exports = public_reexports(source_path)
+            if exports:
+                fd.write("\n## Exported API\n\n")
+                for export_name in exports:
+                    fd.write(f"::: {module_name}.{export_name}\n\n")
 
     mkdocs_gen_files.set_edit_path(doc_path, source_path.relative_to(ROOT))
+
+
+def public_reexports(source_path: Path) -> list[str]:
+    tree = ast.parse(source_path.read_text())
+    exports: list[str] = []
+    seen: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            export_name = alias.asname or alias.name
+            if export_name.startswith("_"):
+                continue
+            if export_name in seen:
+                continue
+            seen.add(export_name)
+            exports.append(export_name)
+    return exports
 
 
 nav = mkdocs_gen_files.Nav()
