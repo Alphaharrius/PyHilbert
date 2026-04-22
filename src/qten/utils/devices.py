@@ -37,7 +37,7 @@ class Device:
     @staticmethod
     def new(name: str) -> "Device":
         """
-        Parse a user-facing device string into a ``Device`` instance.
+        Parse a user-facing device string into a `[`Device`][qten.utils.devices.Device]` instance.
 
         Supported inputs are:
         - `"cpu"`

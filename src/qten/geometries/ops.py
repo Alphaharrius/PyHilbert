@@ -232,7 +232,7 @@ def get_strip_region_2d(
 
     This helper is defined only for 2D lattices.
 
-    Let `r0` be the supplied `origin` (or the lattice origin when omitted).
+    Let `r0` be the supplied [`origin`][qten.geometries.spatials.AffineSpace.origin] (or the lattice origin when omitted).
     Let `(dx, dy)` be the supplied direction coordinates. Let
     `p = (px, py)` be the associated primitive integer direction, and let
     `n = (-py, px)` be the primitive integer normal. `side="lhs"` grows

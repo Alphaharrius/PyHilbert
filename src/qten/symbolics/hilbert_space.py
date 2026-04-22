@@ -66,7 +66,7 @@ class U1Basis(
     """
     Immutable single-particle basis state built from typed irreps.
 
-    `U1Basis` is a symbolic tensor-product state with U(1) irreducible representation
+    [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] is a symbolic tensor-product state with U(1) irreducible representation
     presented as an ordered tuple of irreps. This object is
     intentionally symbolic: it stores basis labels only and does not store amplitudes
     or coefficients.
@@ -74,7 +74,7 @@ class U1Basis(
     A key invariant is enforced at construction time: for each concrete irrep
     type, the state must contain exactly one ket of that type. In other words,
     irrep multiplicities must be unity. This guarantees that type-based updates
-    via `replace` are unambiguous and fast.
+    via [`replace`][qten.symbolics.hilbert_space.U1Basis.replace] are unambiguous and fast.
 
     Attributes
     ----------
@@ -89,10 +89,10 @@ class U1Basis(
     - `dim` is always `1`; this type represents one basis vector.
     - Irrep order is canonicalized at construction; permutations of the same
       typed irreps produce the same internal `rep` tuple.
-    - `replace(irrep)` substitutes the unique irrep with the same
+    - [`replace(irrep)`][qten.symbolics.hilbert_space.U1Basis.replace] substitutes the unique irrep with the same
       concrete runtime type as `irrep`.
-    - `@` dispatch overloads combine reps/states into a new `U1Basis`.
-    - `|` dispatch overloads build a `U1Span` of distinct `U1Basis` values.
+    - `@` dispatch overloads combine reps/states into a new [`U1Basis`][qten.symbolics.hilbert_space.U1Basis].
+    - `|` dispatch overloads build a [`U1Span`][qten.symbolics.hilbert_space.U1Span] of distinct [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] values.
     - Ordering (`<`, `>`) compares, in order: number of irreps, tuple of
       fully-qualified irrep type names (`module.qualname`) from
       `self.rep`, then the canonical irrep-value tuple itself.
@@ -121,18 +121,18 @@ class U1Basis(
     @staticmethod
     def new(*rep: Any) -> "U1Basis":
         """
-        Build a `U1Basis` with the given reps and a default U(1) value of `1`.
+        Build a [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] with the given reps and a default U(1) value of `1`.
 
         Parameters
         ----------
         rep : Any
             Irreps to build the state from. Input order is canonicalized in
-            `__post_init__` by sorting on `full_typename(type(irrep))`.
+            `__post_init__` by sorting on [`full_typename(type(irrep))`][qten.utils.types_ext.full_typename].
 
         Returns
         -------
         U1Basis
-            A `U1Basis` instance with the given reps and a default U(1) value of `1`.
+            A [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] instance with the given reps and a default U(1) value of `1`.
         """
         return U1Basis(coef=sy.Integer(1), base=tuple(rep))
 
@@ -147,7 +147,7 @@ class U1Basis(
 
         The method searches this state's irrep tuple for the unique irrep whose type has
         the same *exact* runtime type as `irrep` (using `type(x) is type(y)`), then
-        returns a new `U1Basis` with that irrep substituted. The original instance is
+        returns a new [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] with that irrep substituted. The original instance is
         not modified.
 
         Parameters
@@ -159,7 +159,7 @@ class U1Basis(
         Returns
         -------
         U1Basis
-            A new `U1Basis` with one irrep replaced.
+            A new [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] with one irrep replaced.
 
         Raises
         ------
@@ -189,7 +189,7 @@ class U1Basis(
         Returns
         -------
         U1Basis
-            A new `U1Basis` with all irreps whose concrete types are in `T`
+            A new [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] with all irreps whose concrete types are in `T`
             removed. If none of the requested types are present, `self` is
             returned unchanged.
         """
@@ -280,10 +280,10 @@ class U1Basis(
 
     def repr_types(self) -> Tuple[Type, ...]:
         """
-        Get a tuple of concrete irrep types in this `U1Basis` in canonical order.
+        Get a tuple of concrete irrep types in this [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] in canonical order.
 
         This is the same order as `self.rep`, which is determined by
-        sorting on `full_typename(type(irrep))`.
+        sorting on [`full_typename(type(irrep))`][qten.utils.types_ext.full_typename].
 
         Returns
         -------
@@ -332,7 +332,7 @@ class U1Span(Span[U1Basis], Spatial, HasRays, Convertible):
     """
     Finite span of distinct single-particle basis states.
 
-    `U1Span` is the additive container used by `U1Basis`'s `*` operator. It
+    [`U1Span`][qten.symbolics.hilbert_space.U1Span] is the additive container used by [`U1Basis`][qten.symbolics.hilbert_space.U1Basis]'s `*` operator. It
     stores an ordered tuple of basis states and represents the symbolic span
     generated by those states. The object is immutable (`frozen=True`) and
     preserves insertion order.
@@ -345,7 +345,7 @@ class U1Span(Span[U1Basis], Spatial, HasRays, Convertible):
     Parameters
     ----------
     span : Tuple[U1Basis, ...]
-        Ordered tuple of `U1Basis` elements contained in this span.
+        Ordered tuple of [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] elements contained in this span.
 
     Attributes
     ----------
@@ -395,7 +395,7 @@ class U1Span(Span[U1Basis], Spatial, HasRays, Convertible):
 
 @U1Basis.add_conversion(U1Span)
 def _(basis: U1Basis) -> U1Span:
-    """Convert a `U1Basis` to a `U1Span` containing just that basis state."""
+    """Convert a [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] to a [`U1Span`][qten.symbolics.hilbert_space.U1Span] containing just that basis state."""
     return U1Span((basis,))
 
 
@@ -405,35 +405,35 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
     """
     Composite local Hilbert space built from states and state spans.
 
-    `HilbertSpace` is the symbolic basis container used by tensor-network style
-    operators in this module. It extends `StateSpace` with `U1Basis` sectors.
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] is the symbolic basis container used by tensor-network style
+    operators in this module. It extends [`StateSpace`][qten.symbolics.state_space.StateSpace] with [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] sectors.
     The inherited `structure` mapping stores each sector together with its
     integer index in basis order.
 
     The class provides helpers for common basis-management workflows:
     - `elements()` returns the flattened basis states as `Tuple[U1Basis, ...]`.
-    - `lookup(query)` retrieves a unique basis state by exact typed-irrep match.
-    - `group(**groups)` partitions basis elements into labeled grouped
-      `HilbertSpace` values.
+    - [`lookup(query)`][qten.symbolics.hilbert_space.HilbertSpace.lookup] retrieves a unique basis state by exact typed-irrep match.
+    - [`group(**groups)`][qten.symbolics.hilbert_space.HilbertSpace.group] partitions basis elements into labeled grouped
+      [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] values.
 
-    As a `Span`, `HilbertSpace` supports overlap/mapping computations through
-    `cross_gram`, which builds a `Tensor` map between two spaces using `U1Basis`
-    overlap (`U1Span.cross_gram`). As a `HasRays`, `rays()` keeps basis
+    As a [`Span`][qten.abstracts.Span], [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] supports overlap/mapping computations through
+    `cross_gram`, which builds a [`Tensor`][qten.linalg.tensors.Tensor] map between two spaces using [`U1Basis`][qten.symbolics.hilbert_space.U1Basis]
+    overlap (`U1Span.cross_gram`). As a [`HasRays`][qten.abstracts.HasRays], [`rays()`][qten.symbolics.hilbert_space.HilbertSpace.rays] keeps basis
     structure while replacing each element by its canonical ray representative.
 
     Parameters
     ----------
     structure : OrderedDict[U1Basis, int]
-        Ordered sector mapping inherited from `StateSpace`, where each key is a
-        `U1Basis` and each value is the sector index in basis coordinates.
+        Ordered sector mapping inherited from [`StateSpace`][qten.symbolics.state_space.StateSpace], where each key is a
+        [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] and each value is the sector index in basis coordinates.
 
     Notes
     -----
-    - `dim` is inherited from `StateSpace` and equals the total flattened basis
+    - `dim` is inherited from [`StateSpace`][qten.symbolics.state_space.StateSpace] and equals the total flattened basis
       size (the number of indexed basis sectors).
-    - `group()` requires disjoint selectors; overlapping grouped spans raise
+    - [`group()`][qten.symbolics.hilbert_space.HilbertSpace.group] requires disjoint selectors; overlapping grouped spans raise
       `ValueError`.
-    - `permutation_order` and `embedding_order` operate on current
+    - [`permutation_order`][qten.symbolics.state_space.permutation_order] and [`embedding_order`][qten.symbolics.state_space.embedding_order] operate on current
       `structure` keys.
     """
 
@@ -442,7 +442,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
     @staticmethod
     def new(itr: Iterable[U1Basis]) -> "HilbertSpace":
         """
-        Build a `HilbertSpace` from an ordered basis iterable.
+        Build a [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] from an ordered basis iterable.
 
         Parameters
         ----------
@@ -544,8 +544,8 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
         Returns
         -------
         FrozenDict[str, HilbertSpace]
-            Frozen mapping from labels to grouped `HilbertSpace` values.
-            Each grouped subspace is sorted in ascending `U1Basis` order.
+            Frozen mapping from labels to grouped [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] values.
+            Each grouped subspace is sorted in ascending [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] order.
         """
         elements = self.elements()
 
@@ -589,7 +589,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
         ----------
         *T : Type
             The irrep types to group by. The grouping will be performed in the order of the types specified.
-            For example `group_by(A, B)` will group the basis by `(A, B)`, and
+            For example [`group_by(A, B)`][qten.symbolics.hilbert_space.HilbertSpace.group_by] will group the basis by `(A, B)`, and
             basis states with the same irrep of `A` and `B` will be in the same
             grouped subspace.
 
@@ -618,12 +618,12 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
     def is_homogeneous(self) -> bool:
         """
-        Check if this `HilbertSpace` is homogeneous, i.e., all basis states share the same irrep types.
+        Check if this [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] is homogeneous, i.e., all basis states share the same irrep types.
 
         Returns
         -------
         bool
-            True if all basis states in this `HilbertSpace` have the same set of irrep types, `False` otherwise.
+            True if all basis states in this [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] have the same set of irrep types, `False` otherwise.
         """
         elements = self.elements()
         if not elements:  # An empty Hilbert space is considered homogeneous.
@@ -636,7 +636,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
     def canonical_basis_types(self) -> Tuple[Type[Any], ...]:
         """
-        Return the canonical irrep-type order shared by this `HilbertSpace` basis.
+        Return the canonical irrep-type order shared by this [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] basis.
 
         A homogeneous Hilbert space has one consistent irrep-type layout across all
         basis states (for example `(int, str)` for every element). This method
@@ -668,7 +668,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
         """
         Return the irrep of type `T` for each basis state in this space.
 
-        This is the `HilbertSpace` analogue of `U1Basis.irrep_of(T)`, lifted
+        This is the [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] analogue of `U1Basis.irrep_of(T)`, lifted
         across the ordered basis of the space.
 
         Parameters
@@ -692,11 +692,11 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
         self, *irrep_types: Tuple[Type, ...], coef_on: Optional[int] = None
     ) -> StateSpaceFactorization:
         """
-        Factorize this homogeneous `HilbertSpace` into tensor factors grouped by irrep type.
+        Factorize this homogeneous [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] into tensor factors grouped by irrep type.
 
         Each argument in `irrep_types` defines one output factor as a tuple of irrep
         types to group together. Across all groups, every irrep type in this space must
-        appear exactly once. The result is a `StateSpaceFactorization` describing the factor
+        appear exactly once. The result is a [`StateSpaceFactorization`][qten.symbolics.state_space.StateSpaceFactorization] describing the factor
         spaces and the basis reindexing needed to move between the original basis order
         and the factorized tensor-product structure.
 
@@ -704,7 +704,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
         -------
         For basis states labeled by `(int, str)`:
         `(|1⟩|'a'⟩, |1⟩|'b'⟩, |2⟩|'a'⟩, |2⟩|'b'⟩)`,
-        `factorize((int,), (str,))` produces two factors:
+        [`factorize((int,), (str,))`][qten.symbolics.hilbert_space.HilbertSpace.factorize] produces two factors:
         `(|1⟩, |2⟩)` and `(|'a'⟩, |'b'⟩)`.
 
         Failed examples
@@ -854,7 +854,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
     @override
     def tensor_product(self, other: "HilbertSpace") -> "HilbertSpace":
         """
-        Build the tensor-product space of this space with another `HilbertSpace`.
+        Build the tensor-product space of this space with another [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
 
         The resulting basis is generated by taking every ordered pair
         `(a, b)` from `self.elements()` and `other.elements()`, then forming the
@@ -919,7 +919,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
 @U1Basis.add_conversion(StateSpace)
 def _u1basis_to_hilbertspace(basis: U1Basis) -> StateSpace:
-    """Convert a `U1Basis` to a `HilbertSpace` containing only that basis state."""
+    """Convert a [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] to a [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] containing only that basis state."""
     return HilbertSpace.new((basis,))
 
 
@@ -931,7 +931,7 @@ U1Basis.add_conversion(HilbertSpace)(
 
 @U1Span.add_conversion(StateSpace)
 def _u1span_to_hilbertspace(span: U1Span) -> StateSpace:
-    """Convert a `U1Span` to a `HilbertSpace` containing the span's basis states."""
+    """Convert a [`U1Span`][qten.symbolics.hilbert_space.U1Span] to a [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] containing the span's basis states."""
     return HilbertSpace.new(span.span)
 
 
@@ -942,7 +942,7 @@ U1Span.add_conversion(HilbertSpace)(
 
 @HilbertSpace.add_conversion(HilbertSpace)
 def _(v: HilbertSpace) -> HilbertSpace:
-    """Identity conversion for `HilbertSpace`."""
+    """Identity conversion for [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]."""
     return v
 
 
@@ -962,24 +962,24 @@ class Opr(Functional, Operable, ABC):
 
     `Operator` combines two core behaviors:
 
-    1. `Functional` dispatch and chaining
+    1. [`Functional`][qten.abstracts.Functional] dispatch and chaining
        Implementations are registered via `Functional.register` for pairs of
        `(input_type, operator_subclass)`. At runtime, :meth:`apply` resolves the
        function chain for the concrete input object and executes each function in
        order.
 
-    2. `Operable` matrix-application syntax
-       Because `Operator` is `Operable`, it participates in the overloaded `@`
+    2. [`Operable`][qten.abstracts.Operable] matrix-application syntax
+       Because `Operator` is [`Operable`][qten.abstracts.Operable], it participates in the overloaded `@`
        operator. This module defines `Operable.__matmul__(Operator, U1Basis)`,
        so `op @ value` applies the operator and returns only the transformed
        value component.
 
     Conceptually, an operator application returns two outputs:
     - a transformed object of the same runtime type as the input, or
-    - `Multiple(coef, transformed_object)` when the action also contributes a
+    - [`Multiple(coef, transformed_object)`][qten.symbolics.base.Multiple] when the action also contributes a
       scalar prefactor
 
-    The `Multiple` form is used when the operator naturally decomposes into a
+    The [`Multiple`][qten.symbolics.base.Multiple] form is used when the operator naturally decomposes into a
     scalar factor times an object in the same representation family. Typical
     examples include phase factors, characters, gauge coefficients, and other
     symbolic amplitudes that should stay factored instead of being folded
@@ -989,25 +989,25 @@ class Opr(Functional, Operable, ABC):
     -------------------------
     - A registered handler should return a plain transformed object when the
       operator acts without producing an extra scalar factor.
-    - A registered handler should return `Multiple(coef, value)` when the
+    - A registered handler should return [`Multiple(coef, value)`][qten.symbolics.base.Multiple] when the
       action produces a scalar prefactor that should remain explicit.
     - In both cases, the underlying transformed value must stay in the same
       representation family as the input. More precisely:
       - plain return: `type(result) is type(input)` or a compatible subclass
       - multiple return: `type(result.base) is type(input)` or a compatible
         subclass
-    - `Opr.invoke` automatically lifts operators over `Multiple`: if
+    - `Opr.invoke` automatically lifts operators over [`Multiple`][qten.symbolics.base.Multiple]: if
       `op(base) -> y`, then `op(Multiple(c, base)) -> Multiple(c, y)`; if
       `op(base) -> Multiple(c2, y)`, the coefficients are multiplied to produce
-      `Multiple(simplify(c * c2), y)`.
-    - For symbolic container inputs `U1Basis`, `U1Span`, and `HilbertSpace`,
-      the generic `Opr` lifting in this module expects the final result to stay
-      in-kind and not return `Multiple` at the top level. Scalar factors should
+      [`Multiple(simplify(c * c2), y)`][qten.symbolics.base.Multiple].
+    - For symbolic container inputs [`U1Basis`][qten.symbolics.hilbert_space.U1Basis], [`U1Span`][qten.symbolics.hilbert_space.U1Span], and [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace],
+      the generic [`Opr`][qten.symbolics.hilbert_space.Opr] lifting in this module expects the final result to stay
+      in-kind and not return [`Multiple`][qten.symbolics.base.Multiple] at the top level. Scalar factors should
       instead be attached to the contained irreps/components and accumulated
       into the container's internal coefficient structure.
-    - This module provides generic `Opr` registrations for `U1Basis`,
-      `U1Span`, and `HilbertSpace`. Subclasses inherit those handlers through
-      `Functional` MRO fallback unless they define more specific registrations.
+    - This module provides generic [`Opr`][qten.symbolics.hilbert_space.Opr] registrations for [`U1Basis`][qten.symbolics.hilbert_space.U1Basis],
+      [`U1Span`][qten.symbolics.hilbert_space.U1Span], and [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]. Subclasses inherit those handlers through
+      [`Functional`][qten.abstracts.Functional] MRO fallback unless they define more specific registrations.
     - If no registration exists for `(type(input), type(operator))` after MRO
       fallback on both the input type and the operator type,
       :class:`NotImplementedError` is raised by `Functional.invoke`.
@@ -1026,12 +1026,12 @@ class Opr(Functional, Operable, ABC):
 
     - return `value` when the operator only changes the representation/object
       itself
-    - return `Multiple(coef, value)` when the operator contributes a symbolic
+    - return [`Multiple(coef, value)`][qten.symbolics.base.Multiple] when the operator contributes a symbolic
       scalar prefactor that should remain factored
 
     In particular, for atomic irreps or basis-function-like objects, returning
-    `Multiple` is often appropriate. For higher-level symbolic containers such
-    as `U1Basis`, `U1Span`, and `HilbertSpace`, prefer returning the same
+    [`Multiple`][qten.symbolics.base.Multiple] is often appropriate. For higher-level symbolic containers such
+    as [`U1Basis`][qten.symbolics.hilbert_space.U1Basis], [`U1Span`][qten.symbolics.hilbert_space.U1Span], and [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace], prefer returning the same
     container type directly and let the generic lifting logic accumulate scalar
     factors internally.
     """
@@ -1093,7 +1093,7 @@ def _(o: Opr, h: HilbertSpace) -> HilbertSpace:
 
 @same_rays.register
 def _(a: U1Basis, b: U1Basis) -> bool:
-    """Check if two `U1Basis` define the same ray."""
+    """Check if two [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] define the same ray."""
     return a.rays() == b.rays()
 
 
@@ -1102,8 +1102,8 @@ class FuncOpr(Generic[_IrrepType], Opr):
     """
     Symbolic operator induced by applying a Python callable to one irrep type.
 
-    `FuncOpr` lifts a plain callable acting on a single irrep/component into an
-    `Opr` that acts on the symbolic Hilbert-space objects defined in this module.
+    [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] lifts a plain callable acting on a single irrep/component into an
+    [`Opr`][qten.symbolics.hilbert_space.Opr] that acts on the symbolic Hilbert-space objects defined in this module.
     The operator is parameterized by:
 
     - `T`: the concrete runtime type of the irrep/component to target
@@ -1111,21 +1111,21 @@ class FuncOpr(Generic[_IrrepType], Opr):
 
     Registered actions
     ------------------
-    `FuncOpr` defines a specialized registration on:
+    [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] defines a specialized registration on:
 
-    - `U1Basis`
+    - [`U1Basis`][qten.symbolics.hilbert_space.U1Basis]
       Finds the unique irrep in `psi.base` whose exact runtime type is `T`,
       applies `func` to it, and rebuilds the basis state with that component
       replaced.
 
-    For `U1Span` and `HilbertSpace`, `FuncOpr` relies on the inherited generic
-    `Opr` lifting in this module, which maps the operator over contained
-    `U1Basis` elements.
+    For [`U1Span`][qten.symbolics.hilbert_space.U1Span] and [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace], [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] relies on the inherited generic
+    [`Opr`][qten.symbolics.hilbert_space.Opr] lifting in this module, which maps the operator over contained
+    [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] elements.
 
     Semantics
     ---------
     This class is intended for structure-preserving symbolic rewrites such as
-    "replace each `Offset` by `Offset.fractional()`" or "apply a transformation
+    "replace each [`Offset`][qten.geometries.spatials.Offset] by `Offset.fractional()`" or "apply a transformation
     to each irrep of a basis state". It is not a general-purpose map over
     arbitrary Python objects: dispatch exists only for the symbolic container
     types registered below.
@@ -1133,57 +1133,57 @@ class FuncOpr(Generic[_IrrepType], Opr):
     The callable `func` is expected to return either:
 
     - a transformed object of the same concrete type `T`, or
-    - `Multiple(coef, value)` where `value` has type `T`
+    - [`Multiple(coef, value)`][qten.symbolics.base.Multiple] where `value` has type `T`
 
     Return plain `T` when the transformation only changes the irrep/component
-    itself. Return `Multiple` when the transformation also contributes an
+    itself. Return [`Multiple`][qten.symbolics.base.Multiple] when the transformation also contributes an
     explicit scalar factor, such as a phase or gauge coefficient, that should
     be accumulated symbolically rather than absorbed into the object.
 
-    `FuncOpr` does not itself validate the semantic correctness of `func`, but
+    [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] does not itself validate the semantic correctness of `func`, but
     the surrounding symbolic code assumes the transformation stays within the
     same representation family.
 
     Interaction with `@`
     --------------------
-    Because `FuncOpr` is an `Opr`, it participates in the overloaded `@`
+    Because [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] is an [`Opr`][qten.symbolics.hilbert_space.Opr], it participates in the overloaded `@`
     syntax:
 
     - `f @ x` applies the operator to an object `x`
-    - `f @ g` forms a `ComposedOpr`
+    - `f @ g` forms a [`ComposedOpr`][qten.symbolics.hilbert_space.ComposedOpr]
 
-    With the current `ComposedOpr` semantics, operator composition follows the
+    With the current [`ComposedOpr`][qten.symbolics.hilbert_space.ComposedOpr] semantics, operator composition follows the
     standard algebraic order:
 
     - `(f @ g) @ x == f(g(x))`
 
     So `f @ g` means "apply `g`, then apply `f`".
 
-    Interaction with `Multiple`
+    Interaction with [`Multiple`][qten.symbolics.base.Multiple]
     ---------------------------
-    If `v` is `Multiple(coef, base)`, then `f(v)` applies `f` to `base`.
+    If `v` is [`Multiple(coef, base)`][qten.symbolics.base.Multiple], then `f(v)` applies `f` to `base`.
 
     - If the result is a plain object `base'`, the output is
-      `Multiple(coef, base')`.
-    - If the result is `Multiple(coef', base')`, the coefficients are
+      [`Multiple(coef, base')`][qten.symbolics.base.Multiple].
+    - If the result is [`Multiple(coef', base')`][qten.symbolics.base.Multiple], the coefficients are
       multiplied and simplified, producing
-      `Multiple(simplify(coef * coef'), base')`.
+      [`Multiple(simplify(coef * coef'), base')`][qten.symbolics.base.Multiple].
 
-    This behavior is provided centrally by `Opr.invoke`, so `FuncOpr` inherits
+    This behavior is provided centrally by `Opr.invoke`, so [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] inherits
     the same coefficient-lifting semantics as every other operator subclass.
 
     Interaction with Symbolic Containers
     ------------------------------------
-    `FuncOpr` treats `U1Basis` specially: it targets the unique irrep of type
+    [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] treats [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] specially: it targets the unique irrep of type
     `T` via `psi.irrep_of(T)` rather than iterating over all components with
-    `allows(...)`. This is why `FuncOpr` keeps a dedicated `U1Basis`
-    registration even though `U1Span` and `HilbertSpace` can be handled by the
-    generic `Opr` lifting.
+    [`allows(...)`][qten.abstracts.Functional.allows]. This is why [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] keeps a dedicated [`U1Basis`][qten.symbolics.hilbert_space.U1Basis]
+    registration even though [`U1Span`][qten.symbolics.hilbert_space.U1Span] and [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] can be handled by the
+    generic [`Opr`][qten.symbolics.hilbert_space.Opr] lifting.
 
     Examples
     --------
-    Use `FuncOpr(Offset, Offset.fractional)` to normalize every `Offset`
-    appearing inside a `U1Basis`, `U1Span`, or `HilbertSpace`.
+    Use [`FuncOpr(Offset, Offset.fractional)`][qten.symbolics.hilbert_space.FuncOpr] to normalize every [`Offset`][qten.geometries.spatials.Offset]
+    appearing inside a [`U1Basis`][qten.symbolics.hilbert_space.U1Basis], [`U1Span`][qten.symbolics.hilbert_space.U1Span], or [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
 
     In particular:
 
@@ -1288,11 +1288,11 @@ class ComposedOpr(Opr):
     """
     Finite composition of symbolic operators.
 
-    `ComposedOpr` stores an ordered tuple of `Opr` instances and represents
+    [`ComposedOpr`][qten.symbolics.hilbert_space.ComposedOpr] stores an ordered tuple of [`Opr`][qten.symbolics.hilbert_space.Opr] instances and represents
     their algebraic composition. It is produced automatically by operator
     multiplication between operators:
 
-    - `a @ b` returns `ComposedOpr((a, b))`
+    - `a @ b` returns [`ComposedOpr((a, b))`][qten.symbolics.hilbert_space.ComposedOpr]
 
     Application order
     -----------------
@@ -1319,38 +1319,38 @@ class ComposedOpr(Opr):
     - `(a @ b) @ c` stores `(a, b, c)`
     - `a @ (b @ c)` stores `(a, b, c)`
 
-    so nested `ComposedOpr` objects are normalized into a single tuple of
+    so nested [`ComposedOpr`][qten.symbolics.hilbert_space.ComposedOpr] objects are normalized into a single tuple of
     operators instead of building a deep binary tree. This keeps composition
     associative at the representation level as well as the semantic level.
 
     Interaction with object application
     ----------------------------------
-    As with every `Opr`, `composed @ x` applies the operator to `x`. Each step
+    As with every [`Opr`][qten.symbolics.hilbert_space.Opr], `composed @ x` applies the operator to `x`. Each step
     is fed into the next one according to the order above.
 
     For plain objects `x`, the intermediate values are passed directly from one
     operator to the next.
 
-    Interaction with `Multiple`
+    Interaction with [`Multiple`][qten.symbolics.base.Multiple]
     ---------------------------
-    `ComposedOpr` also supports `Multiple(base, coef)` inputs. In that case the
+    [`ComposedOpr`][qten.symbolics.hilbert_space.ComposedOpr] also supports [`Multiple(base, coef)`][qten.symbolics.base.Multiple] inputs. In that case the
     composition acts on `base`, while scalar coefficients returned by
     intermediate operators are accumulated multiplicatively.
 
     Concretely, if an intermediate step returns:
 
     - a plain object `y`, composition continues with `y`
-    - `Multiple(c, y)`, composition continues with `y` and multiplies the
+    - [`Multiple(c, y)`][qten.symbolics.base.Multiple], composition continues with `y` and multiplies the
       running coefficient by `c`
 
-    The final result is returned as one `Multiple(total_coef, final_base)`.
+    The final result is returned as one [`Multiple(total_coef, final_base)`][qten.symbolics.base.Multiple].
 
     This is essential for symbolic transformations where some operators carry
     phase factors or representation coefficients.
 
     Algebraic scope
     ---------------
-    `ComposedOpr` is intended for endomorphism-like symbolic operators in this
+    [`ComposedOpr`][qten.symbolics.hilbert_space.ComposedOpr] is intended for endomorphism-like symbolic operators in this
     module: operators that map supported symbolic objects back into the same
     symbolic universe. It assumes that composing the stored operators is valid
     on the given input type; if some step has no registered action for the
@@ -1359,7 +1359,7 @@ class ComposedOpr(Opr):
     Examples
     --------
     If `fractional = FuncOpr(Offset, Offset.fractional)` and `t` is an
-    `AbelianOpr`, then:
+    [`AbelianOpr`][qten.pointgroups.abelian.AbelianOpr], then:
 
     - `fractional @ t @ space`
 

@@ -141,7 +141,7 @@ def _joint_phase_basis(
     oprs: Sequence[AbelianOpr],
 ) -> dict[tuple[sy.Expr, ...], AbelianBasis]:
     """
-    Build a representative `AbelianBasis` for each joint phase sector.
+    Build a representative [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] for each joint phase sector.
     """
     phase_bases: dict[tuple[sy.Expr, ...], AbelianBasis] = {}
     max_order = prod(opr.g.group_order() for opr in oprs)
@@ -171,7 +171,7 @@ def abelian_column_symmetrize(
     nonzero projected sector component is returned. When `full_sector` is
     `False`, only the dominant nonzero sector component of each input column is
     kept, so the output column count does not exceed the input count. Returned
-    columns carry the corresponding `AbelianBasis`.
+    columns carry the corresponding [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis].
 
     The output column count can differ from the input one only when
     `full_sector=True`, because symmetry projection may split one approximate
@@ -275,13 +275,13 @@ def joint_abelian_column_symmetrize(
 
     The operators in `oprs` are expected to commute on `w.dims[0]`. For each
     operator, this builds the same sector projectors as
-    `abelian_column_symmetrize`, then projects each column onto every joint
+    [`abelian_column_symmetrize`][qten.pointgroups.ops.abelian_column_symmetrize], then projects each column onto every joint
     sector in the Cartesian product of those sector decompositions.
 
     When `full_sector` is `True`, every nonzero joint-sector component is
     returned. When `False`, only the dominant nonzero joint-sector component of
     each input column is kept. Returned columns carry a representative common
-    `AbelianBasis` for the corresponding joint phase sector.
+    [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] for the corresponding joint phase sector.
     """
     if not oprs:
         raise ValueError("oprs must be non-empty.")

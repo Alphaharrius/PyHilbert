@@ -1,10 +1,10 @@
-"""Lightweight symbolic container types used across :mod:`qten`.
+"""Lightweight symbolic container types used across [[`qten`][qten]][qten].
 
 Globals
 -------
 BaseType:
     Type variable representing the symbolic object wrapped by
-    :class:`Multiple`. The parameter keeps the container generic so the same
+    [[`Multiple`][qten.symbolics.base.Multiple]][qten.symbolics.base.Multiple]. The parameter keeps the container generic so the same
     class can be used for SymPy expressions, project-specific symbolic types,
     or other scalar-like objects without runtime conversion overhead.
 """

@@ -39,8 +39,8 @@ def rebase_opr(space: S) -> FuncOpr[OffsetType]:
     """
     Build an operator that rebases spatial irreps into `space`.
 
-    For affine spaces this targets `Offset` irreps. For reciprocal lattices it
-    targets `Momentum` irreps.
+    For affine spaces this targets [`Offset`][qten.geometries.spatials.Offset] irreps. For reciprocal lattices it
+    targets [`Momentum`][qten.geometries.spatials.Momentum] irreps.
     """
     point_type = cast(
         type[OffsetType], Momentum if isinstance(space, ReciprocalLattice) else Offset
@@ -65,9 +65,9 @@ def fractional_opr(
     Parameters
     ----------
     T : type[Offset] | type[Momentum] | None, optional
-        Exact irrep type to target. Because `FuncOpr` matches exact runtime
+        Exact irrep type to target. Because [`FuncOpr`][qten.symbolics.hilbert_space.FuncOpr] matches exact runtime
         types, reciprocal-space basis states should use
-        `fractional_opr(Momentum)`. If omitted, `Offset` is targeted.
+        [`fractional_opr(Momentum)`][qten.symbolics.ops.fractional_opr]. If omitted, [`Offset`][qten.geometries.spatials.Offset] is targeted.
     """
     if T is None:
         return FuncOpr(Offset, Offset.fractional)
@@ -76,20 +76,20 @@ def fractional_opr(
 
 def region_hilbert(bloch_space: HilbertSpace, region: Sequence[Offset]) -> HilbertSpace:
     """
-    Expand a Bloch `HilbertSpace` across a real-space region by unit-cell subgroup.
+    Expand a Bloch [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] across a real-space region by unit-cell subgroup.
 
     The input `bloch_space` is first partitioned by the fractional part of each
-    basis state's `Offset` irrep, so all sub-basis states that occupy the same
+    basis state's [`Offset`][qten.geometries.spatials.Offset] irrep, so all sub-basis states that occupy the same
     position within the unit cell stay grouped together. Each offset in
     `region` is treated as a full target-site offset that already includes its
     unit-cell position. A region site `r` therefore selects the subgroup whose
     fractional offset equals `r.fractional()`, and every state in that subgroup
-    is copied with its `Offset` replaced by `r`.
+    is copied with its [`Offset`][qten.geometries.spatials.Offset] replaced by `r`.
 
     Parameters
     ----------
     bloch_space : HilbertSpace
-        Source basis to replicate. Each basis element must contain an `Offset`
+        Source basis to replicate. Each basis element must contain an [`Offset`][qten.geometries.spatials.Offset]
         irrep. Elements with the same fractional offset are treated as the
         sub-basis of one unit-cell site and are replicated together.
     region : Sequence[Offset]
@@ -112,7 +112,7 @@ def region_hilbert(bloch_space: HilbertSpace, region: Sequence[Offset]) -> Hilbe
 
     Notes
     -----
-    Grouping is done by fractional `Offset`, preserving the original basis
+    Grouping is done by fractional [`Offset`][qten.geometries.spatials.Offset], preserving the original basis
     order inside each subgroup. Output order follows `region`.
     """
     grouped_basis: dict[Offset, list] = {}
@@ -148,14 +148,14 @@ def hilbert_opr_repr(
     """
     Return the matrix representation of an operator on a Hilbert-space basis.
 
-    Let `space = span{ |e_i> }` be the input `HilbertSpace` and let `opr` act
+    Let `space = span{ |e_i> }` be the input [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] and let `opr` act
     on each basis state to produce `opr @ space = span{ opr |e_j> }`. This
     function constructs the corresponding representation matrix
 
     `M_{ij} = ⟨e_i | opr | e_j⟩`,
 
     implemented as the cross-Gram matrix between the original basis and its
-    transformed image. The resulting `Tensor` therefore represents `opr` in the
+    transformed image. The resulting [`Tensor`][qten.linalg.tensors.Tensor] therefore represents `opr` in the
     basis supplied by `space`.
 
     Parameters

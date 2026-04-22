@@ -22,7 +22,7 @@ plain ``type[Module]``.
 
 def nograd_tensors(*names: str) -> Callable[[ModuleType], ModuleType]:
     """
-    Mark ``Tensor`` attributes as no-grad module state stored as buffers.
+    Mark `[`Tensor`][qten.linalg.tensors.Tensor]` attributes as no-grad module state stored as buffers.
 
     The decorator stores the provided attribute names on the target class in the
     ``__nograd_tensors__`` class attribute. When an instance later assigns a
@@ -36,13 +36,13 @@ def nograd_tensors(*names: str) -> Callable[[ModuleType], ModuleType]:
     Parameters
     ----------
     *names : str
-        Attribute names whose assigned ``Tensor`` values should be stored as
+        Attribute names whose assigned `[`Tensor`][qten.linalg.tensors.Tensor]` values should be stored as
         module buffers rather than ``nn.Parameter`` instances.
 
     Returns
     -------
     Callable[[ModuleType], ModuleType]
-        A class decorator that annotates the target ``Module`` subclass in place
+        A class decorator that annotates the target `[`Module`][qten.optim.Module]` subclass in place
         and returns that same class.
 
     Examples
@@ -97,8 +97,8 @@ class Module(Functional, nn.Module, DeviceBounded):
        copied into module-owned storage. Trainable tensor attributes are
        registered as ``nn.Parameter`` values, while names listed in
        ``__nograd_tensors__`` are registered as buffers. In both cases the
-       public attribute remains a QTen ``Tensor`` wrapper.
-    2. The module is also a :class:`~qten.abstracts.Functional`, so calling
+       public attribute remains a QTen `[`Tensor`][qten.linalg.tensors.Tensor]` wrapper.
+    2. The module is also a [[`Functional`][qten.abstracts.Functional]][qten.abstracts.Functional], so calling
        the module dispatches through QTen's multiple-dispatch mechanism
        rather than PyTorch's usual ``forward`` path.
 
@@ -110,18 +110,18 @@ class Module(Functional, nn.Module, DeviceBounded):
     even when the object is not meant to behave like a trainable "model" with a
     forward pass. In that usage, assign the tensors you want PyTorch to manage
     as public attributes, optimize them through the module's parameter
-    interface, and call :meth:`export` when you need an independent
+    interface, and call [[`export`][qten.optim.Module.export]][qten.optim.Module.export] when you need an independent
     non-differentiable :class:`~qten.tensors.Tensor` snapshot for
     downstream use outside the module.
 
     Ownership semantics are important:
     - Before assignment, a :class:`~qten.tensors.Tensor` is functionally
       defined by its own wrapper value.
-    - After assignment to a ``Module`` attribute, the wrapper becomes
+    - After assignment to a `[`Module`][qten.optim.Module]` attribute, the wrapper becomes
       module-bound: its ``data`` points at module-owned storage, either a
       registered ``nn.Parameter`` or registered buffer depending on
       whether the name is marked in ``__nograd_tensors__``.
-    - Reading ``self.weight`` still returns a QTen ``Tensor`` wrapper, but
+    - Reading ``self.weight`` still returns a QTen `[`Tensor`][qten.linalg.tensors.Tensor]` wrapper, but
       its mutable/autograd state is now governed by the containing module and
       PyTorch parameter machinery.
     - No-grad tensor attributes remain part of the module's buffer state, so
@@ -130,7 +130,7 @@ class Module(Functional, nn.Module, DeviceBounded):
     - Assignment is owning-by-value: the module copies the assigned tensor data
       into its own owned storage rather than aliasing the caller's tensor
       storage.
-    - Use :meth:`export` or :meth:`export_all` if you need standalone tensor
+    - Use [[`export`][qten.optim.Module.export]][qten.optim.Module.export] or [[`export_all`][qten.optim.Module.export_all]][qten.optim.Module.export_all] if you need standalone tensor
       values whose subsequent state cannot be changed implicitly by optimizer
       steps, reassignment, or other module-side updates.
     """
@@ -178,7 +178,7 @@ class Module(Functional, nn.Module, DeviceBounded):
         AttributeError
             If the module has no attribute named ``name``.
         TypeError
-            If the named attribute is not a ``Tensor``.
+            If the named attribute is not a `[`Tensor`][qten.linalg.tensors.Tensor]`.
         """
         tensor = getattr(self, name)
         if not isinstance(tensor, Tensor):
@@ -189,7 +189,7 @@ class Module(Functional, nn.Module, DeviceBounded):
         """
         Export all public tensor attributes from this module tree.
 
-        This recursively traverses nested :class:`Module` instances and returns
+        This recursively traverses nested [[`Module`][qten.optim.Module]][qten.optim.Module] instances and returns
         detached cloned tensor snapshots keyed by public dotted attribute names,
         for example ``"weight"`` or ``"inner.basis"``.
 
@@ -298,7 +298,7 @@ class Module(Functional, nn.Module, DeviceBounded):
         Remove the hidden registered parameter associated with a public attribute.
 
         This is used when a wrapped tensor attribute is deleted or overwritten by
-        a non-``Tensor`` value so that stale parameters do not remain in
+        a non-`[`Tensor`][qten.linalg.tensors.Tensor]` value so that stale parameters do not remain in
         ``named_parameters()`` or ``state_dict()``.
 
         Parameters
@@ -345,17 +345,17 @@ class Module(Functional, nn.Module, DeviceBounded):
           registered as a hidden buffer.
         - Otherwise the copied tensor is registered as a hidden
           :class:`torch.nn.Parameter`.
-        - The public attribute itself remains a QTen ``Tensor`` wrapper
+        - The public attribute itself remains a QTen `[`Tensor`][qten.linalg.tensors.Tensor]` wrapper
           whose ``data`` points at the owned buffer or registered
           parameter.
-        - If a non-``Tensor`` value replaces a previously wrapped tensor
+        - If a non-`[`Tensor`][qten.linalg.tensors.Tensor]` value replaces a previously wrapped tensor
           attribute, the hidden parameter/buffer registration is removed.
         - Tensor assignment is owning-by-value: the module clones tensor data
           before storing it as a parameter or buffer, so later optimizer steps
           or in-place edits on the module do not alias the caller's original
           tensor storage.
 
-        In other words, assigning a ``Tensor`` transfers ownership of its
+        In other words, assigning a `[`Tensor`][qten.linalg.tensors.Tensor]` transfers ownership of its
         mutable/autograd state to the module. The attribute remains convenient
         to use as a QTen wrapper, but it should now be treated as
         module-bound state rather than an isolated functional value.

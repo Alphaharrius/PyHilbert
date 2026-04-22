@@ -42,7 +42,7 @@ def interpolate_path(
     labels: Optional[Sequence[str]] = None,
     points: Optional[Dict[str, Tuple[float, ...]]] = None,
 ) -> BzPath:
-    """Backward-compatible wrapper for `interpolate_reciprocal_path`."""
+    """Backward-compatible wrapper for [`interpolate_reciprocal_path`][qten.symbolics.ops.interpolate_reciprocal_path]."""
     return interpolate_reciprocal_path(
         recip=recip,
         waypoints=waypoints,
@@ -92,8 +92,8 @@ def _momentum_match_indices(
     Batch-compute destination indices for a momentum-space mapping via
     integer grid lookup.
 
-    This is the ``MomentumSpace``-specialised counterpart of
-    `match_indices`. Instead of evaluating *transform* per element, the
+    This is the `[`MomentumSpace`][qten.symbolics.state_space.MomentumSpace]`-specialised counterpart of
+    [`match_indices`][qten.symbolics.ops.match_indices]. Instead of evaluating *transform* per element, the
     transformation is applied as a single matrix multiply over all source
     k-points, followed by fractional wrapping and determinant-scaled
     integer snapping (correct for both diagonal and non-diagonal
@@ -232,7 +232,7 @@ def bandtransform(
     Apply a basis transform to a momentum-resolved operator tensor.
 
     The expected tensor shape is `(K, B_left, B_right)` where `K` is a
-    `MomentumSpace` and `B_left`, `B_right` are `HilbertSpace`s. This
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] and `B_left`, `B_right` are [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]s. This
     function applies the operator-induced basis transform on both Hilbert-space
     legs of the band tensor.
 
@@ -241,7 +241,7 @@ def bandtransform(
     - Fourier transforms that connect Bloch and real-space sectors.
 
     Momentum handling:
-    - The action on `Momentum` is treated as a relabeling/permutation of sectors.
+    - The action on [`Momentum`][qten.geometries.spatials.Momentum] is treated as a relabeling/permutation of sectors.
     - The output tensor carries the transformed momentum axis
       `mapped_kspace = {t @ k | k in kspace}`.
     - Each output k-block is populated from the preimage source block before
@@ -249,21 +249,21 @@ def bandtransform(
 
     Notes
     -----
-    This function accepts a general `Opr`, but not every `Opr` is valid here.
+    This function accepts a general [`Opr`][qten.symbolics.hilbert_space.Opr], but not every [`Opr`][qten.symbolics.hilbert_space.Opr] is valid here.
     In practice, `t` must act coherently across the real-space and
     momentum-space labels carried by the tensor:
 
-    - `t @ k` must be defined for each `Momentum` in the first tensor axis.
-    - `t @ psi` must be defined for each `U1Basis` in the Hilbert-space axes,
-      in particular for the `Offset` irrep stored inside each basis state.
+    - `t @ k` must be defined for each [`Momentum`][qten.geometries.spatials.Momentum] in the first tensor axis.
+    - `t @ psi` must be defined for each [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] in the Hilbert-space axes,
+      in particular for the [`Offset`][qten.geometries.spatials.Offset] irrep stored inside each basis state.
     - The Hilbert-space action and momentum action must be dual-compatible, so
       that the Fourier transform remains consistent after applying `t`.
-    - After applying `FuncOpr(Offset, Offset.fractional)`, the transformed
+    - After applying [`FuncOpr(Offset, Offset.fractional)`][qten.symbolics.hilbert_space.FuncOpr], the transformed
       Hilbert space must have the same rays as the original one; otherwise the
       transformed basis does not close on the input band space and this
       function raises `ValueError`.
 
-    Operators that only act on abstract `U1Basis` values or only on `Momentum`
+    Operators that only act on abstract [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] values or only on [`Momentum`][qten.geometries.spatials.Momentum]
     values are not sufficient. The operator must provide matching actions on
     site offsets and crystal momentum.
 
@@ -380,9 +380,9 @@ def bandfold(
         If the tensor is not rank-3, if the momentum space is empty, or if the
         momentum axis does not belong to a single Brillouin zone.
     TypeError
-        If the momentum axis is not a `MomentumSpace`, if its underlying space
-        is not a `ReciprocalLattice`, or if the selected Hilbert-space leg is
-        not a `HilbertSpace`.
+        If the momentum axis is not a [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace], if its underlying space
+        is not a [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice], or if the selected Hilbert-space leg is
+        not a [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
     """
     # 1. Parse inputs
     if not tensor.rank() == 3:
@@ -578,7 +578,7 @@ def bandunfold(
 
 def bandfillings(tensor: Tensor, frac: float) -> Tensor:
     """
-    Fill a band represented by a band-resolved `Tensor` up to a given filling fraction `frac`.
+    Fill a band represented by a band-resolved [`Tensor`][qten.linalg.tensors.Tensor] up to a given filling fraction `frac`.
 
     The input `tensor` is expected to have dimensions `(MomentumSpace, HilbertSpace, HilbertSpace)`,
     where the first dimension corresponds to momentum sectors and the second two dimensions correspond
@@ -596,11 +596,11 @@ def bandfillings(tensor: Tensor, frac: float) -> Tensor:
     Returns
     -------
     Tensor
-        A tensor of shape `(MomentumSpace, HilbertSpace, IndexSpace)` where `IndexSpace` is a one-dimensional
+        A tensor of shape `(MomentumSpace, HilbertSpace, IndexSpace)` where [`IndexSpace`][qten.symbolics.state_space.IndexSpace] is a one-dimensional
         state space representing the filled states. The tensor contains the eigenvectors corresponding to the
-        filled states in each momentum sector. The dimension of the `IndexSpace` is determined by the maximum number
+        filled states in each momentum sector. The dimension of the [`IndexSpace`][qten.symbolics.state_space.IndexSpace] is determined by the maximum number
         of states filled across all momentum sectors. If a momentum sector has fewer filled states than the maximum,
-        the remaining entries in the `IndexSpace` for that sector will be zero.
+        the remaining entries in the [`IndexSpace`][qten.symbolics.state_space.IndexSpace] for that sector will be zero.
     """
     if tensor.rank() != 3:
         raise ValueError(
@@ -668,12 +668,12 @@ def bandselect(
     ],
 ) -> Dict[str, Tensor]:
     """
-    Select specific bands from a band-resolved `Tensor` based on criteria provided in `kwargs`.
+    Select specific bands from a band-resolved [`Tensor`][qten.linalg.tensors.Tensor] based on criteria provided in `kwargs`.
 
-    The returned `Dict` maps each criterion name to a `Tensor` containing the selected bands that meet that criterion
-    with dimensions `(MomentumSpace, HilbertSpace, IndexSpace)`, where `IndexSpace` is a one-dimensional state space
+    The returned `Dict` maps each criterion name to a [`Tensor`][qten.linalg.tensors.Tensor] containing the selected bands that meet that criterion
+    with dimensions `(MomentumSpace, HilbertSpace, IndexSpace)`, where [`IndexSpace`][qten.symbolics.state_space.IndexSpace] is a one-dimensional state space
     representing the selected states for that criterion. If a momentum sector has fewer selected states than the maximum
-    across all sectors for that criterion, the remaining entries in the `IndexSpace` for that sector will be zero.
+    across all sectors for that criterion, the remaining entries in the [`IndexSpace`][qten.symbolics.state_space.IndexSpace] for that sector will be zero.
 
     The selection criteria in `kwargs` can be specified as follows:
     - `slice`: Select bands based on their index in the sorted order of energies (e.g., `slice(0, 2)` selects the two lowest-energy bands).
@@ -682,7 +682,7 @@ def bandselect(
     - `Callable[[float], bool]`: Select bands based on a custom function that takes the energy as input and returns a boolean
       (e.g., `lambda E: E < 0` selects all bands with negative energy).
 
-    If a criterion have no matching bands in all momentum sectors, the corresponding `Tensor` will have an `IndexSpace` of dimension zero.
+    If a criterion have no matching bands in all momentum sectors, the corresponding [`Tensor`][qten.linalg.tensors.Tensor] will have an [`IndexSpace`][qten.symbolics.state_space.IndexSpace] of dimension zero.
 
     Parameters
     ----------
@@ -694,7 +694,7 @@ def bandselect(
     Returns
     -------
     Dict[str, Tensor]
-        A dictionary mapping each criterion name to a `Tensor` containing the selected bands that meet that criterion,
+        A dictionary mapping each criterion name to a [`Tensor`][qten.linalg.tensors.Tensor] containing the selected bands that meet that criterion,
         with dimensions `(MomentumSpace, HilbertSpace, IndexSpace)`.
     """
     if tensor.rank() != 3:

@@ -137,14 +137,14 @@ def region_restrict(
 
     Supported forms
     ---------------
-    `region_restrict(tensor, R)`
+    [`region_restrict(tensor, R)`][qten.geometries.fourier.region_restrict]
         Rebuild the Fourier transform tensor on the target real-space
-        `HilbertSpace` `R`, reusing the momentum and Bloch spaces from
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] `R`, reusing the momentum and Bloch spaces from
         `tensor`.
 
-    `region_restrict(tensor, region)`
-        Accept a tuple of `Offset` values, construct the corresponding real-
-        space `HilbertSpace` via `region_hilbert`, then rebuild the transform
+    [`region_restrict(tensor, region)`][qten.geometries.fourier.region_restrict]
+        Accept a tuple of [`Offset`][qten.geometries.spatials.Offset] values, construct the corresponding real-
+        space [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] via [`region_hilbert`][qten.symbolics.ops.region_hilbert], then rebuild the transform
         on that region.
 
     Parameters
@@ -154,11 +154,11 @@ def region_restrict(
         `(MomentumSpace, HilbertSpace, HilbertSpace)`.
     R : HilbertSpace
         Target real-space region for the form
-        `region_restrict(tensor, R)`.
+        [`region_restrict(tensor, R)`][qten.geometries.fourier.region_restrict].
     region : tuple[Offset, ...]
         Offsets defining the target real-space region for the form
-        `region_restrict(tensor, region)`. These are converted to a
-        `HilbertSpace` via `region_hilbert` before rebuilding the transform.
+        [`region_restrict(tensor, region)`][qten.geometries.fourier.region_restrict]. These are converted to a
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] via [`region_hilbert`][qten.symbolics.ops.region_hilbert] before rebuilding the transform.
 
     Returns
     -------

@@ -154,7 +154,7 @@ class Lattice(AbstractLattice["Offset"]):
             Real-space basis matrix.
         boundaries : BoundaryCondition | None
             Boundary condition defining the periodic region. If omitted,
-            `shape` is used to build a `PeriodicBoundary`.
+            `shape` is used to build a [`PeriodicBoundary`][qten.geometries.boundary.PeriodicBoundary].
         unit_cell : Mapping[str, ImmutableDenseMatrix] | None
             Mapping from site labels to site positions in fractional coordinates.
         shape : Sequence[int] | None
@@ -210,7 +210,7 @@ class Lattice(AbstractLattice["Offset"]):
     @property
     @lru_cache
     def unit_cell(self) -> FrozenDict:
-        """Return unit-cell sites as `Offset` objects in this lattice."""
+        """Return unit-cell sites as [`Offset`][qten.geometries.spatials.Offset] objects in this lattice."""
         return FrozenDict(
             {
                 site: Offset(rep=offset, space=self)
@@ -239,7 +239,7 @@ class Lattice(AbstractLattice["Offset"]):
         Parameters
         ----------
         T : Type[Union[Offset, torch.Tensor, np.ndarray]]
-            Requested return type. `Offset` returns lattice-site objects,
+            Requested return type. [`Offset`][qten.geometries.spatials.Offset] returns lattice-site objects,
             while `torch.Tensor` and `np.ndarray` return Cartesian coordinates
             with shape `(n_sites, dim)`.
         """
@@ -263,7 +263,7 @@ class Lattice(AbstractLattice["Offset"]):
     @lru_cache
     def basis_vectors(self) -> Tuple["Offset", ...]:
         """
-        Return the primitive basis vectors as spatial `Offset`s.
+        Return the primitive basis vectors as spatial [`Offset`][qten.geometries.spatials.Offset]s.
 
         If a primitive vector coincides with a valid lattice site modulo unit-cell
         offsets, it is returned in `self`. Otherwise it is returned in
@@ -353,7 +353,7 @@ def _lattice_coords(
 @dataclass(frozen=True)
 class ReciprocalLattice(AbstractLattice["Momentum"]):
     """
-    Reciprocal-space lattice dual to a real-space `Lattice`.
+    Reciprocal-space lattice dual to a real-space [`Lattice`][qten.geometries.spatials.Lattice].
 
     Attributes
     ----------
@@ -404,7 +404,7 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
         Parameters
         ----------
         T : Type[Union[Momentum, torch.Tensor, np.ndarray]]
-            Requested return type. `Momentum` returns momentum-point objects, while
+            Requested return type. [`Momentum`][qten.geometries.spatials.Momentum] returns momentum-point objects, while
             `torch.Tensor` and `np.ndarray` return Cartesian coordinates with
             shape `(n_points, dim)`.
         """
@@ -449,8 +449,8 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
         Return the primitive reciprocal basis vectors as spatial objects.
 
         If a primitive reciprocal vector coincides with a sampled momentum point,
-        it is returned as a `Momentum` in `self`. Otherwise it is returned as an
-        `Offset` in `self.affine`.
+        it is returned as a [`Momentum`][qten.geometries.spatials.Momentum] in `self`. Otherwise it is returned as an
+        [`Offset`][qten.geometries.spatials.Offset] in `self.affine`.
         """
         vectors = []
         for j in range(self.dim):
@@ -551,7 +551,7 @@ class Offset(Generic[S], Spatial, HasBase[S]):
     Unsupported operators
     ---------------------
     :math:`\\le, \\ge, \\times, @, /, //, ^, \\land, \\lor`
-    are not defined for `Offset` and raise `NotImplementedError`.
+    are not defined for [`Offset`][qten.geometries.spatials.Offset] and raise `NotImplementedError`.
 
     Attributes
     ----------
@@ -586,7 +586,7 @@ class Offset(Generic[S], Spatial, HasBase[S]):
     fractional = lru_cache(fractional)  # Prevent mypy type checking issues
 
     def base(self) -> S:
-        """Get the `AffineSpace` this `Offset` is expressed in."""
+        """Get the [`AffineSpace`][qten.geometries.spatials.AffineSpace] this [`Offset`][qten.geometries.spatials.Offset] is expressed in."""
         return self.space
 
     def rebase(self, space: S) -> "Offset[S]":
@@ -692,7 +692,7 @@ def _(lattice: Lattice, offset: Offset) -> bool:
 @dataclass(frozen=True)
 class Momentum(Offset[ReciprocalLattice], Convertible):
     """
-    Reciprocal-space coordinate expressed in a `ReciprocalLattice`.
+    Reciprocal-space coordinate expressed in a [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice].
 
     Attributes
     ----------
@@ -714,7 +714,7 @@ class Momentum(Offset[ReciprocalLattice], Convertible):
     fractional = lru_cache(fractional)  # Prevent mypy type checking issues
 
     def base(self) -> ReciprocalLattice:  # type: ignore[override]
-        """Get the `ReciprocalLattice` this `Momentum` is expressed in."""
+        """Get the [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice] this [`Momentum`][qten.geometries.spatials.Momentum] is expressed in."""
         assert isinstance(self.space, ReciprocalLattice), (
             "Momentum.space must be a ReciprocalLattice"
         )

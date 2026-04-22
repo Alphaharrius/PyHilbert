@@ -76,7 +76,7 @@ class at_device(ContextDecorator):
     """
     Temporarily force newly created QTen tensors onto a specific device.
 
-    This applies to `Tensor(...)` construction within the current thread,
+    This applies to [`Tensor(...)`][qten.linalg.tensors.Tensor] construction within the current thread,
     including tensors created indirectly by helper functions in this module.
     Nested scopes are supported; the innermost device takes precedence.
     """
@@ -155,114 +155,151 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     """
     StateSpace-aware tensor wrapper over `torch.Tensor`.
 
-    A `Tensor` pairs raw tensor data with symbolic axis metadata in `dims`.
-    Each entry of `dims` is a `StateSpace` whose size must match the
+    A [`Tensor`][qten.linalg.tensors.Tensor] pairs raw tensor data with symbolic axis metadata in `dims`.
+    Each entry of `dims` is a [`StateSpace`][qten.symbolics.state_space.StateSpace] whose size must match the
     corresponding axis of `data`. This lets tensor operations preserve not only
     shapes, but also the semantic identity and ordering of axes.
 
     Core model
     ----------
     - `data` stores the underlying numeric values as a `torch.Tensor`.
-    - `dims` stores one `StateSpace` per axis.
+    - `dims` stores one [`StateSpace`][qten.symbolics.state_space.StateSpace] per axis.
     - `tensor.data.shape` must equal `tuple(dim.dim for dim in tensor.dims)`.
-    - Axes are aligned by `StateSpace` compatibility rather than by position
+    - Axes are aligned by [`StateSpace`][qten.symbolics.state_space.StateSpace] compatibility rather than by position
       alone. If two axes represent the same rays in different orders, QTen can
       permute one operand to match the other.
     - Singleton broadcast axes are represented symbolically by
-      `BroadcastSpace()`.
+      [`BroadcastSpace()`][qten.symbolics.state_space.BroadcastSpace].
 
     Construction
     ------------
     Create tensors directly from a torch tensor and a matching dims tuple:
 
-    `Tensor(data=torch.randn(2, 3), dims=(left_space, right_space))`
+    [`Tensor(data=torch.randn(2, 3), dims=(left_space, right_space))`][qten.linalg.tensors.Tensor]
 
     Use `Tensor.scalar(number)` to construct a rank-0 tensor.
 
-    Supported operators
-    -------------------
-    Tensor-Tensor:
-    - `a @ b`: StateSpace-aware matrix multiplication / contraction.
-    - `a + b`: StateSpace union add with metadata-aware alignment.
-    - `a - b`: subtraction.
-    - `a == b`: element-wise equality, returns a bool `Tensor`.
-    - `a < b`, `a <= b`, `a > b`, `a >= b`: element-wise ordered comparisons,
-      return bool `Tensor`s.
+    Registered operations
+    ---------------------
+    The public arithmetic and comparison operators on [`Tensor`][qten.linalg.tensors.Tensor] are implemented by
+    multimethod registrations on [`Operable`][qten.abstracts.Operable]. Those inherited
+    `__xxx__` members are hidden from the generated API page, so this section is
+    the canonical reference for Tensor-specific operator behavior.
 
-    Tensor-Number / Number-Tensor:
-    - `a * c`, `c * a`: element-wise scalar multiplication.
-    - `a / c`: element-wise scalar division.
-    - `a < c`, `a <= c`, `a > c`, `a >= c`: scalar broadcast comparisons.
-    - `c < a`, `c <= a`, `c > a`, `c >= a`: reflected scalar broadcast
-      comparisons.
+    Matrix multiplication
+    ---------------------
+    `a @ b` contracts two tensors with StateSpace-aware matrix multiplication.
+    The actual logic is implemented by [`matmul`][qten.linalg.tensors.matmul], which:
 
-    Scalar add/sub semantics:
-    - `a + c`, `c + a`, `a - c`, `c - a` treat `a` as a matrix or batch of
-      matrices over its last two axes and add/subtract `c * I` on that matrix
-      part.
-    - These operations therefore require rank at least 2 through `eye(dims)`.
-    - Scalar addition is not element-wise broadcasting.
+    - aligns shared contraction axes by [`StateSpace`][qten.symbolics.state_space.StateSpace],
+    - supports batch broadcasting over leading axes,
+    - preserves output metadata on the surviving axes.
+
+    Addition and subtraction
+    ------------------------
+    `a + b` and `a - b` operate on two tensors using StateSpace-aware alignment.
+
+    - If ranks differ, the lower-rank operand is promoted with leading
+      [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axes.
+    - Output metadata is computed from [`union_dims(..., allow_merge=True)`][qten.linalg.tensors.union_dims].
+    - Broadcast axes are materialized with [`expand_to_union`][qten.linalg.tensors.expand_to_union].
+    - If two compatible axes represent the same rays in different orders, the
+      right-hand operand is embedded into the merged output ordering before the
+      data is accumulated.
+
+    Scalar addition and subtraction are not element-wise broadcast operations.
+
+    - `a + c` and `c + a` treat `a` as a matrix or batch of matrices over its
+      last two axes and compute `a + c * I`.
+    - `a - c` computes `a - c * I`.
+    - `c - a` computes `c * I - a`.
+    - These operations therefore require metadata that can construct
+      [`eye`][qten.linalg.tensors.eye] on the tensor dims.
+
+    Negation and scaling
+    --------------------
+    - `-a` negates the tensor element-wise while preserving dims.
+    - `a * c` and `c * a` perform element-wise scalar multiplication.
+    - `a / c` performs element-wise scalar division.
+
+    Equality and ordered comparisons
+    --------------------------------
+    `a == b`, `a < b`, `a <= b`, `a > b`, and `a >= b` use symmetric
+    StateSpace-aware comparison semantics.
+
+    - operands are rank-promoted to a common rank,
+    - dims are merged with [`union_dims(..., allow_merge=False)`][qten.linalg.tensors.union_dims],
+    - both operands are aligned to the merged dims,
+    - torch broadcasting is validated against the merged symbolic shape,
+    - the result is a bool [`Tensor`][qten.linalg.tensors.Tensor] on the merged dims.
+
+    Scalar comparisons promote the scalar through `Tensor.scalar(...)`, so:
+
+    - `a < c`, `a <= c`, `a > c`, `a >= c` follow the same tensor-tensor
+      comparison pipeline,
+    - `c < a`, `c <= a`, `c > a`, `c >= a` use the reflected comparison with
+      the scalar converted to a rank-0 tensor first.
 
     Comparison semantics
     --------------------
     Comparisons use symmetric StateSpace-aware alignment:
-    - operands are rank-promoted with leading `BroadcastSpace()` axes when
+    - operands are rank-promoted with leading [`BroadcastSpace()`][qten.symbolics.state_space.BroadcastSpace] axes when
       needed,
-    - dims are merged with `union_dims(..., allow_merge=False)`,
+    - dims are merged with [`union_dims(..., allow_merge=False)`][qten.linalg.tensors.union_dims],
     - operands are aligned to the merged dims,
     - runtime broadcast compatibility is validated,
-    - the result is a bool `Tensor` with those merged dims.
+    - the result is a bool [`Tensor`][qten.linalg.tensors.Tensor] with those merged dims.
 
     Ordered comparisons on complex tensors are not supported and defer to
     PyTorch's runtime error behavior.
 
     Shape and axis transforms
     -------------------------
-    - `permute(*order)`: reorder axes.
-    - `transpose(dim0, dim1)`: swap two axes.
-    - `h(dim0, dim1)`: conjugate transpose across two axes.
-    - `unsqueeze(dim)`: insert a singleton `BroadcastSpace` axis.
-    - `squeeze(dim)`: remove a `BroadcastSpace` axis if present.
-    - `replace_dim(dim, new_dim)`: replace metadata for one axis with size
+    - [`permute(*order)`][qten.linalg.tensors.Tensor.permute]: reorder axes.
+    - [`transpose(dim0, dim1)`][qten.linalg.tensors.Tensor.transpose]: swap two axes.
+    - [`h(dim0, dim1)`][qten.linalg.tensors.Tensor.h]: conjugate transpose across two axes.
+    - [`unsqueeze(dim)`][qten.linalg.tensors.Tensor.unsqueeze]: insert a singleton [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axis.
+    - [`squeeze(dim)`][qten.linalg.tensors.Tensor.squeeze]: remove a [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axis if present.
+    - [`replace_dim(dim, new_dim)`][qten.linalg.tensors.Tensor.replace_dim]: replace metadata for one axis with size
       validation.
-    - `factorize_dim(dim, rule)`: split one axis into multiple factor spaces.
-    - `product_dims(*groups)`: combine groups of axes into tensor-product axes.
-    - `promote_rank(tensor, target_rank)`: prepend broadcast axes.
+    - [`factorize_dim(dim, rule)`][qten.linalg.tensors.Tensor.factorize_dim]: split one axis into multiple factor spaces.
+    - [`product_dims(*groups)`][qten.linalg.tensors.Tensor.product_dims]: combine groups of axes into tensor-product axes.
+    - [`promote_rank(tensor, target_rank)`][qten.linalg.tensors.promote_rank]: prepend broadcast axes.
 
     Alignment and metadata utilities
     --------------------------------
-    - `align(dim, target_dim)`: align one axis to a compatible `StateSpace`.
-    - `align_all(dims)`: align all axes to a target dims tuple.
-    - `expand_to_union(union_dims)`: materialize data expansion for
-      `BroadcastSpace` axes.
-    - `dim_types()`: return the runtime types of all dims.
-    - `rank()`: return the tensor rank.
+    - [`align(dim, target_dim)`][qten.linalg.tensors.Tensor.align]: align one axis to a compatible [`StateSpace`][qten.symbolics.state_space.StateSpace].
+    - [`align_all(dims)`][qten.linalg.tensors.Tensor.align_all]: align all axes to a target dims tuple.
+    - [`expand_to_union(union_dims)`][qten.linalg.tensors.Tensor.expand_to_union]: materialize data expansion for
+      [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axes.
+    - [`dim_types()`][qten.linalg.tensors.Tensor.dim_types]: return the runtime types of all dims.
+    - [`rank()`][qten.linalg.tensors.Tensor.rank]: return the tensor rank.
 
     Reductions and element queries
     ------------------------------
-    - `all(dim=None, keepdim=False)`: logical AND reduction.
-    - `mean(dim=None)`: arithmetic mean reduction.
-    - `argmax(dim)`, `argmin(dim)`: index reductions.
-    - `item()`: extract the Python scalar from a rank-0 tensor.
-    - `equal(other)`: exact equality after metadata alignment, returning
+    - [`all(dim=None, keepdim=False)`][qten.linalg.tensors.Tensor.all]: logical AND reduction.
+    - [`mean(dim=None)`][qten.linalg.tensors.Tensor.mean]: arithmetic mean reduction.
+    - [`argmax(dim)`][qten.linalg.tensors.Tensor.argmax], [`argmin(dim)`][qten.linalg.tensors.Tensor.argmin]: index reductions.
+    - [`item()`][qten.linalg.tensors.Tensor.item]: extract the Python scalar from a rank-0 tensor.
+    - [`equal(other)`][qten.linalg.tensors.Tensor.equal]: exact equality after metadata alignment, returning
       Python `bool`.
-    - `allclose(other, ...)`: approximate equality after metadata alignment,
+    - [`allclose(other, ...)`][qten.linalg.tensors.Tensor.allclose]: approximate equality after metadata alignment,
       returning Python `bool`.
 
     Boolean-mask helpers
     --------------------
-    - `where(input, other)`: use this tensor as a bool mask and select between
+    - [`where(input, other)`][qten.linalg.tensors.Tensor.where]: use this tensor as a bool mask and select between
       two tensors.
-    - `where()`: return index tensors for `True` entries.
-    - `nonzero(as_tuple=True)`: return index tensors for nonzero / `True`
+    - [`where()`][qten.linalg.tensors.Tensor.where]: return index tensors for `True` entries.
+    - [`nonzero(as_tuple=True)`][qten.linalg.tensors.Tensor.nonzero]: return index tensors for nonzero / `True`
       entries.
 
     Indexing
     --------
     `__getitem__` supports:
     - Python integers, slices, `None`, and `...`,
-    - `StateSpace` / `Convertible` axis selection and reindexing,
-    - `Tensor` advanced indices.
+    - [`StateSpace`][qten.symbolics.state_space.StateSpace] / [`Convertible`][qten.abstracts.Convertible] axis selection and reindexing,
+    - [`Tensor`][qten.linalg.tensors.Tensor] advanced indices.
 
     Tensor advanced indexing is metadata-aware and can align tensor index dims
     before dispatching to torch indexing. Boolean tensor indices are not
@@ -271,23 +308,23 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
     Autograd and devices
     --------------------
-    - `attach()`: return a leaf tensor with `requires_grad=True`.
-    - `detach()`: detach from autograd without cloning storage.
-    - `clone()`: deep-copy tensor data.
-    - `grad`: wrapped gradient tensor, if available.
-    - `requires_grad`: autograd flag from underlying data.
-    - `backward(...)`: autograd backward pass.
+    - [`attach()`][qten.linalg.tensors.Tensor.attach]: return a leaf tensor with `requires_grad=True`.
+    - [`detach()`][qten.linalg.tensors.Tensor.detach]: detach from autograd without cloning storage.
+    - [`clone()`][qten.linalg.tensors.Tensor.clone]: deep-copy tensor data.
+    - [`grad`][qten.linalg.tensors.Tensor.grad]: wrapped gradient tensor, if available.
+    - [`requires_grad`][qten.linalg.tensors.Tensor.requires_grad]: autograd flag from underlying data.
+    - [`backward(...)`][qten.linalg.tensors.Tensor.backward]: autograd backward pass.
     - `device`: logical QTen device view of the underlying torch device.
-    - `to_device(device)`: move data to another logical device.
+    - [`to_device(device)`][qten.linalg.tensors.Tensor.to_device]: move data to another logical device.
 
     Factory and module-level companion functions
     --------------------------------------------
-    The module also exposes helpers that create or operate on `Tensor`:
-    `matmul`, `permute`, `transpose`, `conj`, `unsqueeze`, `squeeze`,
+    The module also exposes helpers that create or operate on [`Tensor`][qten.linalg.tensors.Tensor]:
+    [`matmul`][qten.linalg.tensors.matmul], `permute`, `transpose`, `conj`, `unsqueeze`, `squeeze`,
     `align`, `align_all`, `all`, `mean`, `norm`, `argmax`, `argmin`, `astype`,
-    `one_hot`, `equal`, `allclose`, `expand_to_union`, `union_dims`,
-    `mapping_matrix`, `eye`, `zeros`, `ones`, `kernel_tensor`, `cat`,
-    `replace_dim`, `factorize_dim`, `product_dims`, `promote_rank`,
+    [`one_hot`][qten.linalg.tensors.one_hot], `equal`, `allclose`, `expand_to_union`, [`union_dims`][qten.linalg.tensors.union_dims],
+    [`mapping_matrix`][qten.linalg.tensors.mapping_matrix], [`eye`][qten.linalg.tensors.eye], [`zeros`][qten.linalg.tensors.zeros], [`ones`][qten.linalg.tensors.ones], [`kernel_tensor`][qten.linalg.tensors.kernel_tensor], [`cat`][qten.linalg.tensors.cat],
+    `replace_dim`, `factorize_dim`, `product_dims`, [`promote_rank`][qten.linalg.tensors.promote_rank],
     `where`, and `nonzero`.
     """
 
@@ -298,14 +335,14 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         """
         Finalize construction after dataclass initialization.
 
-        If an `at_device` context is active for the current thread, this method
+        If an [`at_device`][qten.linalg.tensors.at_device] context is active for the current thread, this method
         moves `data` onto that forced device before the frozen dataclass
         instance escapes to user code. When no device-forcing context is
         active, construction is left unchanged.
 
         Notes
         -----
-        Because `Tensor` is a frozen dataclass, the post-init device update uses
+        Because [`Tensor`][qten.linalg.tensors.Tensor] is a frozen dataclass, the post-init device update uses
         `object.__setattr__` to replace `data` in-place during initialization.
         """
         forced_device = _forced_tensor_device()
@@ -319,7 +356,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     @staticmethod
     def scalar(number: Number, *, device: Optional[Device] = None) -> "Tensor":
         """
-        Create a 0-dimensional `Tensor` from a scalar number.
+        Create a 0-dimensional [`Tensor`][qten.linalg.tensors.Tensor] from a scalar number.
 
         Parameters
         ----------
@@ -426,7 +463,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         Perform element-wise approximate equality comparison.
 
         This is the mask-producing counterpart to `allclose`: it returns a bool
-        `Tensor` instead of a Python bool.
+        [`Tensor`][qten.linalg.tensors.Tensor] instead of a Python bool.
         """
         return isclose(self, other, rtol=rtol, atol=atol, equal_nan=equal_nan)
 
@@ -569,7 +606,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         dim : Optional[Union[int, Tuple[int, ...]]], optional
             Reduction axis (or axes). If `None`, reduce over all dimensions.
         keepdim : bool, optional
-            If `True`, retains the reduced axis as `BroadcastSpace`.
+            If `True`, retains the reduced axis as [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace].
 
         Returns
         -------
@@ -607,9 +644,9 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
         For `condition.where(input, other)`:
         - `condition`, `input`, and `other` are promoted to a common rank by
-          prepending leading `BroadcastSpace` axes as needed.
+          prepending leading [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axes as needed.
         - metadata is merged with
-          `union_dims(condition.dims, input.dims, other.dims, allow_merge=False)`.
+          [`union_dims(condition.dims, input.dims, other.dims, allow_merge=False)`][qten.linalg.tensors.union_dims].
         - all three operands are aligned to those merged dims and broadcast-expanded.
         - selection is then applied elementwise with `torch.where`.
 
@@ -629,13 +666,13 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
             Tensor selected where `condition` is `False`.
         index_type : Type[Any], optional
             Only used for the condition-only form. Supported values are
-            `Tensor`, `tuple` / `Tuple`, and `StateSpace`.
+            [`Tensor`][qten.linalg.tensors.Tensor], `tuple` / `Tuple`, and [`StateSpace`][qten.symbolics.state_space.StateSpace].
 
         Returns
         -------
         Union[Tensor, Tuple[Tensor, ...], Tuple[Tuple[int, ...], ...], StateSpace]
             Return value depends on call form:
-            - For `condition.where(input, other)`, returns a single `Tensor`
+            - For `condition.where(input, other)`, returns a single [`Tensor`][qten.linalg.tensors.Tensor]
               with `dims == union_dims(condition.dims, input.dims, other.dims,
               allow_merge=False)`. Data is selected elementwise after all
               operands are aligned/broadcast to these merged dims.
@@ -692,8 +729,8 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         as_tuple : bool, optional
             Must be `True`.
         index_type : Type[Any], optional
-            Requested index representation. Supported values are `Tensor`,
-            `tuple` / `Tuple`, and `StateSpace`.
+            Requested index representation. Supported values are [`Tensor`][qten.linalg.tensors.Tensor],
+            `tuple` / `Tuple`, and [`StateSpace`][qten.symbolics.state_space.StateSpace].
 
         Returns
         -------
@@ -757,7 +794,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
             Dimension along which to accumulate updates.
         index : Tensor
             Rank-1 integer tensor of destination indices. Its single
-            `StateSpace` defines the symbolic order of the updates.
+            [`StateSpace`][qten.symbolics.state_space.StateSpace] defines the symbolic order of the updates.
         source : Tensor
             Tensor of update values. It must have the same rank as `self`.
         alpha : Union[int, float, complex], optional
@@ -1009,13 +1046,13 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
     def attach(self) -> Self:
         """
-        Enable gradient tracking for the tensor data and return the attached `Tensor` instance.
+        Enable gradient tracking for the tensor data and return the attached [`Tensor`][qten.linalg.tensors.Tensor] instance.
 
         Behavior
         --------
-        - If `requires_grad` is already `True`, this returns `self` unchanged.
+        - If [`requires_grad`][qten.linalg.tensors.Tensor.requires_grad] is already `True`, this returns `self` unchanged.
         - Otherwise, this detaches the underlying data from any existing autograd graph,
-          clones it to ensure a fresh leaf tensor, and sets `requires_grad` to `True`.
+          clones it to ensure a fresh leaf tensor, and sets [`requires_grad`][qten.linalg.tensors.Tensor.requires_grad] to `True`.
         - The returned tensor preserves the original `dims`, device, and dtype.
 
         Returns
@@ -1032,11 +1069,11 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
     def detach(self) -> Self:
         """
-        Disable gradient tracking for the tensor data and create a new `Tensor` instance.
+        Disable gradient tracking for the tensor data and create a new [`Tensor`][qten.linalg.tensors.Tensor] instance.
 
         Behavior
         --------
-        - Always returns a new `Tensor` whose data is a detached view of the
+        - Always returns a new [`Tensor`][qten.linalg.tensors.Tensor] whose data is a detached view of the
           original tensor (no clone), so it shares storage with the original.
         - The returned tensor preserves the original `dims`, device, and dtype.
 
@@ -1078,15 +1115,15 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
     def __getitem__(self, key):
         """
-        Index tensor data with `TensorIndexing` and return a new `Tensor`.
+        Index tensor data with [`TensorIndexing`][qten.linalg.tensors.TensorIndexing] and return a new [`Tensor`][qten.linalg.tensors.Tensor].
 
         Parameters
         ----------
         key : `Any`
             Index expression accepted by QTen tensor indexing. Supported tokens
-            include Python integers, slices, `None`, `...`, `StateSpace`
-            objects, `Convertible` objects that can be converted to
-            `StateSpace`, and QTen `Tensor` index tensors.
+            include Python integers, slices, `None`, `...`, [`StateSpace`][qten.symbolics.state_space.StateSpace]
+            objects, [`Convertible`][qten.abstracts.Convertible] objects that can be converted to
+            [`StateSpace`][qten.symbolics.state_space.StateSpace], and QTen [`Tensor`][qten.linalg.tensors.Tensor] index tensors.
 
         Returns
         -------
@@ -1108,23 +1145,23 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         - `int`: selects one element along the current source axis and removes
           that output dimension.
         - `slice`:
-          - full slice `:` preserves the current `StateSpace`,
+          - full slice `:` preserves the current [`StateSpace`][qten.symbolics.state_space.StateSpace],
           - non-full slice uses `self.dims[axis][slice]`, except
-            `BroadcastSpace` axes where metadata follows sliced size:
-            size `1` keeps `BroadcastSpace`, size `0` becomes
+            [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axes where metadata follows sliced size:
+            size `1` keeps [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace], size `0` becomes
             `IndexSpace.linear(0)`.
-        - `None`: inserts a new output axis with `BroadcastSpace` and does not
+        - `None`: inserts a new output axis with [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] and does not
           consume a source axis.
-        - `StateSpace` / `Convertible`:
-          - indexing a `BroadcastSpace` axis with any non-`BroadcastSpace`
-            `StateSpace` is rejected (`IndexError`),
+        - [`StateSpace`][qten.symbolics.state_space.StateSpace] / [`Convertible`][qten.abstracts.Convertible]:
+          - indexing a [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axis with any non-[`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace]
+            [`StateSpace`][qten.symbolics.state_space.StateSpace] is rejected (`IndexError`),
           - if equal to current axis space: behaves like full slice,
           - if same span: uses permutation indexing and output dim is the index
-            `StateSpace`,
+            [`StateSpace`][qten.symbolics.state_space.StateSpace],
           - if contained subspace: uses embedding indexing and output dim is the
             subspace,
           - otherwise raises `IndexError`.
-        - `Tensor` index:
+        - [`Tensor`][qten.linalg.tensors.Tensor] index:
           - `bool` dtype is not supported (`NotImplementedError`),
           - lower-rank tensor indices are left-padded with singleton/broadcast
             axes to match the maximum tensor-index rank before metadata
@@ -1133,12 +1170,12 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
         Mode rules
         ----------
-        - Mixing `Tensor` indices with `StateSpace`/`Convertible` indices is
+        - Mixing [`Tensor`][qten.linalg.tensors.Tensor] indices with [`StateSpace`][qten.symbolics.state_space.StateSpace]/[`Convertible`][qten.abstracts.Convertible] indices is
           rejected (`ValueError`).
-        - If at least one `Tensor` index is present, data indexing is executed
+        - If at least one [`Tensor`][qten.linalg.tensors.Tensor] index is present, data indexing is executed
           in one torch advanced-indexing call.
         - Otherwise indexing is applied step-by-step per axis (including tuple
-          index_select steps), so per-axis `StateSpace` tuple indices are not
+          index_select steps), so per-axis [`StateSpace`][qten.symbolics.state_space.StateSpace] tuple indices are not
           jointly broadcast by torch.
 
         Output dim ordering for tensor advanced indexing
@@ -1153,10 +1190,10 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         Raises
         ------
         IndexError
-            If the key contains too many indices, incompatible `StateSpace`
+            If the key contains too many indices, incompatible [`StateSpace`][qten.symbolics.state_space.StateSpace]
             metadata, or more than one ellipsis.
         ValueError
-            If tensor indices are mixed with `StateSpace` / `Convertible`
+            If tensor indices are mixed with [`StateSpace`][qten.symbolics.state_space.StateSpace] / [`Convertible`][qten.abstracts.Convertible]
             indices in one indexing operation.
         NotImplementedError
             If boolean tensor indices are used in a mode that QTen does not
@@ -1164,10 +1201,10 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
         Notes
         -----
-        This method delegates key analysis to `TensorIndexing`. When advanced
+        This method delegates key analysis to [`TensorIndexing`][qten.linalg.tensors.TensorIndexing]. When advanced
         tensor indexing is present, indexing is executed in one torch call. In
         all other cases, indexing is applied step-by-step so QTen can preserve
-        per-axis `StateSpace` semantics.
+        per-axis [`StateSpace`][qten.symbolics.state_space.StateSpace] semantics.
         """
         if not isinstance(key, tuple):
             key = (key,)
@@ -1200,7 +1237,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
 
     def factorize_dim(self, dim: int, rule: StateSpaceFactorization) -> Self:
         """
-        Factorize one `StateSpace`-like dimension into multiple subspaces.
+        Factorize one [`StateSpace`][qten.symbolics.state_space.StateSpace]-like dimension into multiple subspaces.
 
         For a tensor with shape `(A, B)`, factorizing the `0`th dimension with
         `factorized=(A1, A2)` and a compatible `align_dim` produces shape
@@ -1227,7 +1264,7 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
         Each entry in `indices_group` defines one output product dimension.
         For a group `(i0, i1, ..., ik)`, the returned tensor contains a single
         axis whose size is the product of the grouped axis sizes and whose
-        `StateSpace` is `self.dims[i0] @ self.dims[i1] @ ... @ self.dims[ik]`.
+        [`StateSpace`][qten.symbolics.state_space.StateSpace] is `self.dims[i0] @ self.dims[i1] @ ... @ self.dims[ik]`.
         Dimensions not listed in any group are preserved as-is.
 
         Negative indices are supported and follow Python indexing rules.
@@ -1371,8 +1408,8 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     matmul, then squeezing out the added dimension(s).
 
     The function first makes the tensors have the same number of dimensions by
-    unsqueezing leading dimensions with `BroadcastSpace`. It then aligns any
-    leading (batch) dimensions so that `BroadcastSpace` can expand to concrete
+    unsqueezing leading dimensions with [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace]. It then aligns any
+    leading (batch) dimensions so that [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] can expand to concrete
     StateSpaces and any non-broadcast StateSpaces are reordered to match. Finally,
     the right tensor's second-to-last dimension is aligned to the left tensor's
     last dimension, and `torch.matmul` is applied.
@@ -1380,7 +1417,7 @@ def matmul(left: Tensor, right: Tensor) -> Tensor:
     The contraction always happens between `left.dims[-1]` and `right.dims[-2]`.
     Leading dimensions behave like batch dimensions and follow the broadcast and
     alignment rules described above. The output keeps all aligned leading
-    dimensions (including any `BroadcastSpace` that remain), drops the contracted
+    dimensions (including any [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] that remain), drops the contracted
     dimension, and appends the right-most dimension from `right`.
 
     Parameters
@@ -1462,7 +1499,7 @@ def _(left: Tensor, right: Tensor) -> Tensor:
     Notes
     -----
     The actual contraction logic, batch broadcasting, and metadata alignment
-    are implemented by `matmul`.
+    are implemented by [`matmul`][qten.linalg.tensors.matmul].
     """
     return matmul(left, right)
 
@@ -1480,7 +1517,7 @@ def _match_dims_for_tensoradd(left: Tensor, right: Tensor) -> Tuple[Tensor, Tens
 def _(left: Tensor, right: Tensor) -> Tensor:
     """
     Add two tensors with the same order of dimensions.
-    If the intra-ordering within the `StateSpace`s differ,
+    If the intra-ordering within the [`StateSpace`][qten.symbolics.state_space.StateSpace]s differ,
     the `right` tensor is permuted to match the ordering
     of the `left` tensor before addition.
 
@@ -1540,7 +1577,7 @@ def _(left: Tensor, right: Tensor) -> Tensor:
     Returns
     -------
     Tensor
-        Boolean tensor with merged `StateSpace` metadata.
+        Boolean tensor with merged [`StateSpace`][qten.symbolics.state_space.StateSpace] metadata.
 
     Notes
     -----
@@ -1903,7 +1940,7 @@ def _(tensor: Tensor) -> Tensor:
 def _(left: Tensor, right: Tensor) -> Tensor:
     """
     Subtract the right tensor from the left tensor with the same order of dimensions.
-    If the intra-ordering within the `StateSpace`s differ, the `right` tensor is
+    If the intra-ordering within the [`StateSpace`][qten.symbolics.state_space.StateSpace]s differ, the `right` tensor is
     permuted to match the ordering of the `left` tensor before addition.
 
     Parameters
@@ -2481,7 +2518,7 @@ def all(
     dim : Optional[Union[int, Tuple[int, ...]]], optional
         Reduction axis (or axes). If `None`, reduce over all dimensions.
     keepdim : bool, optional
-        If `True`, retains the reduced axis as `BroadcastSpace`.
+        If `True`, retains the reduced axis as [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace].
 
     Returns
     -------
@@ -2765,7 +2802,7 @@ def allclose(
 
     This function first aligns `b` to `a` by calling `b.align_all(a.dims)`.
     If alignment fails (for example, mismatched rank or non-alignable
-    `StateSpace`s), this function returns `False` instead of raising.
+    [`StateSpace`][qten.symbolics.state_space.StateSpace]s), this function returns `False` instead of raising.
     When alignment succeeds, the function compares data values using
     `torch.allclose`.
 
@@ -2814,7 +2851,7 @@ def isclose(
     Perform element-wise approximate equality comparison with dimension-aware
     alignment and broadcasting.
 
-    This returns a bool `Tensor` mask, unlike `allclose`, which reduces to a
+    This returns a bool [`Tensor`][qten.linalg.tensors.Tensor] mask, unlike `allclose`, which reduces to a
     Python bool.
     """
     if not isinstance(b, Tensor):
@@ -2834,7 +2871,7 @@ def equal(a: Tensor, b: Tensor) -> bool:
 
     This function first aligns `b` to `a` by calling `b.align_all(a.dims)`.
     If alignment fails (for example, mismatched rank or non-alignable
-    `StateSpace`s), this function returns `False` instead of raising.
+    [`StateSpace`][qten.symbolics.state_space.StateSpace]s), this function returns `False` instead of raising.
     When alignment succeeds, the function compares data values using
     `torch.equal`.
 
@@ -2898,12 +2935,12 @@ def union_dims(
     Compute a broadcast-compatible union of multiple dimension tuples.
 
     This function merges dimension metadata axis-by-axis across one or more
-    tuples of `StateSpace`s. All input tuples must have the same rank.
+    tuples of [`StateSpace`][qten.symbolics.state_space.StateSpace]s. All input tuples must have the same rank.
 
     Merge rule per axis (`allow_merge=False`)
     -------------------
-    - `BroadcastSpace` + concrete `StateSpace` -> concrete `StateSpace`
-    - `BroadcastSpace` + `BroadcastSpace` -> `BroadcastSpace`
+    - [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] + concrete [`StateSpace`][qten.symbolics.state_space.StateSpace] -> concrete [`StateSpace`][qten.symbolics.state_space.StateSpace]
+    - [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] + [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] -> [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace]
     - concrete + concrete:
       - if `same_rays(...)` is `True`, keeps the first (left-most) one
       - otherwise raises `ValueError`
@@ -3000,7 +3037,7 @@ def cat(tensors: Sequence[TensorType], dim: int = 0) -> TensorType:
 
     Non-concatenated dimensions must represent the same rays and are aligned to
     the ordering of the first tensor before concatenation. The concatenated
-    output dimension is rebuilt by ordered append. `IndexSpace` dimensions are
+    output dimension is rebuilt by ordered append. [`IndexSpace`][qten.symbolics.state_space.IndexSpace] dimensions are
     resized linearly; structured dimensions require disjoint labels.
     """
     if not tensors:
@@ -3262,7 +3299,7 @@ def factorize_dim(
     tensor: TensorType, dim: int, rule: StateSpaceFactorization
 ) -> TensorType:
     """
-    Factorize one `StateSpace`-like dimension into multiple subspaces.
+    Factorize one [`StateSpace`][qten.symbolics.state_space.StateSpace]-like dimension into multiple subspaces.
 
     For a tensor with shape `(A, B)`, factorizing the `0`th dimension with
     `factorized=(A1, A2)` and a compatible `align_dim` produces shape
@@ -3366,7 +3403,7 @@ def product_dims(tensor: TensorType, *indices_group: Tuple[int, ...]) -> TensorT
     Each entry in `indices_group` defines one output product dimension.
     For a group `(i0, i1, ..., ik)`, the returned tensor contains a single
     axis whose size is the product of the grouped axis sizes and whose
-    `StateSpace` is `self.dims[i0] @ self.dims[i1] @ ... @ self.dims[ik]`.
+    [`StateSpace`][qten.symbolics.state_space.StateSpace] is `self.dims[i0] @ self.dims[i1] @ ... @ self.dims[ik]`.
     Dimensions not listed in any group are preserved as-is.
 
     Negative indices are supported and follow Python indexing rules.
@@ -3444,7 +3481,7 @@ def promote_rank(tensor: Tensor, target_rank: int) -> Tensor:
 
     This function preserves the existing axis order and values while adding
     `target_rank - tensor.rank()` leading singleton axes in `tensor.data`.
-    The corresponding leading entries in `dims` are `BroadcastSpace()`.
+    The corresponding leading entries in `dims` are [`BroadcastSpace()`][qten.symbolics.state_space.BroadcastSpace].
 
     Parameters
     ----------
@@ -3457,7 +3494,7 @@ def promote_rank(tensor: Tensor, target_rank: int) -> Tensor:
     -------
     Tensor
         tensor if no promotion is needed; otherwise a tensor with prepended
-        broadcast axes and matching prepended `BroadcastSpace` dims.
+        broadcast axes and matching prepended [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] dims.
 
     Raises
     ------
@@ -3521,9 +3558,9 @@ def _(
     index_type : `Type[Any]`, optional
         Output representation. Supported values are:
 
-        - `Tensor`: return one integer index tensor per axis,
+        - [`Tensor`][qten.linalg.tensors.Tensor]: return one integer index tensor per axis,
         - `tuple` / `Tuple`: return Python index tuples,
-        - `StateSpace`: for rank-1 conditions, return the selected subspace.
+        - [`StateSpace`][qten.symbolics.state_space.StateSpace]: for rank-1 conditions, return the selected subspace.
 
     Returns
     -------
@@ -3588,8 +3625,8 @@ def nonzero(
     as_tuple : bool, optional
         Must be `True`.
     index_type : Type[Any], optional
-        Requested index representation. Supported values are `Tensor`,
-        `tuple` / `Tuple`, and `StateSpace`.
+        Requested index representation. Supported values are [`Tensor`][qten.linalg.tensors.Tensor],
+        `tuple` / `Tuple`, and [`StateSpace`][qten.symbolics.state_space.StateSpace].
 
     Returns
     -------
@@ -3646,13 +3683,13 @@ permutation/embedding style StateSpace indexing steps.
 
 class TensorIndexing:
     """
-    Compile mixed indexing keys into torch indices plus `StateSpace` metadata.
+    Compile mixed indexing keys into torch indices plus [`StateSpace`][qten.symbolics.state_space.StateSpace] metadata.
 
     This class is the single indexing compiler used by `Tensor.__getitem__`.
     It accepts raw key tokens (including `...`) and produces:
 
     - `indices`: a tuple consumable by torch indexing for one-shot execution.
-    - `dims`: output `StateSpace` metadata after indexing.
+    - `dims`: output [`StateSpace`][qten.symbolics.state_space.StateSpace] metadata after indexing.
     - `indices_steps`: per-token executable steps for sequential indexing.
     - `has_tensor_index`: whether advanced tensor-index mode is active.
 
@@ -3663,9 +3700,9 @@ class TensorIndexing:
     - `slice`
     - `None`
     - `Ellipsis`
-    - `StateSpace`
-    - `Convertible` (converted to `StateSpace`)
-    - `Tensor` (qten tensor index)
+    - [`StateSpace`][qten.symbolics.state_space.StateSpace]
+    - [`Convertible`][qten.abstracts.Convertible] (converted to [`StateSpace`][qten.symbolics.state_space.StateSpace])
+    - [`Tensor`][qten.linalg.tensors.Tensor] (qten tensor index)
 
     Normalization rules
     -------------------
@@ -3675,26 +3712,26 @@ class TensorIndexing:
        tensor rank are provided.
     3. Reject keys with too many source-axis-consuming tokens.
     4. In tensor-index mode, left-pad lower-rank tensor indices with leading
-       `BroadcastSpace` axes (via unsqueeze) so all tensor indices share one
+       [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axes (via unsqueeze) so all tensor indices share one
        rank before `tensor_union_dims` is computed.
 
     Per-token compile rules
     -----------------------
     - `int`: consumes one source axis; removes that axis from output metadata.
     - `slice`:
-      - full `:` preserves the source axis `StateSpace`,
-      - non-full uses `dim[slice]`, except for `BroadcastSpace` where
-        output metadata follows sliced size (`BroadcastSpace` for size `1`,
+      - full `:` preserves the source axis [`StateSpace`][qten.symbolics.state_space.StateSpace],
+      - non-full uses `dim[slice]`, except for [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] where
+        output metadata follows sliced size ([`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] for size `1`,
         `IndexSpace.linear(0)` for size `0`).
-    - `None`: inserts one `BroadcastSpace` axis; consumes no source axis.
-    - `StateSpace` / `Convertible`:
-      - on `BroadcastSpace` source axes, only `BroadcastSpace` is accepted;
-        other `StateSpace` indices raise `IndexError`,
+    - `None`: inserts one [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] axis; consumes no source axis.
+    - [`StateSpace`][qten.symbolics.state_space.StateSpace] / [`Convertible`][qten.abstracts.Convertible]:
+      - on [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] source axes, only [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] is accepted;
+        other [`StateSpace`][qten.symbolics.state_space.StateSpace] indices raise `IndexError`,
       - equal space -> full-slice behavior,
       - same span -> permutation index (`Tuple[int, ...]`),
       - contained subspace -> embedding index (`Tuple[int, ...]`),
       - otherwise raises `IndexError`.
-    - `Tensor`:
+    - [`Tensor`][qten.linalg.tensors.Tensor]:
       - bool dtype is unsupported (`NotImplementedError`),
       - lower-rank tensor indices are internally left-padded to the maximum
         tensor-index rank before union/alignment,
@@ -3703,7 +3740,7 @@ class TensorIndexing:
 
     Mode and compatibility rules
     ----------------------------
-    - Mixed `Tensor` with `StateSpace`/`Convertible` in one key is rejected
+    - Mixed [`Tensor`][qten.linalg.tensors.Tensor] with [`StateSpace`][qten.symbolics.state_space.StateSpace]/[`Convertible`][qten.abstracts.Convertible] in one key is rejected
       (`ValueError`).
     - Tensor-index mode:
       - uses torch advanced indexing semantics for data access,
@@ -3989,20 +4026,20 @@ class TensorIndexing:
         CompiledIndices
             A tuple-like record containing:
             - `indices`: torch-compatible index tuple for one-shot execution.
-            - `dims`: output `StateSpace` tuple after indexing.
+            - `dims`: output [`StateSpace`][qten.symbolics.state_space.StateSpace] tuple after indexing.
             - `indices_steps`: per-token steps for sequential execution.
             - `has_tensor_index`: whether tensor advanced-index mode is active.
 
         Raises
         ------
         ValueError
-            If `Tensor` indices are mixed with `StateSpace`/`Convertible`
+            If [`Tensor`][qten.linalg.tensors.Tensor] indices are mixed with [`StateSpace`][qten.symbolics.state_space.StateSpace]/[`Convertible`][qten.abstracts.Convertible]
             indices in the same key.
         IndexError
-            If normalization fails (e.g. too many indices) or a `StateSpace`
+            If normalization fails (e.g. too many indices) or a [`StateSpace`][qten.symbolics.state_space.StateSpace]
             index is not compatible with the corresponding source dimension.
         NotImplementedError
-            If boolean `Tensor` index masking is requested.
+            If boolean [`Tensor`][qten.linalg.tensors.Tensor] index masking is requested.
         """
         normalized_indices = self._normalize()
         has_tensor_index = any(isinstance(idx, Tensor) for idx in normalized_indices)

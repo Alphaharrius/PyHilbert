@@ -52,7 +52,7 @@ class PointCloud(Plottable):
         border_color: str | None = None,
         border_width: float | None = None,
     ) -> "PointCloud":
-        """Construct a `PointCloud` from any iterable of offsets."""
+        """Construct a [`PointCloud`][qten_plots.plottables.PointCloud] from any iterable of offsets."""
         return cls(
             offsets=frozenset(offsets),
             name=name,

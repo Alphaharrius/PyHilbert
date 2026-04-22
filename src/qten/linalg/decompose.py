@@ -25,7 +25,7 @@ def _assert_eig_dims(tensor: Tensor) -> None:
 
 def eigh(tensor: Tensor) -> EigH:
     """
-    Perform eigen-value decomposition on a `Tensor` with Hermitian matrix at the last two indices.
+    Perform eigen-value decomposition on a [`Tensor`][qten.linalg.tensors.Tensor] with Hermitian matrix at the last two indices.
 
     Parameters
     ----------
@@ -35,15 +35,15 @@ def eigh(tensor: Tensor) -> EigH:
     -------
     EigH
         A namedtuple `(eigenvalues, eigenvectors)` where:
-        - `eigenvalues` is a `Tensor` containing the eigenvalues.
-        - `eigenvectors` is a `Tensor` containing the corresponding eigenvectors.
+        - `eigenvalues` is a [`Tensor`][qten.linalg.tensors.Tensor] containing the eigenvalues.
+        - `eigenvectors` is a [`Tensor`][qten.linalg.tensors.Tensor] containing the corresponding eigenvectors.
         - `eigenvalues` dtype matches the real dtype of the input (complex inputs
           yield real eigenvalues of the corresponding real dtype).
         - `eigenvectors` dtype matches the input dtype.
         - `eigenvalues.dims` keeps all leading dimensions and replaces the last
-          two matrix dimensions with a single `IndexSpace` dimension.
+          two matrix dimensions with a single [`IndexSpace`][qten.symbolics.state_space.IndexSpace] dimension.
         - `eigenvectors.dims` keeps the leading dimensions, then uses the second
-          last dimension (the row space) followed by the `IndexSpace` dimension.
+          last dimension (the row space) followed by the [`IndexSpace`][qten.symbolics.state_space.IndexSpace] dimension.
 
     Notes
     -----
@@ -75,7 +75,7 @@ def eigh(tensor: Tensor) -> EigH:
 
 def eigvalsh(tensor: Tensor) -> Tensor:
     """
-    Compute eigenvalues of a `Tensor` with Hermitian matrix at the last two indices.
+    Compute eigenvalues of a [`Tensor`][qten.linalg.tensors.Tensor] with Hermitian matrix at the last two indices.
 
     Parameters
     ----------
@@ -84,11 +84,11 @@ def eigvalsh(tensor: Tensor) -> Tensor:
     Returns
     -------
     Tensor
-        A `Tensor` containing the eigenvalues with:
+        A [`Tensor`][qten.linalg.tensors.Tensor] containing the eigenvalues with:
         - dtype matching the real dtype of the input (complex inputs
           yield real eigenvalues of the corresponding real dtype).
         - dims keeping all leading dimensions and replacing the last
-          two matrix dimensions with a single `IndexSpace` dimension.
+          two matrix dimensions with a single [`IndexSpace`][qten.symbolics.state_space.IndexSpace] dimension.
     """
     _assert_eig_dims(tensor)
 
@@ -139,7 +139,7 @@ def _sort_eigenpairs(
 
 def eig(tensor: Tensor) -> EigH:
     """
-    Perform eigen-value decomposition on a `Tensor` with general square matrices
+    Perform eigen-value decomposition on a [`Tensor`][qten.linalg.tensors.Tensor] with general square matrices
     at the last two indices.
 
     Parameters
@@ -150,15 +150,15 @@ def eig(tensor: Tensor) -> EigH:
     -------
     EigH
         A namedtuple `(eigenvalues, eigenvectors)` where:
-        - `eigenvalues` is a `Tensor` containing the eigenvalues.
-        - `eigenvectors` is a `Tensor` containing the corresponding eigenvectors.
+        - `eigenvalues` is a [`Tensor`][qten.linalg.tensors.Tensor] containing the eigenvalues.
+        - `eigenvectors` is a [`Tensor`][qten.linalg.tensors.Tensor] containing the corresponding eigenvectors.
         - `eigenvalues` dtype is the complex dtype of the input (real inputs
           yield complex eigenvalues).
         - `eigenvectors` dtype matches the complex dtype of the input.
         - `eigenvalues.dims` keeps all leading dimensions and replaces the last
-          two matrix dimensions with a single `IndexSpace` dimension.
+          two matrix dimensions with a single [`IndexSpace`][qten.symbolics.state_space.IndexSpace] dimension.
         - `eigenvectors.dims` keeps the leading dimensions, then uses the second
-          last dimension (the row space) followed by the `IndexSpace` dimension.
+          last dimension (the row space) followed by the [`IndexSpace`][qten.symbolics.state_space.IndexSpace] dimension.
 
     Notes
     -----
@@ -189,7 +189,7 @@ def eig(tensor: Tensor) -> EigH:
 
 def eigvals(tensor: Tensor) -> Tensor:
     """
-    Compute eigenvalues of a `Tensor` with general square matrices at the last
+    Compute eigenvalues of a [`Tensor`][qten.linalg.tensors.Tensor] with general square matrices at the last
     two indices.
 
     Parameters
@@ -199,11 +199,11 @@ def eigvals(tensor: Tensor) -> Tensor:
     Returns
     -------
     Tensor
-        A `Tensor` containing the eigenvalues with:
+        A [`Tensor`][qten.linalg.tensors.Tensor] containing the eigenvalues with:
         - dtype matching the complex dtype of the input (real inputs
           yield complex eigenvalues).
         - dims keeping all leading dimensions and replacing the last
-          two matrix dimensions with a single `IndexSpace` dimension.
+          two matrix dimensions with a single [`IndexSpace`][qten.symbolics.state_space.IndexSpace] dimension.
 
     Notes
     -----
@@ -232,17 +232,17 @@ QR = namedtuple("QR", ["Q", "R"])
 
 def qr(tensor: Tensor) -> QR:
     """
-    Perform QR decomposition on a `Tensor` with matrices at the last two indices.
+    Perform QR decomposition on a [`Tensor`][qten.linalg.tensors.Tensor] with matrices at the last two indices.
 
     Returns
     -------
     QR
         A namedtuple `(Q, R)` where:
-        - `Q` is a `Tensor` with orthonormal columns (reduced QR).
-        - `R` is an upper-triangular `Tensor`.
+        - `Q` is a [`Tensor`][qten.linalg.tensors.Tensor] with orthonormal columns (reduced QR).
+        - `R` is an upper-triangular [`Tensor`][qten.linalg.tensors.Tensor].
         - Output dims preserve leading dimensions and map the last two dims to
           (row_dim, spectral_dim) for `Q` and `(spectral_dim, col_dim)` for
-          R, where `spectral_dim` is an `IndexSpace` describing the
+          R, where `spectral_dim` is an [`IndexSpace`][qten.symbolics.state_space.IndexSpace] describing the
           reduced QR bond dimension.
     """
     if tensor.rank() < 2:
@@ -277,7 +277,7 @@ def svd(
     full_matrices: bool = False,
 ) -> SVD:
     """
-    Perform SVD on a `Tensor` with matrices at the last two indices.
+    Perform SVD on a [`Tensor`][qten.linalg.tensors.Tensor] with matrices at the last two indices.
 
     Parameters
     ----------

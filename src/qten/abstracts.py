@@ -202,7 +202,7 @@ class HasBase(Generic[BaseType], ABC):
 
     The key idea is that the *mathematical object* is the same, but its
     *representation* depends on the base. Implementations should therefore
-    provide `rebase(...)` to return a new equivalent object expressed in a new
+    provide [`rebase(...)`][qten.abstracts.HasBase.rebase] to return a new equivalent object expressed in a new
     base, without mutating the original.
     """
 
@@ -213,7 +213,7 @@ class HasBase(Generic[BaseType], ABC):
 
         This should be a lightweight, stable descriptor of the representation context
         (e.g., a basis matrix, lattice, coordinate frame, or function basis). The
-        returned base is used by `rebase(...)` to construct an equivalent object in a
+        returned base is used by [`rebase(...)`][qten.abstracts.HasBase.rebase] to construct an equivalent object in a
         new base, so implementations should not mutate internal state and should
         prefer returning an immutable or effectively immutable object.
         """
@@ -270,7 +270,7 @@ class Functional(ABC):
     @classmethod
     def register(cls, obj_type: type):
         """
-        Register a function defining the action of the `Functional` on a specific object type.
+        Register a function defining the action of the [`Functional`][qten.abstracts.Functional] on a specific object type.
         Dispatch is resolved at call time via MRO, so only the exact
         `(obj_type, cls)` key is stored here. Resolution later searches both:
 
@@ -336,12 +336,12 @@ class Functional(ABC):
     @staticmethod
     def get_applicable_types(cls) -> Tuple[Type, ...]:
         """
-        Get all object types that can be applied by this `Functional`.
+        Get all object types that can be applied by this [`Functional`][qten.abstracts.Functional].
 
         Returns
         -------
         Tuple[Type, ...]
-            A tuple of all registered object types that this `Functional` can handle.
+            A tuple of all registered object types that this [`Functional`][qten.abstracts.Functional] can handle.
         """
         types = set()
         for obj_type, functional_type in cls._registered_methods.keys():
@@ -351,7 +351,7 @@ class Functional(ABC):
 
     def allows(self, obj: Any) -> bool:
         """
-        Check if this `Functional` can be applied on the given object.
+        Check if this [`Functional`][qten.abstracts.Functional] can be applied on the given object.
 
         Parameters
         ----------
@@ -361,7 +361,7 @@ class Functional(ABC):
         Returns
         -------
         bool
-            True if this `Functional` can be applied on the object, False otherwise.
+            True if this [`Functional`][qten.abstracts.Functional] can be applied on the object, False otherwise.
 
         Notes
         -----
@@ -400,12 +400,12 @@ class Span(Operable, ABC, Generic[_ElementType]):
     combinations of those vectors. In a topological space, the span of a set
     of points might be the smallest closed set containing those points.
 
-    Spans participate in `Operable` membership using Python's `in` protocol:
+    Spans participate in [`Operable`][qten.abstracts.Operable] membership using Python's `in` protocol:
     `x in span` dispatches to `span.__contains__(x)`.
 
     The default containment rules support:
-    - `Span` queries, compared by `elements()`.
-    - `Convertible` queries, converted to `type(self)` before comparison.
+    - [`Span`][qten.abstracts.Span] queries, compared by [`elements()`][qten.abstracts.Span.elements].
+    - [`Convertible`][qten.abstracts.Convertible] queries, converted to `type(self)` before comparison.
 
     The `_ElementType` type variable represents the type of elements that define the span.
     """
@@ -459,7 +459,7 @@ class Convertible(ABC):
     Conversion functions are registered globally using
     ``@MyType.add_conversion(TargetType)`` with
     ``(source_type, destination_type)`` as the lookup key. Implementers inherit
-    :meth:`convert` and usually only need to register conversion handlers.
+    [[`convert`][qten.abstracts.Convertible.convert]][qten.abstracts.Convertible.convert] and usually only need to register conversion handlers.
 
     Notes
     -----
@@ -508,7 +508,7 @@ class Convertible(ABC):
         NotImplementedError
             If no conversion function has been registered for
             ``(type(self), T)`` or any source supertype via
-            :meth:`add_conversion`.
+            [[`add_conversion`][qten.abstracts.Convertible.add_conversion]][qten.abstracts.Convertible.add_conversion].
         """
         source_type = type(self)
         table_get = _type_conversion_table.get

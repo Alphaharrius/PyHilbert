@@ -21,7 +21,7 @@ class FFObservable:
 
     The observable stores a list of weighted basis-state transitions and can
     convert them into a Hermitian matrix representation on the minimal
-    `HilbertSpace` spanned by the bond endpoints after ray reduction.
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] spanned by the bond endpoints after ray reduction.
 
     Attributes
     ----------
@@ -73,11 +73,11 @@ class FFObservable:
 
     def to_tensor(self, *, device: Optional[Device] = None) -> Tensor:
         """
-        Convert the accumulated bonds into a Hermitian matrix `Tensor`.
+        Convert the accumulated bonds into a Hermitian matrix [`Tensor`][qten.linalg.tensors.Tensor].
 
         Each bond contributes the matrix element induced by its coefficient and
         endpoint basis-state amplitudes. Basis states are first reduced to their
-        ray representatives, and the output `HilbertSpace` is built from the
+        ray representatives, and the output [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] is built from the
         resulting insertion-ordered unique rays. Off-diagonal entries are
         mirrored by complex conjugation so the returned tensor is Hermitian.
 

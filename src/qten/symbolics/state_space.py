@@ -37,15 +37,15 @@ def _check_contiguous_indices(s: "StateSpace") -> None:
 @dataclass(frozen=True)
 class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
     """
-    `StateSpace` is a collection of indices with additional information attached to the elements,
-    for the case of TNS there are only two types of state spaces: `MomentumSpace` and `HilbertSpace`.
-    `MomentumSpace` is needed because some tensors are better represented in momentum space, e.g. Hamiltonians
-    with translational symmetry, while `HilbertSpace` is needed to represent local degrees of freedom, e.g. spin or fermionic modes.
+    [`StateSpace`][qten.symbolics.state_space.StateSpace] is a collection of indices with additional information attached to the elements,
+    for the case of TNS there are only two types of state spaces: [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] and [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] is needed because some tensors are better represented in momentum space, e.g. Hamiltonians
+    with translational symmetry, while [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] is needed to represent local degrees of freedom, e.g. spin or fermionic modes.
 
     Attributes
     ----------
     structure : OrderedDict[Spatial, int]
-        An ordered dictionary mapping each spatial component (e.g., `Offset`,
+        An ordered dictionary mapping each spatial component (e.g., [`Offset`][qten.geometries.spatials.Offset],
         Momentum) to its single flattened index.
 
     dim : int
@@ -275,7 +275,7 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
 
     This returns a per-sector permutation: each entry corresponds to a key in
     `dest.structure` and gives the index of the same key in `src.structure`.
-    The mapping is directly index-based on the current `StateSpace` structure
+    The mapping is directly index-based on the current [`StateSpace`][qten.symbolics.state_space.StateSpace] structure
     and can be used to reorder sector-aligned data.
 
     Parameters
@@ -419,7 +419,7 @@ class BzPath:
 
 @Momentum.add_conversion(StateSpace)
 def momentum_to_momentumspace(k: Momentum) -> StateSpace:
-    """Convert a `Momentum` to a `MomentumSpace` containing only that momentum."""
+    """Convert a [`Momentum`][qten.geometries.spatials.Momentum] to a [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] containing only that momentum."""
     structure = OrderedDict({k: 0})
     return MomentumSpace(structure=structure)
 
@@ -462,21 +462,21 @@ class BroadcastSpace(StateSpace[_BAxis]):
 
     Design intent
     -------------
-    `BroadcastSpace` represents an axis that behaves like a size-1 axis under
+    [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] represents an axis that behaves like a size-1 axis under
     tensor broadcasting. It is used to model dimensions introduced by
     `unsqueeze`, `None` indexing, or other operations where data may be
     expanded without introducing a concrete physical basis.
 
     Structure semantics
     -------------------
-    `BroadcastSpace` stores a private singleton marker in `structure`:
+    [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] stores a private singleton marker in `structure`:
     `OrderedDict({_BAxis(): 0})`.
     This keeps the axis dimension at `1` while still providing a stable
     coordinate for structure-based index mapping helpers.
 
     Implication for index mapping
     -----------------------------
-    For `BroadcastSpace -> BroadcastSpace`, `embedding_order(...)` resolves to
+    For `BroadcastSpace -> BroadcastSpace`, [`embedding_order(...)`][qten.symbolics.state_space.embedding_order] resolves to
     `(0,)`. This is intentional and allows consumers that build runtime index
     coordinates from structure mappings to treat broadcast axes as a singleton
     axis at position `0`.
@@ -486,8 +486,8 @@ class BroadcastSpace(StateSpace[_BAxis]):
 
     Compatibility rules
     -------------------
-    Multimethod rules in this module treat `BroadcastSpace` as compatible
-    with any `StateSpace` in `same_rays(...)`, and as neutral in
+    Multimethod rules in this module treat [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] as compatible
+    with any [`StateSpace`][qten.symbolics.state_space.StateSpace] in [`same_rays(...)`][qten.symbolics.state_space.same_rays], and as neutral in
     `__add__(...)`:
     - `BroadcastSpace + X -> X`
     - `X + BroadcastSpace -> X`
@@ -557,7 +557,7 @@ class IndexSpace(StateSpace[int]):
     @staticmethod
     def linear(size: int) -> "IndexSpace":
         """
-        Build a contiguous index space of length `size`.
+        Build a contiguous index space of length [`size`][qten.geometries.spatials.ReciprocalLattice.size].
 
         The resulting space contains integer keys `0..size-1`, each mapped to
         the same integer index.
@@ -570,12 +570,12 @@ class IndexSpace(StateSpace[int]):
         Returns
         -------
         IndexSpace
-            A contiguous `IndexSpace` with canonical linear ordering.
+            A contiguous [`IndexSpace`][qten.symbolics.state_space.IndexSpace] with canonical linear ordering.
 
         Raises
         ------
         ValueError
-            If `size` is negative.
+            If [`size`][qten.geometries.spatials.ReciprocalLattice.size] is negative.
         """
         if size < 0:
             raise ValueError("IndexSpace size must be non-negative.")
@@ -590,7 +590,7 @@ class IndexSpace(StateSpace[int]):
 
 class StateSpaceFactorization(NamedTuple):
     """
-    Ruleset for factorizing one `StateSpace`-like tensor dimension.
+    Ruleset for factorizing one [`StateSpace`][qten.symbolics.state_space.StateSpace]-like tensor dimension.
 
     Attributes
     ----------

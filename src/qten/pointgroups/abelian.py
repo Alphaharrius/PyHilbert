@@ -62,7 +62,7 @@ class AbelianBasis(Spatial):
 
     Ordering
     --------
-    `AbelianBasis` comparison (`<`, `>`) is defined by lexicographic string
+    [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] comparison (`<`, `>`) is defined by lexicographic string
     ordering of `expr` (`str(expr)`).
 
     Attributes
@@ -91,13 +91,13 @@ class AbelianBasis(Spatial):
         order: int,
     ) -> "AbelianBasis":
         """
-        Build an `AbelianBasis` from a Euclidean representation vector.
+        Build an [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] from a Euclidean representation vector.
 
         The input `rep` is first normalized to a canonical representative by
         dividing through its first non-zero coefficient. The normalized vector
         is then converted into the symbolic polynomial expression in
-        `euclidean_basis` and stored as both `expr` and canonical `rep` data
-        of the resulting `AbelianBasis`.
+        [`euclidean_basis`][qten.pointgroups.abelian.AbelianGroup.euclidean_basis] and stored as both `expr` and canonical `rep` data
+        of the resulting [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis].
 
         Parameters
         ----------
@@ -160,10 +160,10 @@ class AbelianGroup(Opr):
     """
     Abelian linear operator represented on Cartesian coordinate functions.
 
-    `AbelianGroup` stores the linear part `g` of a symmetry/operator as an
+    [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup] stores the linear part `g` of a symmetry/operator as an
     exact matrix `irrep` acting on the coordinate axes `axes`. It provides the
     order-dependent polynomial representations induced by that linear action
-    and the corresponding eigen-basis functions (`AbelianBasis`).
+    and the corresponding eigen-basis functions ([`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis]).
 
     Mathematical meaning
     --------------------
@@ -183,7 +183,7 @@ class AbelianGroup(Opr):
 
     Because coordinate symbols commute, the raw tensor-product representation is
     symmetrized onto the commuting monomial basis. The resulting matrix is
-    returned by `euclidean_repr(order)`.
+    returned by [`euclidean_repr(order)`][qten.pointgroups.abelian.AbelianGroup.euclidean_repr].
 
     Parameters
     ----------
@@ -195,34 +195,34 @@ class AbelianGroup(Opr):
 
     Main API
     --------
-    - `euclidean_repr(order)`
+    - [`euclidean_repr(order)`][qten.pointgroups.abelian.AbelianGroup.euclidean_repr]
       Symmetrized linear action on homogeneous commuting monomials of degree
       `order`.
-    - `basis(order)`
-      Eigen-basis functions of `euclidean_repr(order)` returned as
-      `AbelianBasis` objects keyed by eigenvalue.
-    - `basis_table`
+    - [`basis(order)`][qten.pointgroups.abelian.AbelianGroup.basis]
+      Eigen-basis functions of [`euclidean_repr(order)`][qten.pointgroups.abelian.AbelianGroup.euclidean_repr] returned as
+      [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] objects keyed by eigenvalue.
+    - [`basis_table`][qten.pointgroups.abelian.AbelianGroup.basis_table]
       Aggregate lookup table of eigen-basis functions collected across
       increasing polynomial orders until all characters/eigenvalues of the
       finite represented element are found.
-    - `group_order(max_order=128)`
+    - [`group_order(max_order=128)`][qten.pointgroups.abelian.AbelianGroup.group_order]
       Order of the represented matrix, i.e. the smallest positive integer `n`
       such that `irrep**n = I`.
 
     Notes
     -----
-    `AbelianGroup` is the linear object. To obtain an affine operator of the
-    form `x -> g x + t`, wrap it in `AbelianOpr`. In that sense, `AbelianOpr`
-    is the affine extension of `AbelianGroup`.
+    [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup] is the linear object. To obtain an affine operator of the
+    form `x -> g x + t`, wrap it in [`AbelianOpr`][qten.pointgroups.abelian.AbelianOpr]. In that sense, [`AbelianOpr`][qten.pointgroups.abelian.AbelianOpr]
+    is the affine extension of [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup].
 
     `AbelianGroup @ AbelianGroup` composes linear maps in the same algebraic
-    order as every other `Opr`: `(a @ b) @ x == a(b(x))`. When the two groups
+    order as every other [`Opr`][qten.symbolics.hilbert_space.Opr]: `(a @ b) @ x == a(b(x))`. When the two groups
     use different but compatible ordered axis tuples, composition first embeds
     both matrices into a common axis basis. The merged basis preserves the full
     left-axis order and appends only unseen right axes. Missing axes act by the
     identity, while shared axes are aligned by symbol and reordered as needed.
 
-    The `group_order()` and `basis_table` utilities assume the represented
+    The [`group_order()`][qten.pointgroups.abelian.AbelianGroup.group_order] and [`basis_table`][qten.pointgroups.abelian.AbelianGroup.basis_table] utilities assume the represented
     element has finite order. They are appropriate for finite abelian point
     symmetries, but may fail or be incomplete for infinite-order linear maps.
     """
@@ -402,12 +402,12 @@ class AbelianGroup(Opr):
     @lru_cache
     def basis(self, order: int) -> FrozenDict:
         """
-        Compute abelian eigen-basis functions from `euclidean_repr(order)` eigenvectors.
+        Compute abelian eigen-basis functions from [`euclidean_repr(order)`][qten.pointgroups.abelian.AbelianGroup.euclidean_repr] eigenvectors.
 
         Returns
         -------
         FrozenDict
-            Mapping from eigenvalue to normalized `AbelianBasis` eigenfunction.
+            Mapping from eigenvalue to normalized [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] eigenfunction.
             Normalization is fixed by dividing by the first non-zero coefficient
             in each eigenvector.
         """
@@ -543,7 +543,7 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
     Abelian operator acting on polynomial coordinate functions.
 
     This class combines an abelian linear representation with a translation:
-    `x -> g x + t`, where `g` is carried by `AbelianGroup` and `t` by `offset`.
+    `x -> g x + t`, where `g` is carried by [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup] and `t` by `offset`.
 
     Parameters
     ----------
@@ -557,7 +557,7 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
     -----
     The operator is initialized at the canonical origin of the identity affine
     basis. To center it at a specific point, construct it first and then call
-    `fixpoint_at(...)`.
+    [`fixpoint_at(...)`][qten.pointgroups.abelian.AbelianOpr.fixpoint_at].
     """
 
     g: AbelianGroup
@@ -685,9 +685,9 @@ def _(t: AbelianOpr, f: AbelianBasis) -> Multiple[AbelianBasis]:
     """
     Apply an affine operator to an abelian basis function.
 
-    For `AbelianBasis`, the affine translation is intentionally ignored, so
+    For [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis], the affine translation is intentionally ignored, so
     this action is exactly the same as applying the underlying linear
-    `AbelianGroup`.
+    [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup].
 
     Parameters
     ----------
@@ -701,7 +701,7 @@ def _(t: AbelianOpr, f: AbelianBasis) -> Multiple[AbelianBasis]:
     Tuple[sy.Expr, AbelianBasis]
         A symbolic phase factor (sy.Expr) such that
         t.g.euclidean_repr(f.order) @ f.rep == phase * f.rep;
-        and the original `AbelianBasis` (unchanged).
+        and the original [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] (unchanged).
 
     Raises
     ------
@@ -742,7 +742,7 @@ def _apply_abelian_opr_to_offset_cached(t: AbelianOpr, offset: Offset) -> Offset
 @AbelianOpr.register(Offset)
 def _(t: AbelianOpr, offset: Offset) -> Offset:
     """
-    Apply an affine operator to an `Offset`.
+    Apply an affine operator to an [`Offset`][qten.geometries.spatials.Offset].
 
     This implementation rebases the transform into the input offset's space and
     then applies the homogeneous affine matrix in those coordinates.
@@ -758,8 +758,8 @@ def _(t: AbelianOpr, offset: Offset) -> Offset:
     Returns
     -------
     Tuple[sy.Expr | None, Offset]
-        The irrep of this transformation, `None` if the `offset` is not a fix point; and new `Offset`
-        expressed in the same `AffineSpace` as the input `offset`.
+        The irrep of this transformation, `None` if the `offset` is not a fix point; and new [`Offset`][qten.geometries.spatials.Offset]
+        expressed in the same [`AffineSpace`][qten.geometries.spatials.AffineSpace] as the input `offset`.
 
     Notes
     -----

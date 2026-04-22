@@ -114,7 +114,7 @@ def _build_mirror_irrep(ambient: str, target: str) -> sy.ImmutableDenseMatrix:
 
 def pointgroup(query: str) -> AbelianGroup:
     """
-    Build an `AbelianGroup` from a compact query string.
+    Build an [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup] from a compact query string.
 
     This is a user-facing constructor for common point operations in Cartesian
     axes (`x`, `y`, `z`), currently supporting cyclic rotations and mirrors.
@@ -168,38 +168,38 @@ def pointgroup(query: str) -> AbelianGroup:
 
     Return value
     ------------
-    Returns an `AbelianGroup` with:
+    Returns an [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup] with:
     - `irrep`: the linear matrix representation from query semantics,
     - `axes`: symbols in ambient order.
 
     Examples
     --------
     Cyclic, 2D:
-    - `pointgroup("c6-xy:xy")`:
+    - [`pointgroup("c6-xy:xy")`][qten.pointgroups._pointgroups.pointgroup]:
       60-degree rotation in `xy`.
-    - `pointgroup("c6-xy:yx")`:
+    - [`pointgroup("c6-xy:yx")`][qten.pointgroups._pointgroups.pointgroup]:
       inverse orientation of the same `c6`.
 
     Cyclic, 3D:
-    - `pointgroup("c6-xyz:yz")`:
+    - [`pointgroup("c6-xyz:yz")`][qten.pointgroups._pointgroups.pointgroup]:
       rotate `yz` by 60 degrees, keep `x` fixed.
 
     Mirror, 1D:
-    - `pointgroup("m-x:x")`:
+    - [`pointgroup("m-x:x")`][qten.pointgroups._pointgroups.pointgroup]:
       reflection in 1D (`x -> -x`).
 
     Mirror, 2D:
-    - `pointgroup("m-xy:y")`:
+    - [`pointgroup("m-xy:y")`][qten.pointgroups._pointgroups.pointgroup]:
       mirror about y-axis (`x -> -x`, `y -> y`).
-    - `pointgroup("m-xy:x")`:
+    - [`pointgroup("m-xy:x")`][qten.pointgroups._pointgroups.pointgroup]:
       mirror about x-axis (`x -> x`, `y -> -y`).
 
     Mirror, 3D:
-    - `pointgroup("m-xyz:yz")`:
+    - [`pointgroup("m-xyz:yz")`][qten.pointgroups._pointgroups.pointgroup]:
       mirror about yz-plane (`x -> -x`).
-    - `pointgroup("m-xyz:xz")`:
+    - [`pointgroup("m-xyz:xz")`][qten.pointgroups._pointgroups.pointgroup]:
       mirror about xz-plane (`y -> -y`).
-    - `pointgroup("m-xyz:xy")`:
+    - [`pointgroup("m-xyz:xy")`][qten.pointgroups._pointgroups.pointgroup]:
       mirror about xy-plane (`z -> -z`).
     """
     group, ambient, target = _parse_affine_query(query)
