@@ -429,6 +429,25 @@ class AbelianGroup(Opr):
     @property
     @lru_cache
     def basis_table(self) -> FrozenDict:
+        """
+        Build a complete eigen-basis lookup table across polynomial orders.
+
+        The table is accumulated by increasing homogeneous order, starting from
+        `0`, until enough eigen-basis functions have been found to cover the
+        full finite group order returned by
+        [`group_order`][qten.pointgroups.abelian.AbelianGroup.group_order].
+
+        Returns
+        -------
+        FrozenDict
+            Mapping from eigenvalue/character to a representative
+            [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis].
+
+        Raises
+        ------
+        ValueError
+            If no complete table is found up to order `group_order() - 1`.
+        """
         g_order = self.group_order()
         tbl: Dict[sy.Expr, AbelianBasis] = {}
         for order in range(g_order):

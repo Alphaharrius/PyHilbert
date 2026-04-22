@@ -336,6 +336,22 @@ def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
 # TODO: We can put @lru_cache if the hashing of StateSpace is well defined
 @multimethod
 def same_rays(a: StateSpace, b: StateSpace) -> bool:
+    """
+    Check whether two state spaces span the same ray representatives.
+
+    Parameters
+    ----------
+    a : StateSpace
+        First state space.
+    b : StateSpace
+        Second state space.
+
+    Returns
+    -------
+    bool
+        `True` when the two state spaces contain the same set of basis keys,
+        ignoring ordering and stored integer indices.
+    """
     return set(a.structure.keys()) == set(b.structure.keys())
 
 
@@ -391,6 +407,21 @@ def _(a: StateSpace, b: StateSpace):
 @need_validation()
 @dataclass(frozen=True)
 class MomentumSpace(StateSpace[Momentum]):
+    """
+    Ordered state space of momentum points over one reciprocal lattice.
+
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] is the
+    reciprocal-space specialization of [`StateSpace`][qten.symbolics.state_space.StateSpace]. Its `structure`
+    keys are [`Momentum`][qten.geometries.spatials.Momentum] objects and its
+    values are the corresponding integer basis indices.
+
+    Notes
+    -----
+    The class inherits the custom hashing behavior from
+    [`StateSpace`][qten.symbolics.state_space.StateSpace] so instances remain
+    hashable despite storing an `OrderedDict`.
+    """
+
     # Ensure that __hash__ is inherited from StateSpace since the hash of StateSpace is specifically
     # designed to account for the structure attribute which is an un-hashable type OrderedDict.
     __hash__ = StateSpace.__hash__
@@ -444,6 +475,21 @@ def _(space: MomentumSpace, _: type[ReciprocalLattice]) -> ReciprocalLattice:
 
 @lru_cache
 def brillouin_zone(lattice: ReciprocalLattice) -> MomentumSpace:
+    """
+    Enumerate the discrete Brillouin-zone momenta of a reciprocal lattice.
+
+    Parameters
+    ----------
+    lattice : ReciprocalLattice
+        Reciprocal lattice whose Cartesian momentum samples should be
+        collected.
+
+    Returns
+    -------
+    MomentumSpace
+        Momentum space whose ordering follows
+        [`ReciprocalLattice.cartes()`][qten.geometries.spatials.ReciprocalLattice.cartes].
+    """
     elements = lattice.cartes()
     structure = OrderedDict((el, n) for n, el in enumerate(elements))
     return MomentumSpace(structure=structure)

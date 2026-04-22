@@ -19,6 +19,25 @@ from multimethod import multimethod
 
 @dataclass(frozen=True)
 class Operable(ABC):
+    """
+    Mixin defining the symbolic operator protocol used across QTen.
+
+    [`Operable`][qten.abstracts.Operable] provides the shared multimethod-based
+    arithmetic, comparison, and logical operator surface used by symbolic
+    objects throughout the codebase. Concrete subclasses opt into this protocol
+    by registering implementations for the relevant dunder methods on the class
+    or on cooperating types.
+
+    Design notes
+    ------------
+    - The base implementations intentionally raise `NotImplementedError` so
+      unsupported combinations fail loudly.
+    - Reflected helpers such as `__radd__` delegate back into the same
+      multimethod registry, keeping dispatch symmetric.
+    - Public API docs for concrete operator behavior should generally live on
+      the concrete type, not on this abstract mixin.
+    """
+
     @multimethod
     def __contains__(self, other):
         raise NotImplementedError(
@@ -184,6 +203,15 @@ class HasDual(ABC):
     @property
     @abstractmethod
     def dual(self):
+        """
+        Return the dual object associated with this instance.
+
+        Returns
+        -------
+        Any
+            Dual representation of this object. Concrete subclasses should
+            return a value of the domain-specific dual type.
+        """
         raise NotImplementedError()
 
 
@@ -254,6 +282,33 @@ class AbstractKet(Generic[_InnerProductType], ABC):
 
 
 class Functional(ABC):
+    """
+    Abstract multimethod dispatch object acting on runtime values.
+
+    [`Functional`][qten.abstracts.Functional] is a lightweight registry-based
+    single-dispatch system that resolves implementations using both:
+
+    - the runtime type of the input object, and
+    - the runtime type of the functional object itself.
+
+    This makes it possible to define operator families where subclasses inherit
+    registrations from base functionals while still supporting more specific
+    overrides.
+
+    Registration model
+    ------------------
+    Implementations are registered with
+    [`register(obj_type)`][qten.abstracts.Functional.register]. At invocation
+    time, resolution walks the MRO of the input object and the functional class
+    to find the most specific applicable registration.
+
+    Caching
+    -------
+    Resolved runtime pairs are cached in `_resolved_methods`. Whenever a new
+    registration is added, stale cache entries affected by that object type are
+    invalidated automatically.
+    """
+
     _registered_methods: ClassVar[Dict[Tuple[type, type], Callable]] = {}
     _resolved_methods: ClassVar[Dict[Tuple[type, type], Callable]] = {}
 
@@ -372,6 +427,28 @@ class Functional(ABC):
         return self._resolve_method(type(obj), type(self)) is not None
 
     def invoke(self, obj: Any, **kwargs) -> Any:
+        """
+        Apply this functional to `obj` using registered multimethod dispatch.
+
+        Parameters
+        ----------
+        obj : Any
+            Runtime object to dispatch on.
+        **kwargs : Any
+            Additional keyword arguments forwarded to the resolved
+            implementation.
+
+        Returns
+        -------
+        Any
+            Result produced by the resolved registered method.
+
+        Raises
+        ------
+        NotImplementedError
+            If no registration exists for the runtime pair
+            `(type(obj), type(self))` after MRO fallback.
+        """
         functional_class = type(self)
         obj_class = type(obj)
         method = self._resolve_method(obj_class, functional_class)

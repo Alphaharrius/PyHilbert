@@ -3597,6 +3597,33 @@ def _(
 
 
 def where(*args, **kwargs):
+    """
+    Dispatch to the overloaded public [`where`][qten.linalg.tensors.where] implementations.
+
+    This wrapper exists so multimethod dispatch errors can be translated into
+    user-facing `TypeError` exceptions when the underlying implementation
+    rejects a particular call signature.
+
+    Parameters
+    ----------
+    *args : Any
+        Positional arguments forwarded to the overloaded `where` variants.
+    **kwargs : Any
+        Keyword arguments forwarded to the overloaded `where` variants.
+
+    Returns
+    -------
+    Any
+        Result produced by the matching overloaded `where` implementation.
+
+    Raises
+    ------
+    TypeError
+        If multimethod dispatch fails because the matched implementation raised
+        `TypeError`.
+    DispatchError
+        If dispatch fails for another reason.
+    """
     try:
         return _where(*args, **kwargs)
     except DispatchError as ex:

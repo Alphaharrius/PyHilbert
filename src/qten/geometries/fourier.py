@@ -173,13 +173,55 @@ def region_restrict(
 @overload
 def region_restrict(
     tensor: Tensor, region: Tuple[Offset, ...], *, device: Optional[Device] = None
-) -> Tensor: ...
+) -> Tensor:
+    """
+    Rebuild a Fourier transform tensor on a region specified by offsets.
+
+    This overload accepts a tuple of [`Offset`][qten.geometries.spatials.Offset]
+    values, converts it into the matching real-space
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace], and then
+    dispatches to the main [`region_restrict`][qten.geometries.fourier.region_restrict]
+    implementation.
+    """
+    ...
 
 
 @multimethod
 def region_restrict(
     tensor: Tensor, R: HilbertSpace, *, device: Optional[Device] = None
 ) -> Tensor:
+    """
+    Rebuild a Fourier transform tensor on a different real-space region.
+
+    Parameters
+    ----------
+    tensor : Tensor
+        Fourier transform tensor whose first two dims are expected to be
+        `(MomentumSpace, HilbertSpace)`.
+    R : HilbertSpace
+        Target real-space region used as the new rightmost dimension.
+    device : Optional[Device], optional
+        Device on which to construct the rebuilt transform.
+
+    Returns
+    -------
+    Tensor
+        Fourier transform tensor with dims `(K, B, R)` where `K` and `B` are
+        taken from `tensor`.
+
+    Raises
+    ------
+    TypeError
+        If the first two dims of `tensor` are not `MomentumSpace` and
+        `HilbertSpace`, respectively.
+
+    Notes
+    -----
+    This is the runtime implementation of the overloaded
+    [`region_restrict`][qten.geometries.fourier.region_restrict] API. The
+    overload accepting a tuple of [`Offset`][qten.geometries.spatials.Offset]
+    first converts that tuple into a [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] and then dispatches here.
+    """
     K, B, _ = tensor.dims
     if not isinstance(K, MomentumSpace):
         raise TypeError(

@@ -17,6 +17,27 @@ _V = TypeVar("_V")
 
 
 class FrozenDict(Mapping[_K, _V], Generic[_K, _V]):
+    """
+    Immutable hashable dictionary-like mapping.
+
+    [`FrozenDict`][qten.utils.collections_ext.FrozenDict] stores its items as an
+    immutable frozenset-backed payload so instances can be hashed and used as
+    dictionary keys or cache entries, provided all keys and values are
+    hashable.
+
+    Parameters
+    ----------
+    *args : Any
+        Positional arguments accepted by the built-in `dict` constructor.
+    **kwargs : Any
+        Keyword arguments accepted by the built-in `dict` constructor.
+
+    Raises
+    ------
+    TypeError
+        If any key or value is not hashable.
+    """
+
     __slots__ = ("__items", "__hash")
 
     def __init__(self, *args: Any, **kwargs: Any):

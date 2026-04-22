@@ -372,6 +372,14 @@ class U1Span(Span[U1Basis], Spatial, HasRays, Convertible):
 
     @override
     def elements(self) -> Tuple["U1Basis", ...]:
+        """
+        Return the basis states contained in this span.
+
+        Returns
+        -------
+        Tuple[U1Basis, ...]
+            Ordered immutable tuple of basis states.
+        """
         return self.span
 
     @override
@@ -380,6 +388,21 @@ class U1Span(Span[U1Basis], Spatial, HasRays, Convertible):
         return U1Span(tuple(m.rays() for m in self.span))
 
     def cross_gram(self, ket: "U1Span") -> sy.ImmutableDenseMatrix:
+        """
+        Compute the overlap matrix between this span and another span.
+
+        Parameters
+        ----------
+        ket : U1Span
+            Right-hand span supplying the ket states.
+
+        Returns
+        -------
+        sy.ImmutableDenseMatrix
+            Matrix whose `(i, j)` entry is the inner product between the `i`th
+            basis state of `self` and the `j`th basis state of `ket` whenever
+            the two states lie on the same ray, and `0` otherwise.
+        """
         tbl: Dict["U1Basis", Tuple[int, "U1Basis"]] = {
             psi.rays(): (n, psi) for n, psi in enumerate(ket.span)
         }
@@ -1040,6 +1063,28 @@ class Opr(Functional, Operable, ABC):
     def invoke(  # type: ignore[override]
         self, v: _T, **kwargs
     ) -> Union[_T, Multiple[_T]]:
+        """
+        Apply the operator while preserving QTen's symbolic output invariants.
+
+        Parameters
+        ----------
+        v : _T
+            Input object to transform.
+        **kwargs : Any
+            Extra keyword arguments forwarded to the resolved registration.
+
+        Returns
+        -------
+        _T | Multiple[_T]
+            Transformed object, or a factored result carrying an explicit
+            scalar coefficient.
+
+        Raises
+        ------
+        AssertionError
+            If a registered implementation returns a value outside the expected
+            same-type / `Multiple[same-type]` contract.
+        """
         if type(v) is Multiple:
             result = super().invoke(v.base, **kwargs)
             if type(result) is Multiple:
@@ -1376,6 +1421,21 @@ class ComposedOpr(Opr):
 
     @override
     def invoke(self, v: _T, **kwargs) -> Union[_T, Multiple[_T]]:
+        """
+        Apply the composed operators in algebraic composition order.
+
+        Parameters
+        ----------
+        v : _T
+            Input object to transform.
+        **kwargs : Any
+            Extra keyword arguments forwarded to each operator application.
+
+        Returns
+        -------
+        _T | Multiple[_T]
+            Result after applying the stored operators from right to left.
+        """
         result = v
         for op in reversed(self.ops):
             result = op(result, **kwargs)

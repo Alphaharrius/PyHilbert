@@ -24,20 +24,64 @@ from . import (
 @need_validation(check_proper_transformation("M"), check_numerical("M"))
 @dataclass(frozen=True)
 class AbstractBasisTransform(Functional, ABC):
+    """
+    Abstract linear basis-change operator parameterized by a matrix `M`.
+
+    [`AbstractBasisTransform`][qten.geometries.basis_transform.AbstractBasisTransform]
+    represents a change of coordinates or basis on geometric objects such as
+    affine spaces, lattices, offsets, and momenta. Concrete subclasses decide
+    whether `M` should be interpreted as the forward transform or as its
+    inverse-view companion.
+
+    Parameters
+    ----------
+    M : ImmutableDenseMatrix
+        Square transformation matrix describing the basis change.
+
+    Notes
+    -----
+    Concrete actions are provided through [`Functional`][qten.abstracts.Functional]
+    registrations on supported geometric object types.
+    """
+
     M: ImmutableDenseMatrix
 
     @abstractmethod
     def inv(self) -> "AbstractBasisTransform":
+        """
+        Return the opposite-view basis transform.
+
+        Returns
+        -------
+        AbstractBasisTransform
+            Transform that undoes this view convention, without inverting the
+            stored matrix eagerly unless required by the concrete subclass.
+        """
         pass
 
 
 class BasisTransform(AbstractBasisTransform):
+    """
+    Forward-view basis transform acting with matrix `M`.
+
+    This class is typically used when expressing a space or coordinate object
+    in a transformed basis obtained by post-multiplication with `M`.
+    """
+
     def inv(self) -> "InverseBasisTransform":
         """Return the inverse-view transform associated with this matrix."""
         return InverseBasisTransform(self.M)
 
 
 class InverseBasisTransform(AbstractBasisTransform):
+    """
+    Inverse-view basis transform paired with [`BasisTransform`][qten.geometries.basis_transform.BasisTransform].
+
+    Instances of this class use the same stored matrix `M`, but registrations
+    interpret it through the inverse-view convention, e.g. by acting with
+    `M.inv()` where appropriate.
+    """
+
     def inv(self) -> BasisTransform:
         """Return the forward-view transform associated with this matrix."""
         return BasisTransform(self.M)

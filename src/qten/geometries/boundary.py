@@ -70,9 +70,37 @@ class PeriodicBoundary(BoundaryCondition):
 
     @property
     def basis(self) -> ImmutableDenseMatrix:
+        """
+        Return the boundary basis matrix defining one period along each axis.
+
+        Returns
+        -------
+        ImmutableDenseMatrix
+            Square matrix whose columns span the boundary identification
+            lattice.
+        """
         return self._basis
 
     def wrap(self, index: ImmutableDenseMatrix) -> ImmutableDenseMatrix:
+        """
+        Reduce a lattice index into the canonical representative region.
+
+        Parameters
+        ----------
+        index : ImmutableDenseMatrix
+            Integer lattice-coordinate column vector to wrap.
+
+        Returns
+        -------
+        ImmutableDenseMatrix
+            Wrapped column vector representing the same boundary-equivalence
+            class as `index`.
+
+        Raises
+        ------
+        ValueError
+            If `index` does not have the expected column-vector shape.
+        """
         expected_shape = (self.basis.rows, 1)
         if index.shape != expected_shape:
             raise ValueError(
@@ -105,6 +133,15 @@ class PeriodicBoundary(BoundaryCondition):
         return ImmutableDenseMatrix(self.basis @ wrapped_coords).applyfunc(_rationalize)
 
     def representatives(self) -> tuple[ImmutableDenseMatrix, ...]:
+        """
+        Enumerate one canonical representative for each periodic image class.
+
+        Returns
+        -------
+        tuple[ImmutableDenseMatrix, ...]
+            Tuple of wrapped lattice-coordinate representatives spanning the
+            finite quotient defined by the periodic boundary basis.
+        """
         if self.basis.is_diagonal():
             elements = product(
                 *(range(int(self.basis[i, i])) for i in range(self.basis.rows))
@@ -127,6 +164,27 @@ class PeriodicBoundary(BoundaryCondition):
     def distance(
         self, delta: ImmutableDenseMatrix, lattice_basis: ImmutableDenseMatrix
     ) -> float:
+        """
+        Compute the minimum-image distance of a lattice displacement.
+
+        Parameters
+        ----------
+        delta : ImmutableDenseMatrix
+            Lattice-coordinate displacement column vector.
+        lattice_basis : ImmutableDenseMatrix
+            Real-space lattice basis used to convert lattice coordinates into
+            Cartesian displacements.
+
+        Returns
+        -------
+        float
+            Euclidean norm of the shortest boundary-equivalent displacement.
+
+        Raises
+        ------
+        ValueError
+            If `delta` does not have the expected column-vector shape.
+        """
         expected_shape = (self.basis.rows, 1)
         if delta.shape != expected_shape:
             raise ValueError(

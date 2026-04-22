@@ -49,11 +49,19 @@ def rebase_opr(space: S) -> FuncOpr[OffsetType]:
 
 
 @overload
-def fractional_opr() -> FuncOpr[Offset]: ...
+def fractional_opr() -> FuncOpr[Offset]:
+    """
+    Return an operator targeting [`Offset`][qten.geometries.spatials.Offset] irreps.
+    """
+    ...
 
 
 @overload
-def fractional_opr(T: type[OffsetType]) -> FuncOpr[OffsetType]: ...
+def fractional_opr(T: type[OffsetType]) -> FuncOpr[OffsetType]:
+    """
+    Return an operator targeting irreps of the exact runtime type `T`.
+    """
+    ...
 
 
 def fractional_opr(

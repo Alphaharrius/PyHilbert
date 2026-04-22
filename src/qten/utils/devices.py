@@ -134,6 +134,16 @@ class Device:
 
 
 class DeviceBounded(ABC):
+    """
+    Mixin for objects that can be copied or moved between logical devices.
+
+    Concrete subclasses implement [`to_device`][qten.utils.devices.DeviceBounded.to_device]
+    and expose their current [`device`][qten.utils.devices.DeviceBounded.device].
+    Convenience helpers [`cpu`][qten.utils.devices.DeviceBounded.cpu] and
+    [`gpu`][qten.utils.devices.DeviceBounded.gpu] are defined in terms of that
+    abstract interface.
+    """
+
     def cpu(self) -> Self:
         """
         Return a copy of this object residing on the CPU device.
