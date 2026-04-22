@@ -35,13 +35,13 @@ def nograd_tensors(*names: str) -> Callable[[ModuleType], ModuleType]:
 
     Parameters
     ----------
-    `*names` : `str`
+    *names : str
         Attribute names whose assigned ``Tensor`` values should be stored as
         module buffers rather than ``nn.Parameter`` instances.
 
     Returns
     -------
-    `Callable[[ModuleType], ModuleType]`
+    Callable[[ModuleType], ModuleType]
         A class decorator that annotates the target ``Module`` subclass in place
         and returns that same class.
 
@@ -165,19 +165,19 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Name of the public module attribute to export.
 
         Returns
         -------
-        `Tensor`
+        Tensor
             A detached cloned tensor with the same dims as the module attribute.
 
         Raises
         ------
-        `AttributeError`
+        AttributeError
             If the module has no attribute named ``name``.
-        `TypeError`
+        TypeError
             If the named attribute is not a ``Tensor``.
         """
         tensor = getattr(self, name)
@@ -195,7 +195,7 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Returns
         -------
-        `FrozenDict[str, Tensor]`
+        FrozenDict[str, Tensor]
             Mapping from public tensor names to independent exported tensors.
         """
         exported: dict[str, Tensor] = {}
@@ -218,7 +218,7 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Returns
         -------
-        `Self`
+        Self
             This module after all parameters have been frozen.
         """
         for parameter in self.parameters():
@@ -236,7 +236,7 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Returns
         -------
-        `Self`
+        Self
             This module after all parameters have been unfrozen.
         """
         for parameter in self.parameters():
@@ -264,12 +264,12 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Public attribute name on the module, such as ``"weight"``.
 
         Returns
         -------
-        `str`
+        str
             Internal parameter name used when registering the backing
             ``nn.Parameter`` with PyTorch.
         """
@@ -282,12 +282,12 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Public attribute name on the module, such as ``"basis"``.
 
         Returns
         -------
-        `str`
+        str
             Internal buffer name used when registering the backing tensor with
             PyTorch.
         """
@@ -303,7 +303,7 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Public attribute name whose hidden parameter registration should be
             removed if it exists.
         """
@@ -317,7 +317,7 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Public attribute name whose hidden buffer registration should be
             removed if it exists.
         """
@@ -362,9 +362,9 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Attribute name being assigned.
-        `value` : `Any`
+        value : Any
             Value to assign.
         """
         if isinstance(value, DeviceBounded):
@@ -397,7 +397,7 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Attribute name to delete.
         """
         self._clear_tensor_parameter(name)
@@ -418,12 +418,12 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Parameters
         ----------
-        `device` : `Device`
+        device : Device
             Target logical device.
 
         Returns
         -------
-        `Self`
+        Self
             This module after the move.
         """
         nn.Module.to(self, device.torch_device())
@@ -442,7 +442,7 @@ class Module(Functional, nn.Module, DeviceBounded):
 
         Returns
         -------
-        `Device`
+        Device
             The logical device associated with the module.
         """
         return self._device

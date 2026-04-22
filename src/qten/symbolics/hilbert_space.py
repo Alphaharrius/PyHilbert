@@ -76,19 +76,11 @@ class U1Basis(
     irrep multiplicities must be unity. This guarantees that type-based updates
     via `replace` are unambiguous and fast.
 
-    Parameters
-    ----------
-    `u1`: `sy.Expr`
-        The irrep of this state under an recent operation.
-    `rep` : `Tuple[Any, ...]`
-        Tuple of irreps that defines the state. Input order is canonicalized in
-        `__post_init__` by sorting on `full_typename(type(irrep))`.
-
     Attributes
     ----------
-    `u1`: `sy.Expr`
+    u1 : sy.Expr
         The irrep of this state under an recent operation.
-    `rep` : `Tuple[Any, ...]`
+    rep : Tuple[Any, ...]
         Immutable canonical irrep order sorted by concrete irrep type name
         (`module.qualname`).
 
@@ -109,7 +101,7 @@ class U1Basis(
 
     Raises
     ------
-    `ValueError`
+    ValueError
         Raised in `__post_init__` when any irrep type appears with multiplicity
         different from `1`.
     """
@@ -133,13 +125,13 @@ class U1Basis(
 
         Parameters
         ----------
-        `rep` : `Any`
+        rep : Any
             Irreps to build the state from. Input order is canonicalized in
             `__post_init__` by sorting on `full_typename(type(irrep))`.
 
         Returns
         -------
-        `U1Basis`
+        U1Basis
             A `U1Basis` instance with the given reps and a default U(1) value of `1`.
         """
         return U1Basis(coef=sy.Integer(1), base=tuple(rep))
@@ -160,18 +152,18 @@ class U1Basis(
 
         Parameters
         ----------
-        `irrep` : `Any`
+        irrep : Any
             Replacement irrep instance. Its concrete type must already exist in this
             state exactly once (enforced by `U1Basis.__post_init__`).
 
         Returns
         -------
-        `U1Basis`
+        U1Basis
             A new `U1Basis` with one irrep replaced.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If this state does not contain any irrep with the same concrete
             type as `irrep`.
         """
@@ -190,13 +182,13 @@ class U1Basis(
 
         Parameters
         ----------
-        `*T` : `Type[Any]`
+        *T : Type[Any]
             Concrete irrep types to remove. Matching uses exact runtime type
             identity (`type(x) is T`), not subclass checks.
 
         Returns
         -------
-        `U1Basis`
+        U1Basis
             A new `U1Basis` with all irreps whose concrete types are in `T`
             removed. If none of the requested types are present, `self` is
             returned unchanged.
@@ -220,17 +212,17 @@ class U1Basis(
 
         Parameters
         ----------
-        `T` : `Type[_IrrepType]`
+        T : Type[_IrrepType]
             Concrete irrep type to retrieve.
 
         Returns
         -------
-        `_IrrepType`
+        _IrrepType
             The irrep instance of type `T` contained in this state.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If no irrep with concrete type `T` exists in this state.
 
         Notes
@@ -252,16 +244,16 @@ class U1Basis(
 
         Parameters
         ----------
-        `psi` : `U1Basis`
+        psi : U1Basis
             The state to compute the overlap with.
 
         Returns
         -------
-        `sy.Expr`
+        sy.Expr
             The symbolic overlap of this state with `psi`. If the irreps of the
             two states do not match, the overlap is `0`. If the irreps match, the
             overlap is the product of this state's U(1) value and the conjugate of
-            `psi`'s U(1) value.
+            psi's U(1) value.
         """
         if self.base != psi.base:
             return sy.Integer(0)
@@ -295,7 +287,7 @@ class U1Basis(
 
         Returns
         -------
-        `Tuple[Type, ...]`
+        Tuple[Type, ...]
             Tuple of concrete irrep types in deterministic type-name order.
         """
         return tuple(type(irrep) for irrep in self.base)
@@ -352,12 +344,12 @@ class U1Span(Span[U1Basis], Spatial, HasRays, Convertible):
 
     Parameters
     ----------
-    `span` : `Tuple[U1Basis, ...]`
+    span : Tuple[U1Basis, ...]
         Ordered tuple of `U1Basis` elements contained in this span.
 
     Attributes
     ----------
-    `span` : `Tuple[U1Basis, ...]`
+    span : Tuple[U1Basis, ...]
         The underlying immutable sequence of basis states.
 
     Notes
@@ -431,7 +423,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
     Parameters
     ----------
-    `structure` : `OrderedDict[U1Basis, int]`
+    structure : OrderedDict[U1Basis, int]
         Ordered sector mapping inherited from `StateSpace`, where each key is a
         `U1Basis` and each value is the sector index in basis coordinates.
 
@@ -454,14 +446,14 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Parameters
         ----------
-        `itr` : `Iterable[U1Basis]`
+        itr : Iterable[U1Basis]
             Basis elements to insert into the space in iteration order. Each
             element is assigned its zero-based sector index according to its
             position in `itr`.
 
         Returns
         -------
-        `HilbertSpace`
+        HilbertSpace
             A new space whose `structure` maps each basis element from `itr` to
             its enumerated sector index.
 
@@ -494,19 +486,19 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Parameters
         ----------
-        `query` : `Dict[Type[Any], Any]`
+        query : Dict[Type[Any], Any]
             Mapping from irrep runtime type to expected irrep value.
             A candidate element matches only if, for every `(T, value)` pair,
             it contains an irrep of exact type `T` and `irrep == value`.
 
         Returns
         -------
-        `U1Basis`
+        U1Basis
             The unique matching element.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If no element matches, if multiple elements match, or if `query` is empty.
         """
         if not query:
@@ -543,7 +535,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Parameters
         ----------
-        `**groups` : `Union[Callable[[U1Basis], bool], Any]`
+        **groups : Union[Callable[[U1Basis], bool], Any]
             Label-to-selector mapping. A selector may be:
             - `Callable[[U1Basis], bool]`: include states where predicate is `True`.
             - an irrep object: converted to a predicate selecting states where
@@ -551,7 +543,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Returns
         -------
-        `FrozenDict[str, HilbertSpace]`
+        FrozenDict[str, HilbertSpace]
             Frozen mapping from labels to grouped `HilbertSpace` values.
             Each grouped subspace is sorted in ascending `U1Basis` order.
         """
@@ -595,7 +587,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Parameters
         ----------
-        `*T` : `Type`
+        *T : Type
             The irrep types to group by. The grouping will be performed in the order of the types specified.
             For example `group_by(A, B)` will group the basis by `(A, B)`, and
             basis states with the same irrep of `A` and `B` will be in the same
@@ -603,7 +595,7 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Returns
         -------
-        `Tuple[HilbertSpace, ...]`
+        Tuple[HilbertSpace, ...]
             Grouped subspaces in the order their irrep keys first appear in the
             current basis order.
         """
@@ -630,8 +622,8 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Returns
         -------
-        `bool`
-            `True` if all basis states in this `HilbertSpace` have the same set of irrep types, `False` otherwise.
+        bool
+            True if all basis states in this `HilbertSpace` have the same set of irrep types, `False` otherwise.
         """
         elements = self.elements()
         if not elements:  # An empty Hilbert space is considered homogeneous.
@@ -654,12 +646,12 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Returns
         -------
-        `Tuple[Type[Any], ...]`
+        Tuple[Type[Any], ...]
             The canonical irrep-type sequence of the basis representation.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If this space is not homogeneous, i.e. basis states do not share the
             same canonical irrep-type order.
         """
@@ -681,17 +673,17 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Parameters
         ----------
-        `T` : `Type[_IrrepType]`
+        T : Type[_IrrepType]
             Concrete irrep type to retrieve.
 
         Returns
         -------
-        `Tuple[_IrrepType, ...]`
+        Tuple[_IrrepType, ...]
             The irrep instance of type `T` for each basis state, in basis order.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If any basis state does not contain an irrep of type `T`.
         """
         return tuple(el.irrep_of(T) for el in self.elements())
@@ -732,10 +724,10 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Parameters
         ----------
-        `*irrep_types` : `Tuple[Type, ...]`
+        *irrep_types : Tuple[Type, ...]
             Factor specification. Each tuple is one factor, containing the irrep
             types assigned to that factor.
-        `coef_on` : `Optional[int]`
+        coef_on : Optional[int]
             Index of the factor that inherits the original `U1Basis.coef`.
             `None` defaults to the leftmost factor (`0`). Negative indices are
             interpreted using normal Python indexing. All other factors are
@@ -743,12 +735,12 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Returns
         -------
-        `StateSpaceFactorization`
+        StateSpaceFactorization
             Factorization metadata: factor spaces and basis-index mapping.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             Raised when:
             - this space is not homogeneous;
             - some irrep type in the space is missing from `irrep_types`;
@@ -875,12 +867,12 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
 
         Parameters
         ----------
-        `other` : `HilbertSpace`
+        other : HilbertSpace
             Right-hand tensor factor.
 
         Returns
         -------
-        `HilbertSpace`
+        HilbertSpace
             A new space whose basis spans `self ⊗ other`.
         """
         elements = []
@@ -992,13 +984,6 @@ class Opr(Functional, Operable, ABC):
     examples include phase factors, characters, gauge coefficients, and other
     symbolic amplitudes that should stay factored instead of being folded
     directly into the transformed object.
-
-    Type Parameters
-    ---------------
-    `_ObservableType`
-        Historical name from an earlier design. In the current implementation,
-        operators return either the transformed object itself or
-        `Multiple[transformed_object]`.
 
     Implementation Guidelines
     -------------------------

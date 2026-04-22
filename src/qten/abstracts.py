@@ -146,18 +146,18 @@ class Updatable(ABC, Generic[UpdatableType]):
 
         Parameters
         ----------
-        `**kwargs` : `Any`
+        **kwargs : Any
             Keyword arguments forwarded to :meth:`_updated` to define the new
             state.
 
         Returns
         -------
-        `UpdatableType`
+        UpdatableType
             A new instance representing the updated state.
 
         Raises
         ------
-        `RuntimeError`
+        RuntimeError
             If :meth:`_updated` returns ``self`` instead of a new instance.
         """
         out = self._updated(**kwargs)
@@ -282,11 +282,11 @@ class Functional(ABC):
 
         Parameters
         ----------
-        `obj_type` : `type`
+        obj_type : type
             The type of object the function applies to.
         Returns
         -------
-        `Callable`
+        Callable
             A decorator that registers the function for the specified object type.
         """
 
@@ -417,7 +417,7 @@ class Span(Operable, ABC, Generic[_ElementType]):
 
         Returns
         -------
-        `Tuple[_ElementType, ...]`
+        Tuple[_ElementType, ...]
             Immutable tuple of elements represented by this span.
         """
         pass
@@ -495,17 +495,17 @@ class Convertible(ABC):
 
         Parameters
         ----------
-        `T` : `Type[B]`
+        T : Type[B]
             Destination type to convert into.
 
         Returns
         -------
-        `B`
+        B
             Converted object produced by the registered conversion function.
 
         Raises
         ------
-        `NotImplementedError`
+        NotImplementedError
             If no conversion function has been registered for
             ``(type(self), T)`` or any source supertype via
             :meth:`add_conversion`.

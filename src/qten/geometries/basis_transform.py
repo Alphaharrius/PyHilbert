@@ -164,12 +164,7 @@ def offset_transform(t: AbstractBasisTransform, r: Offset) -> Offset:
 
 @AbstractBasisTransform.register(Momentum)
 def momentum_transform(t: AbstractBasisTransform, momentum: Momentum) -> Momentum:
-    """
-    Docstring for momentum_transform
-
-    Parameters
-    ----------
-    """
+    """Transform a momentum by rebasing it into the transformed reciprocal space."""
     new_space = t(momentum.space)
     return momentum.rebase(new_space)
 

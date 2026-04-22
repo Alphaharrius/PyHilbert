@@ -33,16 +33,16 @@ def fourier_transform(
 
     Parameters
     ----------
-    `K` : `Tuple[Momentum, ...]`
+    K : Tuple[Momentum, ...]
         Momentum points.
-    `R` : `Tuple[Offset, ...]`
+    R : Tuple[Offset, ...]
         Real-space offsets.
 
     Returns
     -------
-    `torch.Tensor`
+    torch.Tensor
         Complex tensor of shape `(len(K), len(R))` with elements
-        `exp(-i k_cart·r_cart)` (equivalently `exp(-2π i κ·n)` in fractional
+        exp(-i k_cart·r_cart) (equivalently `exp(-2π i κ·n)` in fractional
         coordinates).
     """
     precision = get_precision_config()
@@ -95,18 +95,18 @@ def _(
 
     Parameters
     ----------
-    `k_space` : `MomentumSpace`
+    k_space : MomentumSpace
         Momentum space defining the k points.
-    `bloch_space` : `HilbertSpace`
+    bloch_space : HilbertSpace
         Bloch space to map region modes into.
-    `region_space` : `HilbertSpace`
+    region_space : HilbertSpace
         Real-space region defining offsets.
 
     Returns
     -------
-    `Tensor`
+    Tensor
         Tensor with data shape `(K, B, R)` and dims
-        `(k_space, bloch_space, region_space)`.
+        (k_space, bloch_space, region_space).
     """
     K: Tuple[Momentum, ...] = k_space.elements()
     R: Tuple[Offset, ...] = tuple(
@@ -149,23 +149,23 @@ def region_restrict(
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         Fourier transform tensor whose dims are expected to be
         `(MomentumSpace, HilbertSpace, HilbertSpace)`.
-    `R` : `HilbertSpace`
+    R : HilbertSpace
         Target real-space region for the form
         `region_restrict(tensor, R)`.
-    `region` : `tuple[Offset, ...]`
+    region : tuple[Offset, ...]
         Offsets defining the target real-space region for the form
         `region_restrict(tensor, region)`. These are converted to a
         `HilbertSpace` via `region_hilbert` before rebuilding the transform.
 
     Returns
     -------
-    `Tensor`
+    Tensor
         Tensor with dims `(tensor.dims[0], tensor.dims[1], R)`, where `R` is
         either the provided Hilbert space or the Hilbert space generated from
-        `region`.
+        region.
     """
     ...
 

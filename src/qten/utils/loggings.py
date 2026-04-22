@@ -11,14 +11,14 @@ def get_logger(name: str, show_datetime: bool = False) -> logging.Logger:
 
     Parameters
     ----------
-    `name`
+    name
         Logger name, typically `__name__` from the caller module.
-    `show_datetime`
+    show_datetime
         When True, include `%(asctime)s` in the format.
 
     Returns
     -------
-    `logging.Logger`
+    logging.Logger
         A logger instance configured with the package formatter.
     """
     logger = logging.getLogger(name)

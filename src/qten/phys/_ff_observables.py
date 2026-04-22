@@ -42,12 +42,12 @@ class FFObservable:
 
         Parameters
         ----------
-        `bond` : `Bond`
+        bond : Bond
             Bond term to append.
 
         Raises
         ------
-        `TypeError`
+        TypeError
             If `bond` is not an instance of `Bond`.
         """
         if not isinstance(bond, Bond):
@@ -61,11 +61,11 @@ class FFObservable:
 
         Parameters
         ----------
-        `coef` : `sy.Number`
+        coef : sy.Number
             Symbolic coefficient multiplying the transition.
-        `src` : `U1Basis`
+        src : U1Basis
             Source basis state.
-        `dst` : `U1Basis`
+        dst : U1Basis
             Destination basis state.
         """
         bond = Bond(coef, (src, dst))
@@ -83,7 +83,7 @@ class FFObservable:
 
         Returns
         -------
-        `Tensor`
+        Tensor
             Rank-2 tensor whose dimensions are the minimal Hilbert space
             spanned by the bond endpoint rays.
         """

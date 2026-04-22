@@ -87,16 +87,16 @@ def matchby(
     Map elements from source to destination using a provided mapping function.
     Parameters
     ----------
-    `source` : `Iterable[Any]`
+    source : Iterable[Any]
         The source elements to be mapped.
-    `dest` : `Iterable[Any]`
+    dest : Iterable[Any]
         The destination elements to map to.
-    `base_func` : `Callable[[Any], Any]`
+    base_func : Callable[[Any], Any]
         A function that defines the comparison baseline.
 
     Returns
     -------
-    `Dict[Any, Any]`
+    Dict[Any, Any]
         A dictionary mapping each source element to its corresponding destination element `source -> dest`.
     """
     mapping: Dict[Any, Any] = {}

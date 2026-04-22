@@ -67,13 +67,13 @@ class AbelianBasis(Spatial):
 
     Attributes
     ----------
-    `expr`: `sy.Expr`
+    expr : sy.Expr
         Symbolic expression in `axes` representing the affine function.
-    `axes`: `Tuple[sy.Symbol, ...]`
+    axes : Tuple[sy.Symbol, ...]
         Ordered tuple of symbols defining the coordinate axes.
-    `order`: `int`
+    order : int
         Polynomial order used to build the basis representation.
-    `rep`: `sy.ImmutableDenseMatrix`
+    rep : sy.ImmutableDenseMatrix
         Coefficient vector in the Euclidean monomial basis (column matrix).
     """
 
@@ -101,27 +101,27 @@ class AbelianBasis(Spatial):
 
         Parameters
         ----------
-        `rep` : `sy.ImmutableDenseMatrix`
+        rep : sy.ImmutableDenseMatrix
             Euclidean representation vector in the commuting monomial basis.
             The vector need not already be normalized, but it must be non-zero.
-        `euclidean_basis` : `sy.ImmutableDenseMatrix`
+        euclidean_basis : sy.ImmutableDenseMatrix
             Row matrix of commuting monomials spanning the Euclidean polynomial
             basis for the given `order`.
-        `axes` : `Tuple[sy.Symbol, ...]`
+        axes : Tuple[sy.Symbol, ...]
             Ordered coordinate symbols associated with the Euclidean basis.
-        `order` : `int`
+        order : int
             Polynomial order of the Euclidean representation.
 
         Returns
         -------
-        `AbelianBasis`
+        AbelianBasis
             Canonicalized abelian basis function whose stored `rep` is the
             normalized version of the input vector and whose `expr` is the
             corresponding symbolic polynomial.
 
         Raises
         ------
-        `StopIteration`
+        StopIteration
             If `rep` is the zero vector, so there is no first non-zero
             coefficient available for normalization.
         """
@@ -187,10 +187,10 @@ class AbelianGroup(Opr):
 
     Parameters
     ----------
-    `irrep` : `sy.ImmutableDenseMatrix`
+    irrep : sy.ImmutableDenseMatrix
         Exact linear representation matrix of the operator in the coordinate
         basis defined by `axes`.
-    `axes` : `Tuple[sy.Symbol, ...]`
+    axes : Tuple[sy.Symbol, ...]
         Ordered coordinate symbols on which `irrep` acts.
 
     Main API
@@ -237,7 +237,7 @@ class AbelianGroup(Opr):
 
         Returns
         -------
-        `Tuple[Tuple[sy.Symbol, ...], ...]`
+        Tuple[Tuple[sy.Symbol, ...], ...]
             Cartesian product of `axes` repeated `order` times.
             Each inner tuple represents one ordered monomial index before
             commutative contraction.
@@ -253,7 +253,7 @@ class AbelianGroup(Opr):
 
         Returns
         -------
-        `Tuple[Tuple[sy.Symbol, ...], ...]`
+        Tuple[Tuple[sy.Symbol, ...], ...]
             Ordered subset of `_full_indices(order)` where permutations that differ
             only by factor ordering are collapsed to a single representative.
         """
@@ -269,7 +269,7 @@ class AbelianGroup(Opr):
 
         Returns
         -------
-        `sy.ImmutableDenseMatrix`
+        sy.ImmutableDenseMatrix
             Row matrix whose entries are monomials formed from canonical
             commuting indices of degree `order`.
         """
@@ -284,12 +284,12 @@ class AbelianGroup(Opr):
 
         Parameters
         ----------
-        `indices` : `Tuple[Tuple[sy.Symbol, ...], ...]`
+        indices : Tuple[Tuple[sy.Symbol, ...], ...]
             Full ordered tensor-product indices.
 
         Returns
         -------
-        `Tuple[list[Tuple[int, int]], list[Tuple[int, int]]]`
+        Tuple[list[Tuple[int, int]], list[Tuple[int, int]]]
             Two index maps:
             - contract rules mapping each full index position to a commutative class
             - select rules picking one representative position per class
@@ -318,7 +318,7 @@ class AbelianGroup(Opr):
 
         Returns
         -------
-        `sy.ImmutableDenseMatrix | sy.MatrixBase`
+        sy.ImmutableDenseMatrix | sy.MatrixBase
             Kronecker power `irrep ⊗ ... ⊗ irrep` with `order` factors.
         """
         if order == 0:
@@ -332,7 +332,7 @@ class AbelianGroup(Opr):
 
         Returns
         -------
-        `sy.ImmutableDenseMatrix`
+        sy.ImmutableDenseMatrix
             Matrix representation after contracting permutation-equivalent
             tensor-product monomials and selecting canonical representatives.
         """
@@ -359,13 +359,13 @@ class AbelianGroup(Opr):
 
         Returns
         -------
-        `int`
+        int
             The smallest positive exponent for which the represented matrix
             returns to the identity.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If no finite order is found within the bounded exact search.
 
         Notes
@@ -406,7 +406,7 @@ class AbelianGroup(Opr):
 
         Returns
         -------
-        `FrozenDict`
+        FrozenDict
             Mapping from eigenvalue to normalized `AbelianBasis` eigenfunction.
             Normalization is fixed by dividing by the first non-zero coefficient
             in each eigenvector.
@@ -493,20 +493,20 @@ def _(g: AbelianGroup, f: AbelianBasis) -> Multiple[AbelianBasis]:
 
     Parameters
     ----------
-    `g` : `AbelianGroup`
+    g : AbelianGroup
         Group element represented by a Euclidean matrix.
-    `f` : `AbelianBasis`
+    f : AbelianBasis
         Basis function to transform.
 
     Returns
     -------
-    `Multiple[AbelianBasis]`
-        `Multiple(phase, f)` where `phase` is the scalar eigenvalue of `f`
+    Multiple[AbelianBasis]
+        Multiple(phase, f) where `phase` is the scalar eigenvalue of `f`
         under the action of `g`.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If `g.axes` and `f.axes` do not match, if `f` is not an eigenfunction
         of `g`, or if `f.rep` is the zero vector.
     """
@@ -547,8 +547,14 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
 
     Parameters
     ----------
-    g : `AbelianGroup`
+    g : AbelianGroup
         Linear part of the affine transformation.
+    offset : Offset
+        Translation part of the affine transformation, stored in the same
+        affine space on which ``g`` acts.
+
+    Notes
+    -----
     The operator is initialized at the canonical origin of the identity affine
     basis. To center it at a specific point, construct it first and then call
     `fixpoint_at(...)`.
@@ -586,7 +592,7 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
 
         Returns
         -------
-        `AffineSpace`
+        AffineSpace
             Acting space, identical to `offset.space`.
         """
         return self.offset.space
@@ -598,14 +604,14 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
 
         Parameters
         ----------
-        `new_base` : `AffineSpace`
+        new_base : AffineSpace
             Target affine space for the transformed representation.
 
         Returns
         -------
-        `AbelianOpr`
+        AbelianOpr
             New element with both linear and translation parts expressed in
-            `new_base` coordinates.
+            new_base coordinates.
         """
         old_base = self.offset.space
         B_old = old_base.basis
@@ -635,9 +641,9 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
 
         Parameters
         ----------
-        `r` : `Offset`
+        r : Offset
             Desired fixed point.
-        `rebase` : `bool`, default `False`
+        rebase : bool, default `False`
             Base-handling mode when `r.space` differs from this transform's base:
             if `False`, rebase `r` to this transform's base and keep the
             returned transform in its current base; if `True`, rebase the
@@ -645,7 +651,7 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
 
         Returns
         -------
-        `AbelianOpr`
+        AbelianOpr
             A new affine operator with the same linear part and with `r` as an
             invariant point.
         """
@@ -685,21 +691,21 @@ def _(t: AbelianOpr, f: AbelianBasis) -> Multiple[AbelianBasis]:
 
     Parameters
     ----------
-    `t` : `AbelianOpr`
+    t : AbelianOpr
         The affine operator to apply.
-    `f` : `AbelianBasis`
+    f : AbelianBasis
         The basis function to be transformed.
 
     Returns
     -------
-    `Tuple[sy.Expr, AbelianBasis]`
+    Tuple[sy.Expr, AbelianBasis]
         A symbolic phase factor (sy.Expr) such that
-        `t.g.euclidean_repr(f.order) @ f.rep == phase * f.rep`;
+        t.g.euclidean_repr(f.order) @ f.rep == phase * f.rep;
         and the original `AbelianBasis` (unchanged).
 
     Raises
     ------
-    `ValueError`
+    ValueError
         Propagated from `t.g @ f`.
     """
     return cast(Multiple[AbelianBasis], t.g @ f)
@@ -743,15 +749,15 @@ def _(t: AbelianOpr, offset: Offset) -> Offset:
 
     Parameters
     ----------
-    `t` : `AbelianOpr`
+    t : AbelianOpr
         The affine operator to apply. If its internal `offset.space` does
         not match `offset.space`, the transform is rebased to the Offset's space.
-    `offset` : `Offset`
+    offset : Offset
         The spatial offset (column vector) to transform.
 
     Returns
     -------
-    `Tuple[sy.Expr | None, Offset]`
+    Tuple[sy.Expr | None, Offset]
         The irrep of this transformation, `None` if the `offset` is not a fix point; and new `Offset`
         expressed in the same `AffineSpace` as the input `offset`.
 
@@ -808,16 +814,16 @@ def _(t: AbelianOpr, k: Momentum) -> Momentum:
 
     Parameters
     ----------
-    `t` : `AbelianOpr`
+    t : AbelianOpr
         The affine operator to apply. If its base affine space does not
         match the real-space dual of `k`, it is rebased accordingly.
-    `k` : `Momentum`
+    k : Momentum
         The momentum expressed in fractional reciprocal coordinates of its
         reciprocal lattice basis.
 
     Returns
     -------
-    `Tuple[sy.Expr | None, Momentum]`
+    Tuple[sy.Expr | None, Momentum]
         The irrep of this transformation, `None` if `k` is not a fix point;
         and the transformed momentum in the same reciprocal lattice space as `k`.
     """

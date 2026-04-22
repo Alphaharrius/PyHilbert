@@ -46,7 +46,7 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
     ----------
     structure : OrderedDict[Spatial, int]
         An ordered dictionary mapping each spatial component (e.g., `Offset`,
-        `Momentum`) to its single flattened index.
+        Momentum) to its single flattened index.
 
     dim : int
         The total dimension of the state space, calculated as the count of elements regardless of their lengths.
@@ -88,7 +88,7 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
 
         Parameters
         ----------
-        `v` : `Union[int, slice, range, Sequence[int]]`
+        v : Union[int, slice, range, Sequence[int]]
             - `int` returns a single spatial element by position (supports negative
               indices).
             - `slice` returns a new instance containing the selected elements in
@@ -159,13 +159,13 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
 
         Parameters
         ----------
-        `other` : `StateSpace`
+        other : StateSpace
             The other state space to compare against.
 
         Returns
         -------
-        `bool`
-            `True` if both state spaces have the same rays, `False` otherwise.
+        bool
+            True if both state spaces have the same rays, `False` otherwise.
         """
         return same_rays(self, other)
 
@@ -175,12 +175,12 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
 
         Parameters
         ----------
-        `func` : `Callable[[T], T]`
+        func : Callable[[T], T]
             A function that takes a spatial element and returns a transformed spatial element.
 
         Returns
         -------
-        `Self`
+        Self
             A new state space with the transformed spatial elements.
         """
         new_structure = OrderedDict()
@@ -195,12 +195,12 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
 
         Parameters
         ----------
-        `pred` : `Callable[[T], bool]`
+        pred : Callable[[T], bool]
             Predicate applied to each element in basis order.
 
         Returns
         -------
-        `Self`
+        Self
             A new state space of the same concrete type containing only the
             selected elements, with indices repacked contiguously.
         """
@@ -215,12 +215,12 @@ class StateSpace(Spatial, Convertible, Generic[T], Span[T]):
 
         Parameters
         ----------
-        `other` : `StateSpace`
+        other : StateSpace
             The other state space to tensor with.
 
         Returns
         -------
-        `StateSpace`
+        StateSpace
             A new state space representing the tensor product of the two.
         """
         raise NotImplementedError(f"Tensor product not implemented for {type(self)}!")
@@ -262,7 +262,7 @@ def restructure(
 
     Returns
     -------
-    `OrderedDict[Spatial, int]`
+    OrderedDict[Spatial, int]
         The restructured `OrderedDict` with contiguous, ordered indices.
     """
     return OrderedDict((k, i) for i, k in enumerate(structure.keys()))
@@ -287,12 +287,12 @@ def permutation_order(src: "StateSpace", dest: "StateSpace") -> Tuple[int, ...]:
 
     Returns
     -------
-    `Tuple[int, ...]`
+    Tuple[int, ...]
         Sector indices mapping each key in `dest` to its position in `src`.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If a destination sector key is missing from the source state space.
     """
     src_indices = src.structure
@@ -321,7 +321,7 @@ def embedding_order(sub: StateSpace, sup: StateSpace) -> Tuple[int, ...]:
 
     Returns
     -------
-    `Tuple[int, ...]`
+    Tuple[int, ...]
         Flattened indices mapping `sub` into `sup`.
     """
     indices: list[int] = []
@@ -564,17 +564,17 @@ class IndexSpace(StateSpace[int]):
 
         Parameters
         ----------
-        `size` : `int`
+        size : int
             Number of indices in the space.
 
         Returns
         -------
-        `IndexSpace`
+        IndexSpace
             A contiguous `IndexSpace` with canonical linear ordering.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If `size` is negative.
         """
         if size < 0:
@@ -594,9 +594,9 @@ class StateSpaceFactorization(NamedTuple):
 
     Attributes
     ----------
-    `factorized` : `Tuple[StateSpace, ...]`
+    factorized : Tuple[StateSpace, ...]
         Target factor spaces in `torch.Tensor.reshape` ordering.
-    `align_dim` : `StateSpace`
+    align_dim : StateSpace
         A permutation of the original dimension whose flattened order is
         compatible with reshaping into `factorized`.
     """

@@ -24,9 +24,9 @@ class Device:
 
     Parameters
     ----------
-    `name` : `Literal["cpu", "gpu"]`
+    name : Literal["cpu", "gpu"]
         The logical device family.
-    `index` : `Optional[int]`, default=`None`
+    index : Optional[int], default=`None`
         Optional CUDA device index. This should only be set when ``name`` is
         `"gpu"`.
     """
@@ -46,17 +46,17 @@ class Device:
 
         Parameters
         ----------
-        `name` : `str`
+        name : str
             Device string to parse.
 
         Returns
         -------
-        `Device`
+        Device
             Parsed immutable device descriptor.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If the input does not match one of the supported formats.
         """
         if name == "cpu":
@@ -84,14 +84,14 @@ class Device:
 
         Returns
         -------
-        `torch.device`
+        torch.device
             Concrete PyTorch device corresponding to this logical device.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If ``self.name`` is not a supported logical device value.
-        `RuntimeError`
+        RuntimeError
             If a GPU device is requested but neither CUDA nor MPS is available
             in the current environment.
         """
@@ -112,12 +112,12 @@ class Device:
 
         Returns
         -------
-        `str`
-            `"cpu"`, `"gpu"`, or `"gpu:<index>"`.
+        str
+            "cpu", `"gpu"`, or `"gpu:<index>"`.
 
         Raises
         ------
-        `ValueError`
+        ValueError
             If ``self.name`` is not a supported logical device value.
         """
         match self.name:
@@ -146,14 +146,14 @@ class DeviceBounded(ABC):
 
         Parameters
         ----------
-        `index` : `Optional[int]`, default=`None`
+        index : Optional[int], default=`None`
             Optional CUDA device index. This should only be set when the target
             GPU backend supports multiple devices (e.g. CUDA). If not provided,
             the current device will be used.
 
         Returns
         -------
-        `Self`
+        Self
             A copy of this object on the specified GPU device.
         """
         device = Device("gpu", index)
@@ -166,12 +166,12 @@ class DeviceBounded(ABC):
 
         Parameters
         ----------
-        `device` : `Device`
+        device : Device
             The target device to move this object to.
 
         Returns
         -------
-        `Self`
+        Self
             A copy of this object on the specified device.
         """
         pass
@@ -184,7 +184,7 @@ class DeviceBounded(ABC):
 
         Returns
         -------
-        `Device`
+        Device
             The current device of this object.
         """
         pass

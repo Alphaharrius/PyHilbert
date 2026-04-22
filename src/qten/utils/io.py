@@ -22,12 +22,12 @@ def iodir(path: Optional[Union[str, os.PathLike[str]]] = None) -> str:
 
     Parameters
     ----------
-    `path`
+    path
         Optional filesystem path to use as the IO root.
 
     Returns
     -------
-    `str`
+    str
         The resolved IO directory path.
     """
     global _io_dir
@@ -54,17 +54,17 @@ def env(name: Optional[str] = None) -> str:
 
     Parameters
     ----------
-    `name`
+    name
         Environment name to activate, or `None` to query the current one.
 
     Returns
     -------
-    `str`
+    str
         The current or newly-set environment name.
 
     Raises
     ------
-    `RuntimeError`
+    RuntimeError
         If no environment is set and `name` is `None`.
     """
     global _all_env
@@ -118,19 +118,19 @@ def save(obj: Any, name: str) -> int:
 
     Parameters
     ----------
-    `obj`
+    obj
         Object to serialize.
-    `name`
+    name
         Logical name for grouping versions.
 
     Returns
     -------
-    `int`
+    int
         The assigned version number.
 
     Raises
     ------
-    `pickle.PicklingError`
+    pickle.PicklingError
         If the object cannot be pickled.
     """
     root = os.path.join(iodir(), env())
@@ -155,20 +155,21 @@ def load(name: str, version: int = -1) -> Any:
 
     Parameters
     ----------
-    `name`
+    name
         Logical name for grouping versions.
-    `version`
+    version
         Version to load; use `-1` for the latest version.
+
     Returns
     -------
-    `Any`
+    Any
         The deserialized object.
 
     Raises
     ------
-    `FileNotFoundError`
+    FileNotFoundError
         If the name or version does not exist.
-    `pickle.UnpicklingError`
+    pickle.UnpicklingError
         If the pickle data is corrupted.
 
     Notes
@@ -198,16 +199,17 @@ def list_saved(name: str) -> List[Dict[str, Any]]:
 
     Parameters
     ----------
-    `name`
+    name
         Logical name for grouping versions.
+
     Returns
     -------
-    `list[dict[str, Any]]`
+    list[dict[str, Any]]
         Rows with `version`, `created`, and `size_mib`.
 
     Raises
     ------
-    `FileNotFoundError`
+    FileNotFoundError
         If the name does not exist.
     """
     root = os.path.join(iodir(), env())

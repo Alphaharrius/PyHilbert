@@ -29,11 +29,11 @@ def eigh(tensor: Tensor) -> EigH:
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         Input tensor with Hermitian matrices at the last two indices.
     Returns
     -------
-    `EigH`
+    EigH
         A namedtuple `(eigenvalues, eigenvectors)` where:
         - `eigenvalues` is a `Tensor` containing the eigenvalues.
         - `eigenvectors` is a `Tensor` containing the corresponding eigenvectors.
@@ -79,11 +79,11 @@ def eigvalsh(tensor: Tensor) -> Tensor:
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         Input tensor with Hermitian matrices at the last two indices.
     Returns
     -------
-    `Tensor`
+    Tensor
         A `Tensor` containing the eigenvalues with:
         - dtype matching the real dtype of the input (complex inputs
           yield real eigenvalues of the corresponding real dtype).
@@ -144,11 +144,11 @@ def eig(tensor: Tensor) -> EigH:
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         Input tensor with square matrices at the last two indices.
     Returns
     -------
-    `EigH`
+    EigH
         A namedtuple `(eigenvalues, eigenvectors)` where:
         - `eigenvalues` is a `Tensor` containing the eigenvalues.
         - `eigenvectors` is a `Tensor` containing the corresponding eigenvectors.
@@ -194,11 +194,11 @@ def eigvals(tensor: Tensor) -> Tensor:
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         Input tensor with square matrices at the last two indices.
     Returns
     -------
-    `Tensor`
+    Tensor
         A `Tensor` containing the eigenvalues with:
         - dtype matching the complex dtype of the input (real inputs
           yield complex eigenvalues).
@@ -236,13 +236,13 @@ def qr(tensor: Tensor) -> QR:
 
     Returns
     -------
-    `QR`
+    QR
         A namedtuple `(Q, R)` where:
         - `Q` is a `Tensor` with orthonormal columns (reduced QR).
         - `R` is an upper-triangular `Tensor`.
         - Output dims preserve leading dimensions and map the last two dims to
-          `(row_dim, spectral_dim)` for `Q` and `(spectral_dim, col_dim)` for
-          `R`, where `spectral_dim` is an `IndexSpace` describing the
+          (row_dim, spectral_dim) for `Q` and `(spectral_dim, col_dim)` for
+          R, where `spectral_dim` is an `IndexSpace` describing the
           reduced QR bond dimension.
     """
     if tensor.rank() < 2:
@@ -281,16 +281,16 @@ def svd(
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         Input tensor with matrices at the last two indices.
-    `values_as_matrix` : `bool`, default `False`
+    values_as_matrix : bool, default `False`
         If `True`, return singular values as a diagonal matrix.
-    `full_matrices` : `bool`, default `False`
+    full_matrices : bool, default `False`
         If `True`, compute full-sized `U` and `Vh`.
 
     Returns
     -------
-    `SVD`
+    SVD
         A namedtuple `(U, S, Vh)` where:
         - `U` has dims `(..., row_dim, factor)` for reduced, or `(..., row_dim, left_factor)` for full.
         - `S` has dims `(..., factor)` or a matrix with dims `(..., factor, factor)` (reduced)

@@ -14,12 +14,12 @@ def check_invertibility(attr_name: str) -> Callable[[Any], None]:
 
     Parameters
     ----------
-    `attr_name`:
+    attr_name:
         Name of the instance attribute expected to contain the symbolic matrix.
 
     Returns
     -------
-    `Callable[[Any], None]`
+    Callable[[Any], None]
         A validator callable suitable for use in attribute validation hooks.
     """
 
@@ -47,12 +47,12 @@ def check_proper_transformation(attr_name: str) -> Callable[[Any], None]:
 
     Parameters
     ----------
-    `attr_name`:
+    attr_name:
         Name of the instance attribute expected to contain the symbolic matrix.
 
     Returns
     -------
-    `Callable[[Any], None]`
+    Callable[[Any], None]
         A validator callable suitable for use in attribute validation hooks.
     """
 
@@ -77,12 +77,12 @@ def check_numerical(attr_name: str) -> Callable[[Any], None]:
 
     Parameters
     ----------
-    `attr_name`:
+    attr_name:
         Name of the instance attribute expected to contain the symbolic matrix.
 
     Returns
     -------
-    `Callable[[Any], None]`
+    Callable[[Any], None]
         A validator callable suitable for use in attribute validation hooks.
     """
 

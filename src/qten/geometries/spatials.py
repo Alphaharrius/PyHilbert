@@ -53,7 +53,7 @@ class AffineSpace(Spatial):
 
     Attributes
     ----------
-    `basis` : `ImmutableDenseMatrix`
+    basis : ImmutableDenseMatrix
         Basis matrix whose columns span the affine coordinate system.
     """
 
@@ -115,9 +115,9 @@ class Lattice(AbstractLattice["Offset"]):
 
     Attributes
     ----------
-    `basis` : `ImmutableDenseMatrix`
+    basis : ImmutableDenseMatrix
         Real-space basis matrix of the lattice.
-    `boundaries` : `BoundaryCondition`
+    boundaries : BoundaryCondition
         Boundary condition defining the finite periodic region.
     """
 
@@ -150,14 +150,14 @@ class Lattice(AbstractLattice["Offset"]):
 
         Parameters
         ----------
-        `basis` : `ImmutableDenseMatrix`
+        basis : ImmutableDenseMatrix
             Real-space basis matrix.
-        `boundaries` : `BoundaryCondition | None`
+        boundaries : BoundaryCondition | None
             Boundary condition defining the periodic region. If omitted,
             `shape` is used to build a `PeriodicBoundary`.
-        `unit_cell` : `Mapping[str, ImmutableDenseMatrix] | None`
+        unit_cell : Mapping[str, ImmutableDenseMatrix] | None
             Mapping from site labels to site positions in fractional coordinates.
-        `shape` : `Sequence[int] | None`
+        shape : Sequence[int] | None
             Legacy shorthand for a diagonal periodic boundary.
         """
         object.__setattr__(self, "basis", basis)
@@ -238,7 +238,7 @@ class Lattice(AbstractLattice["Offset"]):
 
         Parameters
         ----------
-        `T` : `Type[Union[Offset, torch.Tensor, np.ndarray]]`
+        T : Type[Union[Offset, torch.Tensor, np.ndarray]]
             Requested return type. `Offset` returns lattice-site objects,
             while `torch.Tensor` and `np.ndarray` return Cartesian coordinates
             with shape `(n_sites, dim)`.
@@ -287,9 +287,9 @@ class Lattice(AbstractLattice["Offset"]):
 
         Parameters
         ----------
-        `unit_cell` : `str`
+        unit_cell : str
             Label of the site within the unit cell.
-        `cell_offset` : `Sequence[int] | None`
+        cell_offset : Sequence[int] | None
             Integer translation in lattice coordinates. If omitted, the origin
             cell is used.
         """
@@ -357,9 +357,9 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
 
     Attributes
     ----------
-    `basis` : `ImmutableDenseMatrix`
+    basis : ImmutableDenseMatrix
         Reciprocal basis matrix including the conventional `2π` factor.
-    `lattice` : `Lattice`
+    lattice : Lattice
         Real-space lattice from which this reciprocal lattice is derived.
     """
 
@@ -403,7 +403,7 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
 
         Parameters
         ----------
-        `T` : `Type[Union[Momentum, torch.Tensor, np.ndarray]]`
+        T : Type[Union[Momentum, torch.Tensor, np.ndarray]]
             Requested return type. `Momentum` returns momentum-point objects, while
             `torch.Tensor` and `np.ndarray` return Cartesian coordinates with
             shape `(n_points, dim)`.
@@ -555,9 +555,9 @@ class Offset(Generic[S], Spatial, HasBase[S]):
 
     Attributes
     ----------
-    `rep` : `ImmutableDenseMatrix`
+    rep : ImmutableDenseMatrix
         Column vector of coordinates expressed in `space`.
-    `space` : `AffineSpace`
+    space : AffineSpace
         Affine space that defines the coordinate basis for `rep`.
     """
 
@@ -595,12 +595,12 @@ class Offset(Generic[S], Spatial, HasBase[S]):
 
         Parameters
         ----------
-        `space` : `AffineSpace`
+        space : AffineSpace
             The new affine space to express this Offset in.
 
         Returns
         -------
-        `Offset`
+        Offset
             New Offset expressed in the given affine space.
         """
         rebase_transform_mat = _rebase_transform_matrix(self.space, space)
@@ -613,7 +613,7 @@ class Offset(Generic[S], Spatial, HasBase[S]):
 
         Returns
         -------
-        `ImmutableDenseMatrix`
+        ImmutableDenseMatrix
             The Cartesian coordinate vector in column format corresponding to this Offset.
         """
         vec = self.space.basis @ self.rep
@@ -696,9 +696,9 @@ class Momentum(Offset[ReciprocalLattice], Convertible):
 
     Attributes
     ----------
-    `rep` : `ImmutableDenseMatrix`
+    rep : ImmutableDenseMatrix
         Column vector of reciprocal coordinates in fractional form.
-    `space` : `ReciprocalLattice`
+    space : ReciprocalLattice
         Reciprocal lattice that defines the basis for `rep`.
     """
 
@@ -726,12 +726,12 @@ class Momentum(Offset[ReciprocalLattice], Convertible):
 
         Parameters
         ----------
-        `space` : `AffineSpace`
+        space : AffineSpace
             The new affine space (must be a ReciprocalLattice) to express this Momentum in.
 
         Returns
         -------
-        `Momentum`
+        Momentum
             New Momentum expressed in the given reciprocal lattice.
         """
         rebase_transform_mat = _rebase_transform_matrix(self.space, space)

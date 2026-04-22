@@ -55,12 +55,12 @@ def validate(v: Any) -> None:
 
     Parameters
     ----------
-    `v` : `Any`
+    v : Any
         The value to validate.
 
     Raises
     ------
-    `TypeError`
+    TypeError
         If the type of ``v`` is not configured for validation.
     """
     cls = type(v)

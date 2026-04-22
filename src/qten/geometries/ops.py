@@ -100,29 +100,29 @@ def nearest_sites(
 
     Parameters
     ----------
-    `lattice` : `Lattice`
+    lattice : Lattice
         Finite lattice whose sites define the candidate region.
-    `center` : `Offset[AffineSpace] | Offset[Lattice]`
+    center : Offset[AffineSpace] | Offset[Lattice]
         Center used to rank lattice sites by distance. The center may be an
         arbitrary offset in the lattice affine space and does not need to lie
         on a lattice site.
-    `n_nearest` : `int`
+    n_nearest : int
         Number of distinct distance shells to include. `0` returns an empty
         region. If `n_nearest` exceeds the number of distinct distance shells
         in the finite lattice, all sites are returned.
 
     Returns
     -------
-    `tuple[Offset[Lattice], ...]`
+    tuple[Offset[Lattice], ...]
         Tuple of lattice sites whose distances from `center` lie in the first
-        `n_nearest` distinct distance shells, ordered by increasing distance
+        n_nearest distinct distance shells, ordered by increasing distance
         and then by the lattice-site ordering.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If `n_nearest` is negative or if `center.dim` does not match
-        `lattice.dim`.
+        lattice.dim.
     """
     if n_nearest < 0:
         raise ValueError(f"n_nearest must be non-negative, got {n_nearest}.")
@@ -259,33 +259,33 @@ def get_strip_region_2d(
 
     Parameters
     ----------
-    `direction` : `Offset[Lattice]`
+    direction : Offset[Lattice]
         Non-zero lattice translation on a 2D lattice whose primitive direction
         defines the strip axis.
-    `length_step` : `int`
+    length_step : int
         Number of strip shells from the origin along the primitive direction.
-    `width_step` : `int`
+    width_step : int
         Number of transverse shell rows including the main axis row.
-    `trim_step` : `int`
+    trim_step : int
         Number of longitudinal shells trimmed from the tail near the origin.
-    `side` : `Literal["lhs", "rhs"]`
+    side : Literal["lhs", "rhs"]
         Side on which transverse width shells are accumulated relative to the
         strip direction. `"lhs"` uses the positive lattice normal and `"rhs"`
         uses the negative lattice normal.
-    `origin` : `Offset[AffineSpace] | Offset[Lattice] | None`
+    origin : Offset[AffineSpace] | Offset[Lattice] | None
         Anchor point for the strip coordinates. If omitted, the zero offset in
         the lattice space is used. When provided, it is rebased into the
         lattice before evaluating strip membership.
 
     Returns
     -------
-    `tuple[Offset[Lattice], ...]`
+    tuple[Offset[Lattice], ...]
         Deduplicated lattice sites in the strip, ordered by the lattice-site
         ordering.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If the direction is invalid, the lattice is not 2D, or any step count
         is out of range.
     """
@@ -361,21 +361,21 @@ def center_of_region(region: tuple[OffsetType, ...]) -> OffsetType:
 
     Parameters
     ----------
-    `region` : `tuple[Offset, ...] | tuple[Momentum, ...]`
+    region : tuple[Offset, ...] | tuple[Momentum, ...]
         Non-empty tuple of spatial points. All entries must share the same
         concrete type and affine space.
 
     Returns
     -------
-    `Offset | Momentum`
+    Offset | Momentum
         Arithmetic mean of the region coordinates, returned as the same type as
         the input entries.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If `region` is empty.
-    `TypeError`
+    TypeError
         If region entries do not all share the same concrete type and space.
     """
     if len(region) == 0:
@@ -441,22 +441,22 @@ def region_centering(
 
     Parameters
     ----------
-    `region` : `tuple[Offset, ...] | tuple[Momentum, ...]`
+    region : tuple[Offset, ...] | tuple[Momentum, ...]
         Region to translate. All entries must share the same concrete type and
         affine space.
-    `center` : `Offset | Momentum`
+    center : Offset | Momentum
         Target center for the translated region. It must have the same
         concrete type and affine space as the region entries.
 
     Returns
     -------
-    `tuple[Offset, ...] | tuple[Momentum, ...]`
+    tuple[Offset, ...] | tuple[Momentum, ...]
         Region translated by `center - center_of_region(region)`. Empty input
         returns an empty tuple.
 
     Raises
     ------
-    `TypeError`
+    TypeError
         If region entries do not all share the same concrete type and space,
         or if `center` does not match them.
     """
@@ -502,27 +502,27 @@ def region_tile(
 
     Parameters
     ----------
-    `region` : `tuple[Offset, ...] | tuple[Momentum, ...]`
+    region : tuple[Offset, ...] | tuple[Momentum, ...]
         Region to translate. All entries must share the same concrete type and
         affine space.
-    `bases` : `tuple[Offset, ...] | tuple[Momentum, ...]`
+    bases : tuple[Offset, ...] | tuple[Momentum, ...]
         Translation basis vectors. All entries must share the same concrete
         type and affine space as the region entries.
-    `counts` : `tuple[int, ...]`
+    counts : tuple[int, ...]
         Number of repetitions along each translation basis. Each entry must be
         non-negative.
 
     Returns
     -------
-    `tuple[Offset, ...] | tuple[Momentum, ...]`
+    tuple[Offset, ...] | tuple[Momentum, ...]
         Deduplicated tiled region, ordered by the point ordering.
 
     Raises
     ------
-    `TypeError`
+    TypeError
         If region or basis entries do not all share the same concrete type and
         space.
-    `ValueError`
+    ValueError
         If `counts` has the wrong length or contains negative entries.
     """
     if len(region) == 0:
@@ -597,19 +597,19 @@ def interstitial_centers(region: tuple[OffsetType, ...]) -> tuple[OffsetType, ..
 
     Parameters
     ----------
-    `region` : `tuple[Offset, ...] | tuple[Momentum, ...]`
+    region : tuple[Offset, ...] | tuple[Momentum, ...]
         Spatial points defining the candidate corner set. All entries must
         share the same concrete type and affine space.
 
     Returns
     -------
-    `tuple[Offset, ...] | tuple[Momentum, ...]`
+    tuple[Offset, ...] | tuple[Momentum, ...]
         Interstitial centers, returned as the same concrete type as the inputs
         and ordered lexicographically by point coordinates.
 
     Raises
     ------
-    `TypeError`
+    TypeError
         If region entries do not all share the same concrete type and space.
     """
     if len(region) == 0:

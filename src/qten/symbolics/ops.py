@@ -22,14 +22,14 @@ def translate_opr(d: OffsetType) -> FuncOpr[OffsetType]:
 
     Parameters
     ----------
-    `d` : `Offset | Momentum`
+    d : Offset | Momentum
         Translation to add to the targeted irrep.
 
     Returns
     -------
-    `FuncOpr`
+    FuncOpr
         Operator applying `x -> x + d` to irreps whose concrete type matches
-        `type(d)`.
+        type(d).
     """
     point_type = cast(type[OffsetType], type(d))
     return FuncOpr(point_type, lambda r: cast(OffsetType, r + d))
@@ -64,7 +64,7 @@ def fractional_opr(
 
     Parameters
     ----------
-    `T` : `type[Offset] | type[Momentum] | None`, optional
+    T : type[Offset] | type[Momentum] | None, optional
         Exact irrep type to target. Because `FuncOpr` matches exact runtime
         types, reciprocal-space basis states should use
         `fractional_opr(Momentum)`. If omitted, `Offset` is targeted.
@@ -88,26 +88,26 @@ def region_hilbert(bloch_space: HilbertSpace, region: Sequence[Offset]) -> Hilbe
 
     Parameters
     ----------
-    `bloch_space` : `HilbertSpace`
+    bloch_space : HilbertSpace
         Source basis to replicate. Each basis element must contain an `Offset`
         irrep. Elements with the same fractional offset are treated as the
         sub-basis of one unit-cell site and are replicated together.
-    `region` : `Sequence[Offset]`
+    region : Sequence[Offset]
         Full target offsets where the matching unit-cell sub-basis should be
         placed.
 
     Returns
     -------
-    `HilbertSpace`
+    HilbertSpace
         A Hilbert space containing one copied basis state for each compatible
         pair of region offset and unit-cell subgroup, with output offsets taken
         from `region` after rebasing into the Bloch offset space when needed.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         Propagated if a basis element in `bloch_space` does not contain an
-        `Offset` irrep to inspect or replace, or if `region` contains a
+        Offset irrep to inspect or replace, or if `region` contains a
         fractional offset that does not exist in `bloch_space`.
 
     Notes
@@ -160,20 +160,20 @@ def hilbert_opr_repr(
 
     Parameters
     ----------
-    `opr` : `Opr`
+    opr : Opr
         Operator whose representation is to be computed.
-    `space` : `HilbertSpace`
+    space : HilbertSpace
         Basis in which the operator is represented.
 
     Returns
     -------
-    `Tensor`
+    Tensor
         Square tensor whose entries are the matrix elements of `opr` in the
         basis `space`.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If `opr` does not preserve the ray structure of `space`, so no
         representation internal to the same projective Hilbert space exists.
 
@@ -205,26 +205,26 @@ def match_indices(
 
     Parameters
     ----------
-    `src` : `StateSpace[T]`
+    src : StateSpace[T]
         Source state space whose element order defines the output index order.
-    `dest` : `StateSpace[T]`
+    dest : StateSpace[T]
         Destination state space whose integer positions are used as the
         returned indices.
-    `matching_func` : `Callable[[T], T]`
+    matching_func : Callable[[T], T]
         Function mapping each source element to its matching destination
         element.
-    `device` : `Optional[Device]`, optional
+    device : Optional[Device], optional
         Device to place the returned index tensor on, by default `None` (CPU).
 
     Returns
     -------
-    `Tensor[torch.LongTensor]`
+    Tensor[torch.LongTensor]
         Rank-1 integer tensor with dims `(src,)`, where each entry is the
         destination index of the corresponding source element.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If any source element maps to an element that is not present in `dest`.
     """
     indices: list[int] = []

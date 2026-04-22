@@ -269,20 +269,20 @@ def bandtransform(
 
     Parameters
     ----------
-    `t` : `Opr`
+    t : Opr
         Operator to apply. It must satisfy the compatibility conditions
         described in the notes below.
-    `tensor` : `Tensor`
+    tensor : Tensor
         Momentum-space tensor with dims
         `(MomentumSpace, HilbertSpace, HilbertSpace)`.
     Returns
     -------
-    `Tensor`
+    Tensor
         The transformed tensor with the same dimension types.
 
     Raises
     ------
-    `ValueError`
+    ValueError
         If `tensor` is not rank-3 with dims `(MomentumSpace, HilbertSpace,
         HilbertSpace)`, or if a Hilbert space side is not closed under the
         action of `t`.
@@ -588,14 +588,14 @@ def bandfillings(tensor: Tensor, frac: float) -> Tensor:
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         A band-resolved tensor with dimensions `(MomentumSpace, HilbertSpace, HilbertSpace)`.
-    `frac` : `float`
+    frac : float
         The filling fraction, a value between 0 and 1, indicating the fraction of the band to fill.
 
     Returns
     -------
-    `Tensor`
+    Tensor
         A tensor of shape `(MomentumSpace, HilbertSpace, IndexSpace)` where `IndexSpace` is a one-dimensional
         state space representing the filled states. The tensor contains the eigenvectors corresponding to the
         filled states in each momentum sector. The dimension of the `IndexSpace` is determined by the maximum number
@@ -686,14 +686,14 @@ def bandselect(
 
     Parameters
     ----------
-    `tensor` : `Tensor`
+    tensor : Tensor
         A band-resolved tensor with dimensions `(MomentumSpace, HilbertSpace, HilbertSpace)`.
-    `kwargs` : `Dict[str, Union[slice, Tuple[int, ...], Tuple[float, float], Callable[[float], bool]]]`
+    kwargs : Dict[str, Union[slice, Tuple[int, ...], Tuple[float, float], Callable[[float], bool]]]
         A dictionary mapping criterion names to selection criteria for bands.
 
     Returns
     -------
-    `Dict[str, Tensor]`
+    Dict[str, Tensor]
         A dictionary mapping each criterion name to a `Tensor` containing the selected bands that meet that criterion,
         with dimensions `(MomentumSpace, HilbertSpace, IndexSpace)`.
     """
