@@ -9,9 +9,7 @@ from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.state_space import (
     BzPath,
-    MomentumSpace,
     StateSpace,
-    same_rays,
 )
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
 from ._utils import (
@@ -807,7 +805,8 @@ def plot_bandstructure_mpl(
 ) -> plt.Figure:
     """
     Plot the band structure of a Hamiltonian tensor using Matplotlib.
-    The tensor must have dimensions (MomentumSpace, HilbertSpace, HilbertSpace).
+    The tensor must be rank-3 with momentum samples on axis 0 and
+    matrix axes on the last two dimensions.
 
     Parameters
     ----------
@@ -828,25 +827,13 @@ def plot_bandstructure_mpl(
     """
     # 1. Check Dimensions
     if obj.rank() != 3:
-        raise ValueError(
-            f"Tensor must be rank 3 (Momentum, Hilbert, Hilbert), got rank {obj.rank()}"
-        )
+        raise ValueError(f"Tensor must be rank 3, got {obj.rank()}")
     if mode not in ("auto", "path", "surface"):
         raise ValueError(f"Invalid mode '{mode}'. Options: ('auto', 'path', 'surface')")
     if nullspace_tol < 0:
         raise ValueError(f"nullspace_tol must be non-negative, got {nullspace_tol}")
 
     k_space = obj.dims[0]
-    if not isinstance(k_space, MomentumSpace):
-        raise ValueError(f"First dimension must be MomentumSpace, got {type(k_space)}")
-
-    if not (
-        isinstance(obj.dims[1], HilbertSpace) and isinstance(obj.dims[2], HilbertSpace)
-    ):
-        raise ValueError("Last two dimensions must be HilbertSpace")
-
-    if not same_rays(obj.dims[1], obj.dims[2]):
-        raise ValueError("Last two dimensions must span the same Hilbert space")
 
     # 2. Diagonalize
     hk_data = obj.data
@@ -909,8 +896,8 @@ def plot_bandstructure_mpl(
             )
 
         ax.set_title(title)
-        ax.set_xlabel("kx (1/A)")
-        ax.set_ylabel("ky (1/A)")
+        ax.set_xlabel("kx (1/Å)")
+        ax.set_ylabel("ky (1/Å)")
         # Explicit cast to avoid type checking issues with dynamic ax
         cast(Any, ax).set_zlabel("Energy (eV)")
         if data_aspect:
@@ -962,7 +949,7 @@ def plot_bandstructure_mpl(
             ax.set_xticks(wp_x)
             ax.set_xticklabels(list(bz_path.labels))
         else:
-            ax.set_xlabel("k-path (1/A)")
+            ax.set_xlabel("k-path (1/Å)")
 
         ax.grid(True, alpha=kwargs.get("grid_alpha", 0.3))
         if kwargs.get("legend", False):
