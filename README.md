@@ -2,6 +2,8 @@
 
 A torch-based tensor library for quantum-related computations.
 
+Find the documentation at [qTen](https://alphaharrius.github.io/qTen/).
+
 ## Installation
 
 QTen requires Python 3.11 or newer.
