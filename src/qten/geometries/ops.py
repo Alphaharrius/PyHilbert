@@ -227,28 +227,36 @@ def get_strip_region_2d(
     side: Literal["lhs", "rhs"] = "rhs",
     origin: Offset[AffineSpace] | Offset[Lattice] | None = None,
 ) -> tuple[Offset[Lattice], ...]:
-    """
+    r"""
     Return a 2D rectangular strip region in primitive-strip lattice coordinates.
 
     This helper is defined only for 2D lattices.
 
     Let `r0` be the supplied [`origin`][qten.geometries.spatials.AffineSpace.origin] (or the lattice origin when omitted).
-    Let `(dx, dy)` be the supplied direction coordinates. Let
-    `p = (px, py)` be the associated primitive integer direction, and let
-    `n = (-py, px)` be the primitive integer normal. `side="lhs"` grows
-    toward positive `n` and `side="rhs"` grows toward negative `n`.
+    Let \((d_x, d_y)\) be the supplied direction coordinates. Let
+    \(p = (p_x, p_y)\) be the associated primitive integer direction, and let
+    \(n = (-p_y, p_x)\) be the primitive integer normal. `side="lhs"` grows
+    toward positive \(n\) and `side="rhs"` grows toward negative \(n\).
 
     A lattice site belongs to the strip when some periodic image of that site
     satisfies both of the following:
 
     - Longitudinal bound:
-      `trim_step * (dx**2 + dy**2) <= dx * (rx - r0x) + dy * (ry - r0y) <= (length_step - 1) * (dx**2 + dy**2)`
+      \[
+      \mathrm{trim\_step}(d_x^2 + d_y^2)
+      \le d_x(r_x-r_{0x}) + d_y(r_y-r_{0y})
+      \le (\mathrm{length\_step}-1)(d_x^2+d_y^2).
+      \]
     - Transverse bound:
-      `0 <= s * (-py * (rx - r0x) + px * (ry - r0y)) <= width_step - 1`
+      \[
+      0
+      \le s[-p_y(r_x-r_{0x}) + p_x(r_y-r_{0y})]
+      \le \mathrm{width\_step}-1.
+      \]
 
-    where `s = 1` for `"lhs"` and `s = -1` for `"rhs"`.
+    where \(s = 1\) for `"lhs"` and \(s = -1\) for `"rhs"`.
 
-    For integer directions, `(dx, dy) = (px, py)`. For rational directions,
+    For integer directions, \((d_x, d_y) = (p_x, p_y)\). For rational directions,
     longitudinal shell spacing is computed from the supplied direction
     `(dx, dy)`, while transverse shelling is computed from the primitive
     integer direction `p`.

@@ -182,17 +182,24 @@ def _joint_phase_basis(
 def abelian_column_symmetrize(
     opr: AbelianOpr, w: Tensor, full_sector: bool = False
 ) -> Tensor:
-    """
+    r"""
     Symmetrize the columns of `w` by projecting each one onto every sector of `opr`.
 
-    For a finite-order abelian element `opr` of order `n`, each exact symmetry
-    sector is labeled by a phase `omega` with `omega**n = 1`. This function
+    For a finite-order abelian element `opr` of order \(n\), each exact
+    symmetry sector is labeled by a phase \(\omega\) with \(\omega^n = 1\).
+    This function
     builds the full operator representation `G` on the ambient Hilbert space
     `w.dims[0]` and applies the projector
 
-    `P_omega = (1/n) * sum_{k=0}^{n-1} omega^(-k) G^k`
+    \[
+    P_\omega = \frac{1}{n}\sum_{k=0}^{n-1}\omega^{-k}G^k
+    \]
 
-    to each input column separately. When `full_sector` is `True`, every
+    which is the rendered form of the code-level convention
+    `P_omega = (1/n) * sum_{k=0}^{n-1} omega^(-k) G^k`.
+
+    The projector is applied to each input column separately. When
+    `full_sector` is `True`, every
     nonzero projected sector component is returned. When `full_sector` is
     `False`, only the dominant nonzero sector component of each input column is
     kept, so the output column count does not exceed the input count. Returned

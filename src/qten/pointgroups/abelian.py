@@ -194,7 +194,7 @@ def _(a: AbelianBasis, b: AbelianBasis) -> bool:
 @need_validation(check_invertibility("irrep"), check_numerical("irrep"))
 @dataclass(frozen=True)
 class AbelianGroup(Opr):
-    """
+    r"""
     Abelian linear operator represented on Cartesian coordinate functions.
 
     [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup] stores the linear part `g` of a symmetry/operator as an
@@ -204,10 +204,14 @@ class AbelianGroup(Opr):
 
     Mathematical meaning
     --------------------
-    Let the coordinate vector be `x = (x_1, ..., x_d)^T`. The matrix `irrep`
-    defines a linear action
+    Let the coordinate vector be \(x = (x_1, \ldots, x_d)^{\mathsf{T}}\).
+    The matrix `irrep` defines a linear action
 
-    `x -> irrep * x`.
+    \[
+    x \mapsto Gx,
+    \]
+
+    where \(G\) is the stored `irrep` matrix.
 
     From this degree-1 action, the class constructs higher-order polynomial
     representations on homogeneous monomials of total degree `order`. For
@@ -222,6 +226,9 @@ class AbelianGroup(Opr):
     Because coordinate symbols commute, the raw tensor-product representation is
     symmetrized onto the commuting monomial basis. The resulting matrix is
     returned by [`euclidean_repr(order)`][qten.pointgroups.abelian.AbelianGroup.euclidean_repr].
+
+    For a homogeneous monomial basis \(\phi_m(x)\), the derived representation
+    acts by rewriting \(\phi_m(Gx)\) back in the commuting monomial basis.
 
     Parameters
     ----------
@@ -420,11 +427,15 @@ class AbelianGroup(Opr):
 
     @lru_cache
     def group_order(self, max_order: int = 128) -> int:
-        """
+        r"""
         Return the order of this represented group element.
 
         The order is the smallest positive integer `n` such that
-        `irrep**n = I`, where `I` is the identity matrix of matching size.
+        \[
+        G^n = I,
+        \]
+        where \(G\) is `irrep` and \(I\) is the identity matrix of matching
+        size.
 
         Parameters
         ----------
@@ -932,7 +943,7 @@ def _apply_abelian_opr_to_momentum_cached(t: AbelianOpr, k: Momentum) -> Momentu
 
 @AbelianOpr.register(Momentum)
 def _(t: AbelianOpr, k: Momentum) -> Momentum:
-    """
+    r"""
     Apply an affine operator to a Momentum in fractional reciprocal coordinates.
 
     Assumptions
@@ -942,8 +953,11 @@ def _(t: AbelianOpr, k: Momentum) -> Momentum:
     real-space coordinates as `real_space.basis`. Translations do not act on
     momenta, so only the linear part is used.
 
-    If `R` is the real-space linear map in those coordinates, then reciprocal
-    fractional coordinates transform contravariantly as `k' = (R^{-1})^T k`.
+    If \(R\) is the real-space linear map in those coordinates, then reciprocal
+    fractional coordinates transform contravariantly as
+    \[
+    k' = (R^{-1})^{\mathsf{T}} k.
+    \]
 
     Parameters
     ----------

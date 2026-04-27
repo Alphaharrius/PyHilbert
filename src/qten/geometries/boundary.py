@@ -68,7 +68,7 @@ def _matrix_to_ndarray(mat: ImmutableDenseMatrix) -> np.ndarray:
 
 
 class BoundaryCondition(ABC):
-    """
+    r"""
     Abstract interface for identifying lattice-coordinate points modulo a
     finite boundary lattice.
 
@@ -82,6 +82,12 @@ class BoundaryCondition(ABC):
     Conceptually, the boundary basis specifies a subgroup of lattice
     translations that should be treated as equivalent. The quotient by that
     subgroup determines:
+
+    \[
+    \mathbb{Z}^d / B\mathbb{Z}^d,
+    \]
+
+    where \(B\) is the boundary basis matrix, stored in code as `basis`.
 
     - which coordinate representative is considered canonical,
     - which finite set of unit cells should be enumerated,
@@ -149,13 +155,16 @@ class BoundaryCondition(ABC):
     @property
     @abstractmethod
     def basis(self) -> ImmutableDenseMatrix:
-        """
+        r"""
         Return the matrix that generates the boundary-identification lattice.
 
         The columns of this square matrix specify the lattice translations
         that are declared equivalent to zero under the boundary condition.
         Equivalently, the boundary identifies coordinates modulo the subgroup
-        `basis * Z^d`.
+        \[
+        B\mathbb{Z}^d.
+        \]
+        In code, \(B\) is the returned `basis` matrix.
 
         Repository code uses this matrix as the canonical description of the
         finite geometry:
@@ -430,13 +439,16 @@ class PeriodicBoundary(BoundaryCondition):
         return ImmutableDenseMatrix(self.basis @ wrapped_coords).applyfunc(_rationalize)
 
     def representatives(self) -> tuple[ImmutableDenseMatrix, ...]:
-        """
+        r"""
         Enumerate the canonical finite set of lattice representatives for this
         periodic torus.
 
         For diagonal periodicities, the representatives are the obvious
         integer box
-        `0 <= n_i < basis[i, i]`.
+        \[
+        0 \le n_i < \mathrm{basis}_{ii}.
+        \]
+        In code, the upper bound is `basis[i, i]`.
         For non-diagonal cells, the method enumerates the quotient described by
         the Smith normal form and then maps those elements back into canonical
         wrapped lattice coordinates.
@@ -451,7 +463,8 @@ class PeriodicBoundary(BoundaryCondition):
         -------
         tuple[ImmutableDenseMatrix, ...]
             Tuple of wrapped lattice-coordinate representatives spanning the
-            finite quotient `Z^d / basis Z^d`.
+            finite quotient \(\mathbb{Z}^d / B\mathbb{Z}^d\), where \(B\) is
+            the `basis` matrix.
         """
         if self.basis.is_diagonal():
             elements = product(

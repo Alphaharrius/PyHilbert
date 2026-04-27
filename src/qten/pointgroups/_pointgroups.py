@@ -113,7 +113,7 @@ def _build_mirror_irrep(ambient: str, target: str) -> sy.ImmutableDenseMatrix:
 
 
 def pointgroup(query: str) -> AbelianGroup:
-    """
+    r"""
     Build an [`AbelianGroup`][qten.pointgroups.abelian.AbelianGroup] from a compact query string.
 
     This is a user-facing constructor for common point operations in Cartesian
@@ -139,12 +139,28 @@ def pointgroup(query: str) -> AbelianGroup:
 
     Group semantics
     ---------------
-    Cyclic groups are interpreted as 2D rotation blocks with angle `2*pi/n`.
+    Cyclic groups are interpreted as 2D rotation blocks with angle
+    \(\theta = 2\pi/n\).
     For cyclic groups, `<target>` must have exactly two axes and defines the
     rotation plane. In 2D ambient spaces, the cyclic target plane must use the
     same two axes as the ambient space. Cyclic target order controls
     orientation: `c3-xy:xy` and `c3-xy:yx` act on the same plane with inverse
     orientation. In 3D cyclic rotations, the remaining axis is unchanged.
+
+    The active plane receives the block
+
+    \[
+    R(\theta) =
+    \begin{pmatrix}
+    \cos\theta & -\sin\theta \\
+    \sin\theta & \cos\theta
+    \end{pmatrix},
+    \qquad
+    \theta = \frac{2\pi}{n}.
+    \]
+
+    In code, this block is inserted into the returned `irrep` matrix; target
+    axis order chooses the sign of `theta`.
 
     In 1D mirrors, `<target>` must match the ambient axis and the action is a
     sign flip. In 2D mirrors, `<target>` has one axis and denotes the fixed

@@ -1,4 +1,4 @@
-"""
+r"""
 Fourier-transform helpers connecting finite real-space and momentum-space geometry.
 
 This module provides the Fourier phase-factor machinery used to move between
@@ -13,7 +13,8 @@ repository's symbolic
 Two related APIs are defined here:
 
 - [`fourier_kernel`][qten.geometries.fourier.fourier_kernel] computes the raw
-  phase matrix `exp(-i k·r)` for momentum points and real-space offsets.
+  phase matrix \(\exp(-\mathrm{i}\, k \cdot r)\) for momentum points and
+  real-space offsets.
 - [`fourier_transform`][qten.geometries.fourier.fourier_transform] lifts that
   kernel into a labeled `(K, B, R)` tensor that maps a region basis into a
   Bloch basis.
@@ -23,10 +24,21 @@ Two related APIs are defined here:
 
 The implementation follows the repository's reciprocal-lattice convention:
 [`Momentum.to_vec()`][qten.geometries.spatials.Momentum.to_vec] already uses
-Cartesian reciprocal coordinates containing the `2π` factor induced by
+Cartesian reciprocal coordinates containing the \(2\pi\) factor induced by
 [`Lattice.dual`][qten.geometries.spatials.Lattice.dual]. As a result, the
-Fourier phase is evaluated as `exp(-i k_cart·r_cart)`, which is equivalent to
-`exp(-2π i κ·n)` in fractional direct/reciprocal coordinates.
+Fourier phase is evaluated as
+\(\exp(-\mathrm{i}\, k_{\mathrm{cart}}\cdot r_{\mathrm{cart}})\), which is
+equivalent to \(\exp(-2\pi\mathrm{i}\,\kappa\cdot n)\) in fractional
+direct/reciprocal coordinates. In code, the exponent is assembled from the
+Cartesian arrays as `-1j * torch.matmul(ten_K, ten_R)`.
+
+In matrix form, the sampled kernel has entries
+
+\[
+K_{\alpha\beta}
+    = \exp\!\left(-\mathrm{i}\, k_\alpha \cdot r_\beta\right)
+    = \exp\!\left(-2\pi\mathrm{i}\, \kappa_\alpha \cdot n_\beta\right).
+\]
 
 Repository usage
 ----------------
@@ -70,13 +82,22 @@ from ..utils.collections_ext import matchby
 def fourier_kernel(
     K: Tuple[Momentum, ...], R: Tuple[Offset, ...], *, device: Optional[Device] = None
 ) -> torch.Tensor:
-    """
+    r"""
     Compute the raw discrete Fourier kernel for momentum points and offsets.
 
-    `Momentum.to_vec()` uses the reciprocal basis (which already carries the
-    `2π` convention via `Lattice.dual`), so the phase is computed as
-    `exp(-i k_cart·r_cart)`. Equivalently, in fractional coordinates this is
-    `exp(-2π i κ·n)`.
+    `Momentum.to_vec()` uses the reciprocal basis, which already carries the
+    \(2\pi\) convention via `Lattice.dual`, so the phase is computed as
+    \(\exp(-\mathrm{i}\, k_{\mathrm{cart}}\cdot r_{\mathrm{cart}})\).
+    Equivalently, in fractional coordinates this is
+    \(\exp(-2\pi\mathrm{i}\,\kappa\cdot n)\).
+    In code this is the `torch.exp` of `-1j * torch.matmul(ten_K, ten_R)`.
+
+    The returned matrix is
+
+    \[
+    K_{\alpha\beta}
+        = \exp\!\left(-\mathrm{i}\, k_\alpha \cdot r_\beta\right).
+    \]
 
     Parameters
     ----------
@@ -91,8 +112,9 @@ def fourier_kernel(
     -------
     torch.Tensor
         Complex tensor of shape `(len(K), len(R))` with elements
-        `exp(-i k_cart·r_cart)` (equivalently `exp(-2π i κ·n)` in fractional
-        coordinates).
+        \(\exp(-\mathrm{i}\, k_{\mathrm{cart}}\cdot r_{\mathrm{cart}})\)
+        (equivalently \(\exp(-2\pi\mathrm{i}\,\kappa\cdot n)\) in
+        fractional coordinates).
     """
     precision = get_precision_config()
     torch_device = device.torch_device() if device is not None else None

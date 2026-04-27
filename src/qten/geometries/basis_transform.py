@@ -1,4 +1,4 @@
-"""
+r"""
 Basis-change operators for direct and reciprocal lattice geometry.
 
 This module defines the linear basis-transform machinery used to re-express
@@ -16,11 +16,12 @@ Two complementary conventions are implemented:
 
 - [`BasisTransform`][qten.geometries.basis_transform.BasisTransform]
   is the forward-view transform, acting on a direct-lattice basis as
-  `A -> A M`. In repository usage, this is the supercell-building convention.
+  \(A \mapsto A M\). In repository usage, this is the supercell-building
+  convention. In code, the corresponding matrix product is `basis @ M`.
 - [`InverseBasisTransform`][qten.geometries.basis_transform.InverseBasisTransform]
-  is the paired inverse-view transform, acting as
-  `A -> A M^{-1}`. In repository usage, this is the primitive-cell recovery
-  or unfolding convention.
+  is the paired inverse-view transform, acting as \(A \mapsto A M^{-1}\). In
+  repository usage, this is the primitive-cell recovery or unfolding
+  convention. In code, this uses products with `M.inv()`.
 
 The registrations in this module keep direct and reciprocal lattices
 consistent with one another. When a direct lattice basis changes, the
@@ -122,7 +123,7 @@ class AbstractBasisTransform(Functional, ABC):
 
 
 class BasisTransform(AbstractBasisTransform):
-    """
+    r"""
     Forward-view basis transform acting with matrix `M`.
 
     This is the "build a supercell / change to a coarser
@@ -130,7 +131,9 @@ class BasisTransform(AbstractBasisTransform):
     throughout the geometry and band-folding code. For a direct-lattice basis
     matrix `A`, the transformed basis is
 
-    `A' = A M`.
+    \[
+    A' = A M.
+    \]
 
     The same physical point is then re-expressed in the new basis rather than
     moved in space. In other words, `BasisTransform` changes coordinates by
@@ -155,36 +158,47 @@ class BasisTransform(AbstractBasisTransform):
     -------------------
     Let `A` denote a
     [`Lattice`][qten.geometries.spatials.Lattice]-basis matrix and
-    `B = 2π A^{-T}` the corresponding
+    \(B = 2\pi A^{-\mathsf{T}}\) the corresponding
     [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice]-basis
     matrix.
 
     On [`AffineSpace`][qten.geometries.spatials.AffineSpace]
-    : `A -> A M`
+    : \[
+      A' = A M
+      \]
 
     On [`Lattice`][qten.geometries.spatials.Lattice]
-    : the lattice basis becomes `A M`, while periodic boundary generators are
-      re-expressed as `M^{-1} G` so that the same physical torus is described
-      in the transformed basis. For integer `M` with positive determinant, this
-      typically produces a supercell with `det(M)` sites in the transformed
-      unit cell.
+    : the lattice basis becomes \(A M\), while periodic boundary generators are
+      re-expressed as \(M^{-1}G\) so that the same physical torus is described
+      in the transformed basis. For integer \(M\) with positive determinant,
+      this typically produces a supercell with \(\lvert\det M\rvert\) sites in
+      the transformed unit cell.
 
     On [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice]
     : because reciprocal bases transform contragrediently,
-      `B -> B M^{-T}`.
+      \[
+      B' = B M^{-\mathsf{T}}.
+      \]
 
     On [`Offset`][qten.geometries.spatials.Offset]
     : an offset with
-      [`Lattice`][qten.geometries.spatials.Lattice]-fractional coordinates `r`
+      [`Lattice`][qten.geometries.spatials.Lattice]-fractional coordinates \(r\)
       is rebased into the transformed space, giving
-      `r' = M^{-1} r`.
+      \[
+      r' = M^{-1} r.
+      \]
 
     On [`Momentum`][qten.geometries.spatials.Momentum]
     : a momentum with
       [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice]-
-      fractional coordinates `kappa` is rebased into the transformed
+      fractional coordinates \(\kappa\) are rebased into the transformed
       reciprocal space, giving
-      `kappa' = M^T kappa`.
+      \[
+      \kappa' = M^{\mathsf{T}}\kappa.
+      \]
+
+    In implementation terms, these rules correspond to matrix products such as
+    `A @ M`, `B @ M.inv().T`, `M.inv() @ r`, and `M.T @ kappa`.
 
     Repository Usage
     ----------------
@@ -202,18 +216,18 @@ class BasisTransform(AbstractBasisTransform):
 
     Notes
     -----
-    This class does not store `M^{-1}`. It stores `M` and applies the forward
+    This class does not store \(M^{-1}\). It stores `M` and applies the forward
     convention consistently across dispatches. The opposite convention is
     represented by [`InverseBasisTransform`][qten.geometries.basis_transform.InverseBasisTransform].
     """
 
     def inv(self) -> "InverseBasisTransform":
-        """
+        r"""
         Return the inverse-view transform associated with the same matrix `M`.
 
         This switches from the forward convention
-        `A -> A M` to the inverse convention
-        `A -> A M^{-1}` without changing the stored parameter `M`.
+        \(A \mapsto A M\) to the inverse convention
+        \(A \mapsto A M^{-1}\) without changing the stored parameter `M`.
         The returned object therefore represents the basis-change view that
         reverses the action of this [`BasisTransform`][qten.geometries.basis_transform.BasisTransform]
         on supported geometry objects.
@@ -226,13 +240,14 @@ class BasisTransform(AbstractBasisTransform):
 
         Notes
         -----
-        This method does not replace `M` by `M^{-1}` in the dataclass field.
+        This method does not replace `M` by \(M^{-1}\) in the dataclass field.
         Instead, it returns the companion transform class whose dispatch rules
         interpret the same matrix using the opposite basis-change convention.
 
         For example, if this transform maps a
-        [`Lattice`][qten.geometries.spatials.Lattice] basis as `A -> A M`,
-        then the returned transform maps it as `A -> A M^{-1}`. Likewise,
+        [`Lattice`][qten.geometries.spatials.Lattice] basis as
+        \(A \mapsto A M\), then the returned transform maps it as
+        \(A \mapsto A M^{-1}\). Likewise,
         applying `self.inv().inv()` returns a new
         [`BasisTransform`][qten.geometries.basis_transform.BasisTransform]
         with the original matrix `M`.
@@ -241,7 +256,7 @@ class BasisTransform(AbstractBasisTransform):
 
 
 class InverseBasisTransform(AbstractBasisTransform):
-    """
+    r"""
     Inverse-view basis transform paired with [`BasisTransform`][qten.geometries.basis_transform.BasisTransform].
 
     `InverseBasisTransform(M)` uses the same stored matrix as
@@ -250,7 +265,9 @@ class InverseBasisTransform(AbstractBasisTransform):
     [`Lattice`][qten.geometries.spatials.Lattice]-basis matrix `A`, the
     transformed basis is
 
-    `A' = A M^{-1}`.
+    \[
+    A' = A M^{-1}.
+    \]
 
     This is the "undo the supercell / recover the primitive description"
     convention used when unfolding folded lattices, offsets, and band
@@ -274,32 +291,44 @@ class InverseBasisTransform(AbstractBasisTransform):
     -------------------
     Let `A` denote a
     [`Lattice`][qten.geometries.spatials.Lattice]-basis matrix and
-    `B = 2π A^{-T}` the corresponding
+    \(B = 2\pi A^{-\mathsf{T}}\) the corresponding
     [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice]-basis
     matrix.
 
     On [`AffineSpace`][qten.geometries.spatials.AffineSpace]
-    : `A -> A M^{-1}`
+    : \[
+      A' = A M^{-1}
+      \]
 
     On [`Lattice`][qten.geometries.spatials.Lattice]
-    : the lattice basis becomes `A M^{-1}`, while periodic boundary generators
-      are mapped as `G -> M G`. For lattices produced by
+    : the lattice basis becomes \(A M^{-1}\), while periodic boundary
+      generators are mapped as \(G \mapsto M G\). For lattices produced by
       [`BasisTransform`][qten.geometries.basis_transform.BasisTransform], this
       reconstructs the primitive-cell description and merges folded unit-cell
       labels back onto primitive labels when possible.
 
     On [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice]
-    : duality gives `B -> B M^T`.
+    : duality gives
+      \[
+      B' = B M^{\mathsf{T}}.
+      \]
 
     On [`Offset`][qten.geometries.spatials.Offset]
     : [`Lattice`][qten.geometries.spatials.Lattice]-fractional coordinates are
       rebased by
-      `r' = M r`.
+      \[
+      r' = M r.
+      \]
 
     On [`Momentum`][qten.geometries.spatials.Momentum]
     : [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice]-
       fractional coordinates are rebased by
-      `kappa' = M^{-T} kappa`.
+      \[
+      \kappa' = M^{-\mathsf{T}}\kappa.
+      \]
+
+    In implementation terms, these rules correspond to matrix products such as
+    `A @ M.inv()`, `B @ M.T`, `M @ r`, and `M.inv().T @ kappa`.
 
     Repository Usage
     ----------------
@@ -319,12 +348,12 @@ class InverseBasisTransform(AbstractBasisTransform):
     """
 
     def inv(self) -> BasisTransform:
-        """
+        r"""
         Return the forward-view transform associated with the same matrix `M`.
 
         This switches from the inverse convention
-        `A -> A M^{-1}` back to the forward convention
-        `A -> A M` without changing the stored parameter `M`.
+        \(A \mapsto A M^{-1}\) back to the forward convention
+        \(A \mapsto A M\) without changing the stored parameter `M`.
         The returned object is the companion
         [`BasisTransform`][qten.geometries.basis_transform.BasisTransform]
         used for supercell construction and band folding.
@@ -342,8 +371,9 @@ class InverseBasisTransform(AbstractBasisTransform):
         interpret `M` in the forward basis-change convention.
 
         For example, if this transform maps a
-        [`Lattice`][qten.geometries.spatials.Lattice] basis as `A -> A M^{-1}`,
-        then the returned transform maps it as `A -> A M`. Likewise,
+        [`Lattice`][qten.geometries.spatials.Lattice] basis as
+        \(A \mapsto A M^{-1}\), then the returned transform maps it as
+        \(A \mapsto A M\). Likewise,
         applying `self.inv().inv()` returns a new
         [`InverseBasisTransform`][qten.geometries.basis_transform.InverseBasisTransform]
         with the original matrix `M`.

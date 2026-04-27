@@ -44,7 +44,7 @@ from .tensors import Tensor
 
 
 class EigH(NamedTuple):
-    """
+    r"""
     Eigen-decomposition result container.
 
     This is the shared return type of both
@@ -57,12 +57,24 @@ class EigH(NamedTuple):
 
     - For [`eigh`][qten.linalg.decompose.eigh], reconstruct the original
       Hermitian matrix by forming a diagonal matrix from
-      `result.eigenvalues`, then evaluating `V @ W @ V^H`, where
-      `V = result.eigenvectors` and `W` is that diagonal matrix.
+      `result.eigenvalues`, then evaluating the code expression
+      `V @ W @ V.h(...)`, where `V = result.eigenvectors` and `W` is that
+      diagonal matrix.
+      In conventional notation:
+      \[
+      A = V \Lambda V^\dagger.
+      \]
     - For [`eig`][qten.linalg.decompose.eig], the returned tensors satisfy the
-      eigenvalue equation `A @ V = V @ W`. If the matrix is diagonalizable,
-      then it can be reconstructed as `V @ W @ V^{-1}`, where `W` is the
-      diagonal matrix of eigenvalues.
+      eigenvalue equation \(A V = V\Lambda\). If the matrix is diagonalizable,
+      then it can be reconstructed as \(V\Lambda V^{-1}\), where \(\Lambda\)
+      is the diagonal matrix of eigenvalues. In code, this corresponds to
+      products like `A @ V`, `V @ W`, and `V @ W @ V.inv()`.
+      In conventional notation:
+      \[
+      A V = V \Lambda,
+      \qquad
+      A = V \Lambda V^{-1}.
+      \]
 
     Attributes
     ----------
@@ -95,7 +107,7 @@ def _assert_eig_dims(tensor: Tensor) -> None:
 
 
 def eigh(tensor: Tensor) -> EigH:
-    """
+    r"""
     Perform Hermitian eigendecomposition on the last two tensor dimensions.
 
     This function applies [`torch.linalg.eigh`](https://pytorch.org/docs/stable/generated/torch.linalg.eigh.html)
@@ -136,7 +148,8 @@ def eigh(tensor: Tensor) -> EigH:
     eigenvectors when bands are expected to merge.
 
     The original matrix is recovered by forming a diagonal matrix from
-    `eigenvalues` and evaluating `eigenvectors @ W @ eigenvectors.h(-2, -1)`.
+    `eigenvalues` and evaluating \(V\Lambda V^\dagger\). In code, this is
+    `eigenvectors @ W @ eigenvectors.h(-2, -1)`.
     """
     _assert_eig_dims(tensor)
 
@@ -234,7 +247,7 @@ def _sort_eigenpairs(
 
 
 def eig(tensor: Tensor) -> EigH:
-    """
+    r"""
     Perform eigendecomposition on general square matrix axes.
 
     This function applies [`torch.linalg.eig`](https://pytorch.org/docs/stable/generated/torch.linalg.eig.html)
@@ -273,9 +286,11 @@ def eig(tensor: Tensor) -> EigH:
     function sorts eigenvalues lexicographically by `(real, imag)` and applies
     the same reordering to eigenvectors.
 
-    The returned tensors satisfy `A @ V = V @ W`, where `W` is the diagonal
-    matrix of eigenvalues. If the input matrix is diagonalizable, this gives
-    the reconstruction `A = V @ W @ V^{-1}`.
+    The returned tensors satisfy \(A V = V\Lambda\), where \(\Lambda\) is the
+    diagonal matrix of eigenvalues. If the input matrix is diagonalizable, this
+    gives the reconstruction \(A = V\Lambda V^{-1}\). In code, \(V\) is
+    `eigenvectors` and \(\Lambda\) is the diagonal matrix built from
+    `eigenvalues`.
     """
     _assert_eig_dims(tensor)
 
@@ -349,12 +364,19 @@ def eigvals(tensor: Tensor) -> Tensor:
 
 
 class QR(NamedTuple):
-    """
+    r"""
     QR decomposition result container.
 
     Reconstruction
     --------------
-    Reconstruct the original matrix as `Q @ R` on the last two axes.
+    Reconstruct the original matrix as \(Q R\) on the last two axes. In code,
+    this is `Q @ R`.
+
+    \[
+    A = Q R,
+    \qquad
+    Q^\dagger Q = I.
+    \]
 
     Attributes
     ----------
@@ -371,7 +393,7 @@ class QR(NamedTuple):
 
 
 def qr(tensor: Tensor) -> QR:
-    """
+    r"""
     Perform reduced QR decomposition on the last two tensor dimensions.
 
     This function applies [`torch.linalg.qr`](https://pytorch.org/docs/stable/generated/torch.linalg.qr.html)
@@ -406,7 +428,8 @@ def qr(tensor: Tensor) -> QR:
     -----
     The shared `factor` axis is represented by an
     [`IndexSpace`][qten.symbolics.state_space.IndexSpace] whose size equals the
-    reduced QR bond dimension. The original matrix is recovered as `Q @ R`.
+    reduced QR bond dimension. The original matrix is recovered as \(Q R\), via
+    `Q @ R` in code.
     """
     if tensor.rank() < 2:
         raise ValueError(
@@ -432,15 +455,21 @@ def qr(tensor: Tensor) -> QR:
 
 
 class SVD(NamedTuple):
-    """
+    r"""
     Singular-value decomposition result container.
 
     Reconstruction
     --------------
-    Reconstruct the original matrix as `U @ Sigma @ Vh`, where `Sigma` is
-    either `result.S` itself when `values_as_matrix=True`, or the diagonal
-    matrix formed from the singular values when `result.S` is returned as a
-    vector.
+    Reconstruct the original matrix as \(U\Sigma V^\dagger\). In code, this is
+    `U @ Sigma @ Vh`, where `Sigma` is either `result.S` itself when
+    `values_as_matrix=True`, or the diagonal matrix formed from the singular
+    values when `result.S` is returned as a vector.
+
+    In conventional notation:
+
+    \[
+    A = U \Sigma V^\dagger.
+    \]
 
     Attributes
     ----------
@@ -463,7 +492,7 @@ def svd(
     values_as_matrix: bool = False,
     full_matrices: bool = False,
 ) -> SVD:
-    """
+    r"""
     Perform singular value decomposition on the last two tensor dimensions.
 
     This function applies [`torch.linalg.svd`](https://pytorch.org/docs/stable/generated/torch.linalg.svd.html)
@@ -510,9 +539,9 @@ def svd(
     [`IndexSpace`][qten.symbolics.state_space.IndexSpace]. In full mode,
     `left_factor` and `right_factor` are sized to the full row and column
     spaces of the input matrix axes. The original matrix is recovered as
-    `U @ Sigma @ Vh`, where `Sigma` is either the returned `S` tensor
-    (`values_as_matrix=True`) or the diagonal matrix formed from the returned
-    singular-value vector.
+    \(U\Sigma V^\dagger\), using `U @ Sigma @ Vh` in code. Here `Sigma` is
+    either the returned `S` tensor (`values_as_matrix=True`) or the diagonal
+    matrix formed from the returned singular-value vector.
     """
     if tensor.rank() < 2:
         raise ValueError(

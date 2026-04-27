@@ -63,7 +63,7 @@ def _check_u1_multiplicity(value: "U1Basis") -> None:
 class U1Basis(
     Spatial, Multiple[Tuple[Any, ...]], AbstractKet[sy.Expr], HasRays, Convertible
 ):
-    """
+    r"""
     Immutable single-particle basis state built from typed irreps.
 
     [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] is a symbolic tensor-product state with U(1) irreducible representation
@@ -107,6 +107,13 @@ class U1Basis(
     [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] is still validated by
     `__post_init__`, so combining states that contain the same concrete irrep
     type is rejected by the unity-multiplicity invariant.
+
+    In coefficient notation, tensor-product composition multiplies the U(1)
+    weights:
+
+    \[
+    c_{a \otimes b} = c_a c_b.
+    \]
 
     The `|` dispatch overloads build a
     [`U1Span`][qten.symbolics.hilbert_space.U1Span] of distinct
@@ -1183,12 +1190,15 @@ class HilbertSpace(HasRays, StateSpace[U1Basis], Span[U1Basis]):
     def cross_gram(
         self, another: "HilbertSpace", *, device: Optional[Device] = None
     ) -> Tensor:
-        """
+        r"""
         Build the cross-Gram overlap matrix between this basis and another basis.
 
         Matrix entries are computed from concrete basis overlaps
-        `G_{ij} = <self_i | another_j>`, so any nontrivial U(1) irrep phase in
-        basis vectors is encoded in `data`.
+        \[
+        G_{ij} = \langle \mathrm{self}_i \mid \mathrm{another}_j \rangle,
+        \]
+        so any nontrivial U(1) irrep phase in basis vectors is encoded in
+        `data`.
 
         Output dimension convention
         ---------------------------

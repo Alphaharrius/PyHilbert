@@ -1,4 +1,4 @@
-"""
+r"""
 Free-fermionic observable construction from symbolic bond terms.
 
 This module provides the machinery for collecting weighted transitions between
@@ -16,6 +16,10 @@ user wants to specify transitions symbolically and defer tensor allocation until
 the target device and precision are known. The resulting rank-2
 [`Tensor`][qten.linalg.tensors.Tensor] belongs to the same Hilbert space on both
 legs and is explicitly filled as a Hermitian matrix.
+
+Each directed bond contributes a matrix element \(O_{\mathrm{src},\mathrm{dst}}\)
+using the stored endpoint order; tensor conversion adds the Hermitian partner
+so \(O_{ij} = O_{ji}^{*}\).
 """
 
 from typing import List, Optional
@@ -36,7 +40,7 @@ from ._bonds import Bond
 
 
 class FFObservable:
-    """
+    r"""
     Free-fermionic observable assembled from symbolic `Bond` terms.
 
     The observable stores a list of weighted basis-state transitions and can
@@ -47,6 +51,10 @@ class FFObservable:
     element. During tensor conversion, endpoint basis states are reduced to
     their rays, repeated rays are coalesced into a single Hilbert-space basis,
     and off-diagonal entries are mirrored by complex conjugation.
+
+    In matrix notation, inserting a bond from \(|i\rangle\) to \(|j\rangle\)
+    with coefficient \(c\) writes \(O_{ij} = c\) and, for \(i \ne j\), the
+    Hermitian completion \(O_{ji} = c^{*}\).
 
     Notes
     -----
@@ -116,7 +124,7 @@ class FFObservable:
         self.add_bond(bond)
 
     def to_tensor(self, *, device: Optional[Device] = None) -> Tensor:
-        """
+        r"""
         Convert the accumulated bonds into a Hermitian matrix [`Tensor`][qten.linalg.tensors.Tensor].
 
         Each bond contributes the matrix element induced by its coefficient and
@@ -124,6 +132,12 @@ class FFObservable:
         ray representatives, and the output [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] is built from the
         resulting insertion-ordered unique rays. Off-diagonal entries are
         mirrored by complex conjugation so the returned tensor is Hermitian.
+
+        The resulting data satisfy
+
+        \[
+        O_{ij} = O_{ji}^{*}.
+        \]
 
         Parameters
         ----------

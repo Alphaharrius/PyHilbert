@@ -1,4 +1,4 @@
-"""
+r"""
 Symbolic bond terms for physics observables.
 
 A bond is the smallest operator-building block used by
@@ -11,6 +11,10 @@ In the current free-fermionic convention, each bond contributes one directed
 matrix element from a source [`U1Basis`][qten.symbolics.hilbert_space.U1Basis]
 state to a destination state. Hermitian completion is handled by the observable
 that consumes the bond, not by the bond object itself.
+
+With `base = (src, dst)`, the stored coefficient is the directed contribution
+\(O_{\mathrm{src},\mathrm{dst}}\); the consuming observable decides whether and
+how to add \(O_{\mathrm{dst},\mathrm{src}}\).
 """
 
 from dataclasses import dataclass
@@ -22,7 +26,7 @@ from ..symbolics import U1Basis
 
 @dataclass(frozen=True)
 class Bond(Multiple[Tuple[U1Basis, U1Basis]]):
-    """
+    r"""
     Weighted directed transition between two [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] states.
 
     `Bond` specializes [`Multiple`][qten.symbolics.Multiple] for the common physics case where the base
@@ -35,6 +39,8 @@ class Bond(Multiple[Tuple[U1Basis, U1Basis]]):
     interpreted as a matrix element from `src` to `dst`. The observable is
     responsible for adding the Hermitian conjugate contribution when converting
     the collected bonds to a tensor.
+
+    In index notation this directed entry is \(O_{\mathrm{src},\mathrm{dst}}\).
 
     Attributes
     ----------

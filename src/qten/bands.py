@@ -143,9 +143,14 @@ def _probe_affine(
     raw_opr: Callable[[Momentum], Momentum],
     recip_lat: ReciprocalLattice,
 ) -> Tuple[np.ndarray, np.ndarray, ReciprocalLattice]:
-    """
+    r"""
     Probe *raw_opr* with ``d + 1`` reference momenta to extract its affine
-    decomposition ``output_frac = input_frac @ M.T + c``.
+    decomposition
+    \[
+    \mathrm{output\_frac} = \mathrm{input\_frac}\, M^{\mathsf{T}} + c.
+    \]
+    In code, this is represented by the row-vector expression
+    `input_frac @ M.T + c`.
 
     Returns ``(M, c, result_space)`` where *result_space* is the reciprocal
     lattice carried by the output momenta.

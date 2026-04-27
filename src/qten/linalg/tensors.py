@@ -202,7 +202,7 @@ def _check_data_compatible_with_dims(tensor: "Tensor") -> None:
 @need_validation(_check_data_compatible_with_dims)
 @dataclass(frozen=True, eq=False)
 class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
-    """
+    r"""
     StateSpace-aware tensor wrapper over `torch.Tensor`.
 
     A [`Tensor`][qten.linalg.tensors.Tensor] pairs raw tensor data with symbolic axis metadata in `dims`.
@@ -254,6 +254,15 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     - supports batch broadcasting over leading axes,
     - preserves output metadata on the surviving axes.
 
+    For ordinary rank-2 matrix axes this is the contraction
+
+    \[
+    (A B)_{ik} = \sum_j A_{ij} B_{jk},
+    \]
+
+    with the contracted index matched through symbolic
+    [`StateSpace`][qten.symbolics.state_space.StateSpace] metadata.
+
     Addition and subtraction
     ------------------------
     `a + b` and `a - b` operate on two tensors using StateSpace-aware alignment.
@@ -269,11 +278,14 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     Scalar addition and subtraction are not element-wise broadcast operations.
 
     - `a + c` and `c + a` treat `a` as a matrix or batch of matrices over its
-      last two axes and compute `a + c * I`.
-    - `a - c` computes `a - c * I`.
-    - `c - a` computes `c * I - a`.
+      last two axes and compute \(A + cI\).
+    - `a - c` computes \(A - cI\).
+    - `c - a` computes \(cI - A\).
     - These operations therefore require metadata that can construct
       [`eye`][qten.linalg.tensors.eye] on the tensor dims.
+
+    Equivalently, scalar shifts act as \(A \mapsto A + cI\) on the final two
+    axes, not as element-wise broadcasting over every entry.
 
     Negation and scaling
     --------------------
@@ -2351,12 +2363,12 @@ def _(left: Tensor, right: Number) -> Tensor:
 
 @Operable.__add__.register
 def _(left: Number, right: Tensor) -> Tensor:
-    """
+    r"""
     Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
 
     This treats the tensor as a batch of matrices defined by the last two
     dimensions. The scalar is added to the diagonal elements of each matrix.
-    For rank-2 tensors this is equivalent to `c * I + M`.
+    For rank-2 tensors this is equivalent to \(cI + M\).
 
     Parameters
     ----------
@@ -2376,12 +2388,12 @@ def _(left: Number, right: Tensor) -> Tensor:
 
 @Operable.__add__.register
 def _(left: Tensor, right: Number) -> Tensor:
-    """
+    r"""
     Add a number to the diagonal of the tensor (broadcasting over batch dimensions).
 
     This treats the tensor as a batch of matrices defined by the last two
     dimensions. The scalar is added to the diagonal elements of each matrix.
-    For rank-2 tensors this is equivalent to `M + c * I`.
+    For rank-2 tensors this is equivalent to \(M + cI\).
 
     Parameters
     ----------
@@ -2401,11 +2413,11 @@ def _(left: Tensor, right: Number) -> Tensor:
 
 @Operable.__sub__.register
 def _(left: Number, right: Tensor) -> Tensor:
-    """
+    r"""
     Subtract a tensor from a number (broadcasted on diagonal).
 
     This treats the tensor as a batch of matrices defined by the last two
-    dimensions. The operation is performed as `c * I - T`, where `I` is the
+    dimensions. The operation is performed as \(cI - T\), where \(I\) is the
     identity matrix broadcast over batch dimensions.
 
     Parameters
@@ -2426,11 +2438,11 @@ def _(left: Number, right: Tensor) -> Tensor:
 
 @Operable.__sub__.register
 def _(left: Tensor, right: Number) -> Tensor:
-    """
+    r"""
     Subtract a number from a tensor (broadcasted on diagonal).
 
     This treats the tensor as a batch of matrices defined by the last two
-    dimensions. The operation is performed as `T - c * I`, where `I` is the
+    dimensions. The operation is performed as \(T - cI\), where \(I\) is the
     identity matrix broadcast over batch dimensions.
 
     Parameters
