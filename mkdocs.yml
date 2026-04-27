@@ -13,6 +13,11 @@ markdown_extensions:
   - pymdownx.highlight
   - pymdownx.inlinehilite
   - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
 plugins:
   - search
   - gen-files:
