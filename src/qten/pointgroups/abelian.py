@@ -78,9 +78,25 @@ class AbelianBasis(Spatial):
     """
 
     expr: sy.Expr
+    """
+    Symbolic expression in `axes` representing the basis function in
+    coordinate form.
+    """
     axes: Tuple[sy.Symbol, ...]
+    """
+    Ordered tuple of symbols defining the coordinate axes against which `expr`
+    and `rep` are interpreted.
+    """
     order: int
+    """
+    Polynomial order used to build the basis representation, i.e. the total
+    degree of the commuting monomial space.
+    """
     rep: sy.ImmutableDenseMatrix
+    """
+    Coefficient vector in the Euclidean monomial basis, stored as a column
+    matrix aligned with the order-specific monomial enumeration.
+    """
 
     @classmethod
     def from_rep(
@@ -215,6 +231,14 @@ class AbelianGroup(Opr):
     axes : Tuple[sy.Symbol, ...]
         Ordered coordinate symbols on which `irrep` acts.
 
+    Attributes
+    ----------
+    irrep : sy.ImmutableDenseMatrix
+        Exact linear representation matrix of the operator in the coordinate
+        basis defined by `axes`.
+    axes : Tuple[sy.Symbol, ...]
+        Ordered coordinate symbols on which `irrep` acts.
+
     Main API
     --------
     [`euclidean_repr(order)`][qten.pointgroups.abelian.AbelianGroup.euclidean_repr]
@@ -247,7 +271,16 @@ class AbelianGroup(Opr):
     """
 
     irrep: sy.ImmutableDenseMatrix
+    """
+    Exact linear representation matrix of the operator in the coordinate
+    basis defined by `axes`. This is the degree-1 action from which higher
+    polynomial representations are constructed.
+    """
     axes: Tuple[sy.Symbol, ...]
+    """
+    Ordered coordinate symbols on which `irrep` acts. Their order fixes the
+    ambient coordinate basis for all derived polynomial representations.
+    """
 
     @lru_cache
     def _full_indices(self, order: int):
@@ -636,6 +669,14 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
         Translation part of the affine transformation, stored in the same
         affine space on which ``g`` acts.
 
+    Attributes
+    ----------
+    g : AbelianGroup
+        Linear part of the affine transformation.
+    offset : Offset
+        Translation part of the affine transformation, stored in the same
+        affine space on which `g` acts.
+
     Notes
     -----
     The operator is initialized at the canonical origin of the identity affine
@@ -644,7 +685,15 @@ class AbelianOpr(Opr, HasBase[AffineSpace]):
     """
 
     g: AbelianGroup
+    """
+    Linear part of the affine transformation, represented exactly on the
+    ordered coordinate axes of the operator's ambient affine space.
+    """
     offset: Offset
+    """
+    Translation part of the affine transformation, stored in the same affine
+    space on which `g` acts so the full map has the form `x -> g x + offset`.
+    """
 
     @classmethod
     def _from_parts(cls, g: AbelianGroup, offset: Offset) -> "AbelianOpr":

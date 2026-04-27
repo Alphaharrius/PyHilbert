@@ -277,12 +277,41 @@ class BoundaryCondition(ABC):
 class PeriodicBoundary(BoundaryCondition):
     """
     Periodic boundary: wraps indices using modulo arithmetic via Smith Normal Form.
+
+    Attributes
+    ----------
+    _basis : ImmutableDenseMatrix
+        Square integer matrix whose columns generate the periodic
+        identification lattice.
+    _U : ImmutableDenseMatrix
+        Left unimodular factor from the Smith normal form of `_basis`.
+    _U_inv : ImmutableDenseMatrix
+        Inverse of `_U`, cached for coordinate conversions during wrapping.
+    _periods : tuple[int, ...]
+        Positive Smith invariants defining the finite quotient periods.
     """
 
     _basis: ImmutableDenseMatrix = field(repr=False)
+    """
+    Square integer matrix whose columns generate the periodic identification
+    lattice. This is the user-supplied periodic cell data that later gets
+    decomposed into Smith-normal-form invariants.
+    """
     _U: ImmutableDenseMatrix = field(init=False, repr=False, compare=False)
+    """
+    Left unimodular factor from the Smith normal form of `_basis`, cached so
+    lattice coordinates can be moved into the quotient basis efficiently.
+    """
     _U_inv: ImmutableDenseMatrix = field(init=False, repr=False, compare=False)
+    """
+    Inverse of `_U`, cached for coordinate conversions during wrapping and
+    representative enumeration.
+    """
     _periods: tuple[int, ...] = field(init=False, repr=False, compare=False)
+    """
+    Positive Smith invariants defining the finite quotient periods of the
+    periodic identification lattice.
+    """
 
     def __post_init__(self):
         """

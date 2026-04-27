@@ -388,7 +388,16 @@ class Tensor(Generic[T], Operable, Plottable, Convertible, DeviceBounded):
     """
 
     data: T
+    """
+    Underlying `torch.Tensor` storing the numeric values. Its shape must match
+    the dimensions implied by `dims`.
+    """
     dims: Tuple[StateSpace, ...]
+    """
+    Symbolic dimension metadata, with one
+    [`StateSpace`][qten.symbolics.state_space.StateSpace] per axis of `data`.
+    These dimensions preserve axis identity and ordering beyond raw shape.
+    """
 
     def __post_init__(self) -> None:
         """

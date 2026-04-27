@@ -89,6 +89,11 @@ class AbstractBasisTransform(Functional, ABC):
     M : ImmutableDenseMatrix
         Square transformation matrix describing the basis change.
 
+    Attributes
+    ----------
+    M : ImmutableDenseMatrix
+        Square transformation matrix describing the basis change.
+
     Notes
     -----
     Concrete actions are provided through [`Functional`][qten.abstracts.Functional]
@@ -96,6 +101,11 @@ class AbstractBasisTransform(Functional, ABC):
     """
 
     M: ImmutableDenseMatrix
+    """
+    Square transformation matrix describing the basis change. Concrete
+    subclasses decide whether this matrix should be read as the forward basis
+    map or the inverse-view companion used for the same geometric transform.
+    """
 
     @abstractmethod
     def inv(self) -> "AbstractBasisTransform":

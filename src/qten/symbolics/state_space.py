@@ -563,10 +563,31 @@ class BzPath:
     """
 
     k_space: MomentumSpace
+    """
+    Unique momentum points sampled along the path, with duplicates across
+    segments removed while preserving the path's effective traversal order.
+    """
     labels: tuple
+    """
+    Labels for the waypoints in path order, typically high-symmetry point
+    names used for plotting.
+    """
     waypoint_indices: tuple
+    """
+    Indices into the dense path where each waypoint occurs, suitable for axis
+    ticks or segment markers in band-structure plots.
+    """
     path_order: tuple
+    """
+    For each dense path sample, index of the corresponding unique momentum in
+    `k_space`. This maps the full piecewise-linear path back onto the unique
+    momentum list.
+    """
     path_positions: tuple
+    """
+    Cumulative Cartesian arc-length coordinate for each dense path sample,
+    used as the continuous x-axis parameter along the path.
+    """
 
 
 @Momentum.add_conversion(StateSpace)
@@ -694,12 +715,23 @@ class BroadcastSpace(StateSpace[_BAxis]):
 
     This makes it suitable as a placeholder axis that can be promoted to a
     concrete state space during alignment/broadcast operations.
+
+    Attributes
+    ----------
+    structure : OrderedDict
+        Private singleton mapping `OrderedDict({_BAxis(): 0})` used to encode a
+        size-1 broadcast axis.
     """
 
     # Internal singleton marker so structure-based mappings can emit index 0.
     structure: OrderedDict = field(
         default_factory=lambda: OrderedDict({_BAxis(): 0}), init=False
     )
+    """
+    Private singleton mapping `OrderedDict({_BAxis(): 0})` used to encode a
+    size-1 broadcast axis. The stored marker is internal and exists only so
+    structure-based helpers can consistently refer to the unique broadcast slot.
+    """
 
     def __hash__(self) -> int:
         """

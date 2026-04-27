@@ -62,13 +62,36 @@ class PointCloud(Plottable):
     """
 
     offsets: FrozenSet[Offset] = field(default_factory=frozenset)
+    """
+    Spatial offsets to render as a single point cloud. The set is normalized
+    to a `frozenset` during initialization so the plottable is immutable and
+    hashable.
+    """
     name: str | None = None
+    """Optional trace or legend label shown by plotting backends."""
     color: str | None = None
+    """
+    Optional backend color value applied uniformly to all points in the cloud.
+    """
     marker: str | None = None
+    """
+    Optional marker shape alias, normalized to the vocabulary supported by the
+    selected plotting backend.
+    """
     opacity: float | None = None
+    """
+    Optional marker opacity in the inclusive range `[0, 1]`, forwarded as a
+    backend-independent styling hint.
+    """
     size: float | None = None
+    """Optional positive marker size shared by every rendered point."""
     border_color: str | None = None
+    """Optional marker border color used by backends that support outlines."""
     border_width: float | None = None
+    """
+    Optional non-negative marker border width used by backends that support
+    marker outlines.
+    """
 
     def __post_init__(self):
         from qten.geometries.spatials import Offset

@@ -62,7 +62,15 @@ class Device:
     """
 
     name: Literal["cpu", "gpu"]
+    """
+    Logical device family. QTen uses `"cpu"` for host execution and `"gpu"`
+    for CUDA-backed execution.
+    """
     index: Optional[int] = None
+    """
+    Optional CUDA device index for GPU execution. This is meaningful only when
+    `name == "gpu"`.
+    """
 
     @staticmethod
     def new(name: str) -> "Device":

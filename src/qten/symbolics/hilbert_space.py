@@ -1536,7 +1536,16 @@ class FuncOpr(Generic[_IrrepType], Opr):
     """
 
     T: Type[_IrrepType]
+    """
+    Exact runtime type of the irrep/component targeted by this operator when
+    acting on symbolic basis states.
+    """
     func: Callable[[_IrrepType], Union[_IrrepType, Multiple[_IrrepType]]]
+    """
+    Callable applied to the targeted irrep. It may return either a transformed
+    irrep directly or a [`Multiple`][qten.symbolics.Multiple] carrying an
+    additional scalar factor.
+    """
 
 
 @FuncOpr.register(U1Basis)
@@ -1765,6 +1774,10 @@ class ComposedOpr(Opr):
     """
 
     ops: Tuple[Opr, ...]
+    """
+    Operators stored in algebraic composition order. The rightmost operator is
+    applied first when the composed operator is invoked on an object.
+    """
 
     @override
     def invoke(self, v: _T, **kwargs) -> Union[_T, Multiple[_T]]:

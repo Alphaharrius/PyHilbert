@@ -38,4 +38,12 @@ class Multiple(Generic[BaseType]):
     """
 
     coef: sy.Number
+    """
+    Numeric SymPy coefficient applied to `base`, kept separate so callers can
+    accumulate scalar factors without eagerly rebuilding symbolic expressions.
+    """
     base: BaseType
+    """
+    The symbolic or scalar object being multiplied by `coef`, preserved in
+    structured form for later operator application or simplification.
+    """

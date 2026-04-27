@@ -109,6 +109,10 @@ class AffineSpace(Spatial):
     """
 
     basis: ImmutableDenseMatrix
+    """
+    Basis matrix whose columns span the affine coordinate system. Coordinate
+    columns `r` in this space represent Cartesian vectors through `basis @ r`.
+    """
 
     @property
     def dim(self) -> int:
@@ -241,10 +245,22 @@ class Lattice(AbstractLattice["Offset"]):
         Real-space basis matrix of the lattice.
     boundaries : BoundaryCondition
         Boundary condition defining the finite periodic region.
+    _unit_cell_fractional : FrozenDict
+        Mapping from unit-cell [`Offset`][qten.geometries.spatials.Offset]
+        representatives to their canonical wrapped fractional coordinates.
     """
 
     boundaries: BoundaryCondition
+    """
+    Boundary condition defining the finite periodic region and canonical
+    representative choice for lattice coordinates.
+    """
     _unit_cell_fractional: FrozenDict = field(init=False, repr=False, compare=True)
+    """
+    Mapping from unit-cell [`Offset`][qten.geometries.spatials.Offset]
+    representatives to their canonical wrapped fractional coordinates. This
+    cached lookup is used for membership tests and unit-cell normalization.
+    """
 
     def __str__(self):
         """Return `Lattice(basis=..., boundaries=...)` using readable symbolic entries."""
@@ -572,6 +588,10 @@ class ReciprocalLattice(AbstractLattice["Momentum"]):
     """
 
     lattice: Lattice
+    """
+    Real-space lattice from which this reciprocal lattice is derived. Its
+    boundary data determines the discrete Brillouin-zone sampling shape.
+    """
 
     def __str__(self):
         """Return `ReciprocalLattice(basis=..., shape=...)` for readable inspection."""
@@ -870,7 +890,15 @@ class Offset(Generic[S], Spatial, HasBase[S]):
     """
 
     rep: ImmutableDenseMatrix
+    """
+    Column vector of coordinates expressed in `space`. The physically
+    represented Cartesian vector is obtained from `space.basis @ rep`.
+    """
     space: S
+    """
+    Affine space that defines the coordinate basis for `rep`, including how
+    those coordinates should be interpreted and rebased.
+    """
 
     def __post_init__(self):
         """

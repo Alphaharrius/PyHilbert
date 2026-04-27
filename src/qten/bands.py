@@ -75,7 +75,7 @@ def interpolate_path(
         Reciprocal lattice in which waypoint coordinates are interpreted.
     waypoints : Sequence[Union[Tuple[float, ...], str]]
         Sequence of explicit fractional coordinates or names looked up in
-        `points`. 
+        `points`.
         For example, `[(0.0, 0.0), (0.5, 0.0), (0.5, 0.5)]`
         samples a path through three explicit two-dimensional reciprocal
         coordinates, while `["G", "X", "M"]` resolves coordinates from the
@@ -83,7 +83,7 @@ def interpolate_path(
     n_points : int
         Number of samples used along the full interpolated path.
     labels : Sequence[str] | None
-        Optional display labels for the waypoint ticks. 
+        Optional display labels for the waypoint ticks.
         For example, `["Γ", "X", "M"]` can label a path whose named inputs are
         `["G", "X", "M"]`.
     points : Dict[str, Tuple[float, ...]] | None
