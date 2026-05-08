@@ -3124,7 +3124,8 @@ def _(left: Tensor, right: Number) -> Tensor:
     return left * (1.0 / right)  # type: ignore[operator]
 
 
-def permute(tensor: TensorType, *order: Union[int, Sequence[int]]) -> TensorType:
+@multimethod
+def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
     """
     Reorder tensor axes and their symbolic dimensions.
 
@@ -3165,11 +3166,11 @@ def permute(tensor: TensorType, *order: Union[int, Sequence[int]]) -> TensorType
 
     new_data = tensor.data.permute(_order)
     new_dims = tuple(tensor.dims[i] for i in _order)
-
     return replace(tensor, data=new_data, dims=new_dims)
 
 
-def transpose(tensor: TensorType, dim0: int, dim1: int) -> TensorType:
+@multimethod
+def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
     """
     Swap two tensor axes and their symbolic dimensions.
 
@@ -3193,14 +3194,9 @@ def transpose(tensor: TensorType, dim0: int, dim1: int) -> TensorType:
         Tensor with the selected axes exchanged, preserving the input wrapper
         type.
     """
-    new_data = tensor.data.transpose(dim0, dim1)
-
-    # Convert tuple to list to modify
-    new_dims_list = list(tensor.dims)
-    # Swap elements
-    new_dims_list[dim0], new_dims_list[dim1] = new_dims_list[dim1], new_dims_list[dim0]
-
-    return replace(tensor, data=new_data, dims=tuple(new_dims_list))
+    order = list(range(tensor.rank()))
+    order[dim0], order[dim1] = order[dim1], order[dim0]
+    return permute(tensor, tuple(order))
 
 
 def conj(tensor: TensorType) -> TensorType:

@@ -26,6 +26,7 @@ State-space utilities
 ---------------------
 State-space types include [`StateSpace`][qten.symbolics.state_space.StateSpace],
 [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace],
+[`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace],
 [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace],
 [`IndexSpace`][qten.symbolics.state_space.IndexSpace],
 [`StateSpaceFactorization`][qten.symbolics.state_space.StateSpaceFactorization],
@@ -51,6 +52,7 @@ from .state_space import (
     BzPath as BzPath,
     BroadcastSpace as BroadcastSpace,
     IndexSpace as IndexSpace,
+    MomentumBlockSpace as MomentumBlockSpace,
     MomentumSpace as MomentumSpace,
     StateSpace as StateSpace,
     StateSpaceFactorization as StateSpaceFactorization,

@@ -13,7 +13,7 @@ from qten.pointgroups.abelian import (
     AbelianGroup,
     AbelianOpr,
 )
-from qten.bands import bandtransform
+from qten.bands import bandtransform, get_band_transform
 from qten.geometries.fourier import fourier_transform
 from qten.symbolics.state_space import MomentumSpace, brillouin_zone
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis, FuncOpr
@@ -22,6 +22,7 @@ from qten.geometries.spatials import Lattice
 from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.basis_transform import BasisTransform
 from qten.linalg.tensors import Tensor
+from qten.linalg._mb_tensor import MomentumBlockTensor
 from qten.symbolics import Multiple
 from qten.phys import FFObservable
 from qten.bands import bandfillings, bandfold
@@ -1069,6 +1070,124 @@ def test_bandtransform_both_c4_fourfold_roundtrip_complex_tensor():
 
     out = out.align(0, k_space).align(1, h_space).align(2, h_space)
     assert torch.allclose(out.data, tensor_in.data)
+
+
+def test_get_band_transform_factorizes_bandtransform_with_alignable_matrix_dims():
+    x, y = sy.symbols("x y")
+
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+
+    r_x = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2), 0]), space=lattice.affine)
+    r_y = Offset(rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine)
+    h_space = HilbertSpace.new([_state(r_x, Orb("p")), _state(r_y, Orb("p"))])
+    h_space_perm = HilbertSpace.new([_state(r_y, Orb("p")), _state(r_x, Orb("p"))])
+
+    data = torch.zeros((k_space.dim, 2, 2), dtype=torch.complex128)
+    for n, k in enumerate(k_space.elements()):
+        kx = float(k.rep[0])
+        ky = float(k.rep[1])
+        phase_x = torch.exp(torch.tensor(-2j * torch.pi * kx, dtype=torch.complex128))
+        phase_y = torch.exp(torch.tensor(-2j * torch.pi * ky, dtype=torch.complex128))
+        data[n, 0, 0] = 0.3 + 0.1 * n
+        data[n, 1, 1] = -0.2 + 0.05j * (n + 1)
+        data[n, 0, 1] = 1.0 + 0.4 * phase_x + 0.2j * phase_y
+        data[n, 1, 0] = -0.6 + 0.3j * phase_y.conj() + 0.1 * phase_x.conj()
+    tensor_in = Tensor(data=data, dims=(k_space, h_space_perm, h_space))
+
+    c4 = _affine(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice),
+        basis_function_order=1,
+    )
+
+    T_g = get_band_transform(c4, tensor_in)
+    transformed_ref = bandtransform(c4, tensor_in)
+    transformed_factored = T_g @ tensor_in @ T_g.h(-2, -1)
+
+    assert isinstance(T_g, MomentumBlockTensor)
+    assert torch.allclose(
+        transformed_factored.align_all(transformed_ref.dims).data,
+        transformed_ref.data,
+    )
+
+
+def test_get_band_transform_supports_left_sample_side():
+    x, y = sy.symbols("x y")
+
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+
+    r_x = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2), 0]), space=lattice.affine)
+    r_y = Offset(rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine)
+    h_space = HilbertSpace.new([_state(r_x, Orb("p")), _state(r_y, Orb("p"))])
+    h_space_perm = HilbertSpace.new([_state(r_y, Orb("p")), _state(r_x, Orb("p"))])
+
+    data = torch.zeros((k_space.dim, 2, 2), dtype=torch.complex128)
+    for n, k in enumerate(k_space.elements()):
+        kx = float(k.rep[0])
+        ky = float(k.rep[1])
+        phase_x = torch.exp(torch.tensor(-2j * torch.pi * kx, dtype=torch.complex128))
+        phase_y = torch.exp(torch.tensor(-2j * torch.pi * ky, dtype=torch.complex128))
+        data[n, 0, 0] = 0.3 + 0.1 * n
+        data[n, 1, 1] = -0.2 + 0.05j * (n + 1)
+        data[n, 0, 1] = 1.0 + 0.4 * phase_x + 0.2j * phase_y
+        data[n, 1, 0] = -0.6 + 0.3j * phase_y.conj() + 0.1 * phase_x.conj()
+    tensor_in = Tensor(data=data, dims=(k_space, h_space_perm, h_space))
+
+    c4 = _affine(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice),
+        basis_function_order=1,
+    )
+
+    T_g = get_band_transform(c4, tensor_in, side="left")
+    transformed_ref = bandtransform(c4, tensor_in, side="left")
+    transformed_factored = T_g @ tensor_in @ T_g.h(-2, -1)
+
+    assert isinstance(T_g, MomentumBlockTensor)
+    assert T_g.dims[1] == h_space_perm
+    assert T_g.dims[2] == h_space_perm
+    assert torch.allclose(
+        transformed_factored.align_all(transformed_ref.dims).data,
+        transformed_ref.data,
+    )
+
+
+def test_get_band_transform_rejects_non_alignable_matrix_dims():
+    x, y = sy.symbols("x y")
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    r0 = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
+    left_space = HilbertSpace.new([_state(r0, Orb("s"))])
+    right_space = HilbertSpace.new([_state(r0, Orb("s")), _state(r0, Orb("p"))])
+    tensor_in = Tensor(
+        data=torch.zeros((k_space.dim, 1, 2), dtype=torch.complex128),
+        dims=(k_space, left_space, right_space),
+    )
+    c4 = _affine(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice),
+        basis_function_order=1,
+    )
+
+    with pytest.raises(ValueError, match="same Hilbert space"):
+        get_band_transform(c4, tensor_in)
 
 
 def test_bandtransform_c4_twice_restores_c2_symmetric_but_not_c4_tensor():

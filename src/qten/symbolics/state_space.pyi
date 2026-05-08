@@ -52,6 +52,10 @@ class MomentumSpace(StateSpace[Momentum]):
     def __hash__(self) -> int: ...
 
 @dataclass(frozen=True)
+class MomentumBlockSpace(StateSpace[tuple[Momentum, Momentum]]):
+    def transposed(self) -> Self: ...
+
+@dataclass(frozen=True)
 class BzPath:
     k_space: MomentumSpace
     labels: tuple

@@ -9,6 +9,8 @@ Main exports
 ------------
 - [`Tensor`][qten.linalg.tensors.Tensor]
   StateSpace-aware tensor wrapper over `torch.Tensor`.
+- [`MomentumBlockTensor`][qten.MomentumBlockTensor]
+  Momentum-pair-resolved block-matrix tensor for band-space transforms.
 - [`Device`][qten.utils.devices.Device]
   Logical device descriptor used by QTen objects.
 - [`set_precision`][qten.precision.set_precision]
@@ -52,6 +54,7 @@ For broader domain APIs, see:
 """
 
 from .precision import set_precision as set_precision
+from .linalg._mb_tensor import MomentumBlockTensor as MomentumBlockTensor
 
 from .linalg.tensors import (
     Tensor as Tensor,

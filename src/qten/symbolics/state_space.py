@@ -4,9 +4,10 @@ Indexed symbolic state-space containers.
 This module defines ordered finite state spaces used as tensor dimensions in
 QTen. [`StateSpace`][qten.symbolics.state_space.StateSpace] stores arbitrary
 spatial or symbolic elements with stable integer indices, while specialized
-spaces such as [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] and
-[`BzPath`][qten.symbolics.state_space.BzPath] describe reciprocal-space grids
-and paths.
+spaces such as [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace],
+[`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace], and
+[`BzPath`][qten.symbolics.state_space.BzPath] describe reciprocal-space grids,
+momentum-pair block axes, and paths.
 
 Repository usage
 ----------------
@@ -514,6 +515,27 @@ class MomentumSpace(StateSpace[Momentum]):
             [f"{n}: {k}" for n, k in enumerate(self.structure.keys())]
         )
         return header + body
+
+
+@dataclass(frozen=True)
+class MomentumBlockSpace(StateSpace[Tuple[Momentum, Momentum]]):
+    """
+    Ordered state space of momentum-pair block labels.
+
+    Each element is a pair `(k1, k2)` of
+    [`Momentum`][qten.geometries.spatials.Momentum] objects. This is useful for
+    tensors whose leading axis labels momentum-resolved matrix blocks rather
+    than single momentum sectors.
+    """
+
+    def transposed(self) -> Self:
+        """
+        Return the same block space with every pair reversed.
+
+        This maps each momentum label `(k1, k2)` to `(k2, k1)` while preserving
+        the axis length and relative ordering of entries.
+        """
+        return self.map(lambda p: (p[1], p[0]))
 
 
 @dataclass(frozen=True)
