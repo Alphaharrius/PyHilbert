@@ -517,6 +517,7 @@ class MomentumSpace(StateSpace[Momentum]):
         return header + body
 
 
+@need_validation()
 @dataclass(frozen=True)
 class MomentumBlockSpace(StateSpace[Tuple[Momentum, Momentum]]):
     """
