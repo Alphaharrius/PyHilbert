@@ -1106,9 +1106,9 @@ def test_get_band_transform_factorizes_bandtransform_with_alignable_matrix_dims(
         basis_function_order=1,
     )
 
-    T_g = get_band_transform(c4, tensor_in)
-    transformed_ref = bandtransform(c4, tensor_in)
-    transformed_factored = T_g @ tensor_in @ T_g.h(-2, -1)
+    T_g = get_band_transform(c4, tensor_in, side="right")
+    transformed_ref = bandtransform(c4, tensor_in, opt="right")
+    transformed_factored = tensor_in @ T_g.h(-2, -1)
 
     assert isinstance(T_g, MomentumBlockTensor)
     assert torch.allclose(
@@ -1152,8 +1152,8 @@ def test_get_band_transform_supports_left_sample_side():
     )
 
     T_g = get_band_transform(c4, tensor_in, side="left")
-    transformed_ref = bandtransform(c4, tensor_in, side="left")
-    transformed_factored = T_g @ tensor_in @ T_g.h(-2, -1)
+    transformed_ref = bandtransform(c4, tensor_in, opt="left")
+    transformed_factored = T_g @ tensor_in
 
     assert isinstance(T_g, MomentumBlockTensor)
     assert T_g.dims[1] == h_space_perm
@@ -1164,7 +1164,7 @@ def test_get_band_transform_supports_left_sample_side():
     )
 
 
-def test_get_band_transform_rejects_non_alignable_matrix_dims():
+def test_bandtransform_supports_both_sides_for_rectangular_tensors():
     x, y = sy.symbols("x y")
     lattice = Lattice(
         basis=ImmutableDenseMatrix.eye(2),
@@ -1174,9 +1174,13 @@ def test_get_band_transform_rejects_non_alignable_matrix_dims():
     k_space = brillouin_zone(lattice.dual)
     r0 = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
     left_space = HilbertSpace.new([_state(r0, Orb("s"))])
-    right_space = HilbertSpace.new([_state(r0, Orb("s")), _state(r0, Orb("p"))])
+    r_x = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2), 0]), space=lattice.affine)
+    r_y = Offset(rep=ImmutableDenseMatrix([0, sy.Rational(1, 2)]), space=lattice.affine)
+    right_space = HilbertSpace.new([_state(r_x, Orb("p")), _state(r_y, Orb("p"))])
     tensor_in = Tensor(
-        data=torch.zeros((k_space.dim, 1, 2), dtype=torch.complex128),
+        data=torch.arange(k_space.dim * 2, dtype=torch.float64)
+        .reshape(k_space.dim, 1, 2)
+        .to(torch.complex128),
         dims=(k_space, left_space, right_space),
     )
     c4 = _affine(
@@ -1186,8 +1190,15 @@ def test_get_band_transform_rejects_non_alignable_matrix_dims():
         basis_function_order=1,
     )
 
-    with pytest.raises(ValueError, match="same Hilbert space"):
-        get_band_transform(c4, tensor_in)
+    left_transform = get_band_transform(c4, tensor_in, side="left")
+    right_transform = get_band_transform(c4, tensor_in, side="right")
+    transformed_ref = bandtransform(c4, tensor_in, opt="both")
+    transformed_factored = left_transform @ tensor_in @ right_transform.h(-2, -1)
+
+    assert torch.allclose(
+        transformed_factored.align_all(transformed_ref.dims).data,
+        transformed_ref.data,
+    )
 
 
 def test_bandtransform_c4_twice_restores_c2_symmetric_but_not_c4_tensor():

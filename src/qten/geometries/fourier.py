@@ -59,7 +59,7 @@ repository's bounded-lattice workflows rather than a continuum transform API.
 """
 
 from ..utils.devices import Device
-from typing import Dict, Tuple, overload, Optional
+from typing import Dict, Tuple, overload, Optional, Literal
 from typing import cast
 
 from multimethod import multimethod
@@ -69,7 +69,13 @@ import torch
 from ..precision import get_precision_config
 
 from . import Momentum, Offset
-from ..symbolics import HilbertSpace, MomentumSpace, U1Basis, region_hilbert
+from ..symbolics import (
+    HilbertSpace,
+    MomentumBlockSpace,
+    MomentumSpace,
+    U1Basis,
+    region_hilbert,
+)
 from ..linalg.tensors import Tensor
 from ..linalg.tensors import mapping_matrix
 from ..utils.collections_ext import matchby
@@ -211,9 +217,43 @@ def fourier_transform(
     return Tensor(data=f, dims=(k_space, bloch_space, region_space))  # (K, B, R)
 
 
+def _region_restrict_spaces(
+    tensor: Tensor, side: Literal["left", "right"]
+) -> tuple[MomentumSpace, HilbertSpace]:
+    if tensor.rank() != 3:
+        raise ValueError("region_restrict requires a rank-3 tensor.")
+
+    leading_space = tensor.dims[0]
+    if side == "left":
+        bloch_space = tensor.dims[1]
+        bloch_label = "second"
+    else:
+        bloch_space = tensor.dims[2]
+        bloch_label = "third"
+
+    if isinstance(leading_space, MomentumSpace):
+        k_space = leading_space
+    elif isinstance(leading_space, MomentumBlockSpace):
+        k_space = leading_space.left() if side == "left" else leading_space.right()
+    else:
+        raise TypeError(
+            "Expected first dim to be MomentumSpace or MomentumBlockSpace, "
+            f"got {type(leading_space).__name__}"
+        )
+    if not isinstance(bloch_space, HilbertSpace):
+        raise TypeError(
+            f"Expected {bloch_label} dim to be HilbertSpace, got {type(bloch_space).__name__}"
+        )
+    return k_space, bloch_space
+
+
 @overload
 def region_restrict(
-    tensor: Tensor, R: HilbertSpace, *, device: Optional[Device] = None
+    tensor: Tensor,
+    R: HilbertSpace,
+    *,
+    side: Literal["left", "right"] = "left",
+    device: Optional[Device] = None,
 ) -> Tensor:
     """
     Rebuild a Fourier transform tensor on a different real-space region.
@@ -234,7 +274,9 @@ def region_restrict(
     ----------
     tensor : Tensor
         Fourier transform tensor whose dims are expected to be
-        `(MomentumSpace, HilbertSpace, HilbertSpace)`.
+        `(MomentumSpace, HilbertSpace, HilbertSpace)` or a rank-3 block tensor
+        whose leading dim is a
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace].
     R : HilbertSpace
         Target real-space region for the form
         [`region_restrict(tensor, R)`][qten.geometries.fourier.region_restrict].
@@ -246,16 +288,22 @@ def region_restrict(
     Returns
     -------
     Tensor
-        Tensor with dims `(tensor.dims[0], tensor.dims[1], R)`, where `R` is
-        either the provided Hilbert space or the Hilbert space generated from
-        region.
+        Plain Fourier tensor with dims `(K, B, R)`, where `B` is the
+        side-selected Hilbert space, `R` is either the provided Hilbert space
+        or the Hilbert space generated from `region`, and `K` is either
+        `tensor.dims[0]` or the unique left/right projection of a leading
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace].
     """
     ...
 
 
 @overload
 def region_restrict(
-    tensor: Tensor, region: Tuple[Offset, ...], *, device: Optional[Device] = None
+    tensor: Tensor,
+    region: Tuple[Offset, ...],
+    *,
+    side: Literal["left", "right"] = "left",
+    device: Optional[Device] = None,
 ) -> Tensor:
     """
     Rebuild a Fourier transform tensor on a region specified by offsets.
@@ -271,7 +319,11 @@ def region_restrict(
 
 @multimethod
 def region_restrict(
-    tensor: Tensor, R: HilbertSpace, *, device: Optional[Device] = None
+    tensor: Tensor,
+    R: HilbertSpace,
+    *,
+    side: Literal["left", "right"] = "left",
+    device: Optional[Device] = None,
 ) -> Tensor:
     """
     Rebuild a Fourier transform tensor on a different real-space region.
@@ -297,25 +349,43 @@ def region_restrict(
     Parameters
     ----------
     tensor : Tensor
-        Fourier transform tensor whose first two dims are expected to be
-        `(MomentumSpace, HilbertSpace)`.
+        Fourier transform tensor with dims
+        `(MomentumSpace, HilbertSpace, HilbertSpace)`, or a rank-3 tensor whose
+        leading dim is a
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace].
     R : HilbertSpace
         Target real-space region used as the new rightmost dimension for the
         form [`region_restrict(tensor, R)`][qten.geometries.fourier.region_restrict].
+    side : Literal["left", "right"], optional
+        Which Fourier-transform side to sample from `tensor`.
+        `side="left"` uses `tensor.dims[1]`; `side="right"` uses
+        `tensor.dims[2]`. If the leading dim is a
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace],
+        the corresponding unique momentum projection is used:
+        [`MomentumBlockSpace.left()`][qten.symbolics.state_space.MomentumBlockSpace.left]
+        for `side="left"` and
+        [`MomentumBlockSpace.right()`][qten.symbolics.state_space.MomentumBlockSpace.right]
+        for `side="right"`. The default is `"left"`.
     device : Optional[Device], optional
         Device on which to construct the rebuilt transform.
 
     Returns
     -------
     Tensor
-        Fourier transform tensor with dims `(K, B, R)` where `K` and `B` are
-        taken from `tensor`.
+        Plain Fourier transform tensor with dims `(K, B, R)` where `B` is
+        taken from the selected Hilbert leg of `tensor` and `K` is either the
+        leading [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] or
+        the side-selected unique projection of a leading
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace].
 
     Raises
     ------
+    ValueError
+        If `tensor` is not rank 3.
     TypeError
-        If the first two dims of `tensor` are not `MomentumSpace` and
-        `HilbertSpace`, respectively.
+        If the side-selected dims of `tensor` are not
+        `MomentumSpace`/`MomentumBlockSpace` and `HilbertSpace`,
+        respectively.
 
     Notes
     -----
@@ -326,27 +396,27 @@ def region_restrict(
     [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] and then
     dispatches here. In that overload, `region` is the explicit tuple of
     target real-space offsets.
+
+    When the input tensor has a leading
+    [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace], this
+    function still returns a plain Fourier
+    [`Tensor`][qten.linalg.tensors.Tensor]. The block-pair axis is projected to
+    a unique [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] using
+    the side selected by `side`, which makes the result suitable for products
+    such as `F @ MBT` or `MBT @ F.h(...)`.
     """
-    K, B, _ = tensor.dims
-    if not isinstance(K, MomentumSpace):
-        raise TypeError(
-            f"Expected first dim to be MomentumSpace, got {type(K).__name__}"
-        )
-    if not isinstance(B, HilbertSpace):
-        raise TypeError(
-            f"Expected second dim to be HilbertSpace, got {type(B).__name__}"
-        )
+    K, B = _region_restrict_spaces(tensor, side)
     return fourier_transform(K, B, R, device=device)
 
 
 @region_restrict.register
 def _region_restrict_from_offsets(
-    tensor: Tensor, region: Tuple[Offset, ...], *, device: Optional[Device] = None
+    tensor: Tensor,
+    region: Tuple[Offset, ...],
+    *,
+    side: Literal["left", "right"] = "left",
+    device: Optional[Device] = None,
 ) -> Tensor:
-    B = tensor.dims[1]
-    if not isinstance(B, HilbertSpace):
-        raise TypeError(
-            f"Expected second dim to be HilbertSpace, got {type(B).__name__}"
-        )
+    _, B = _region_restrict_spaces(tensor, side)
     R = region_hilbert(B, region)
-    return region_restrict(tensor, R, device=device)
+    return region_restrict(tensor, R, side=side, device=device)

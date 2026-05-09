@@ -11,7 +11,12 @@ from qten.linalg._mb_tensor import (
 )
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
-from qten.symbolics.state_space import MomentumBlockSpace, MomentumSpace, brillouin_zone
+from qten.symbolics.state_space import (
+    BroadcastSpace,
+    MomentumBlockSpace,
+    MomentumSpace,
+    brillouin_zone,
+)
 
 
 def _band_space(name: str, size: int) -> HilbertSpace:
@@ -224,3 +229,99 @@ def test_momentum_block_matmul_collapses_diagonal_output_to_momentum_space():
     assert isinstance(out.dims[0], MomentumSpace)
     assert tuple(out.dims[0].elements()) == (k0,)
     assert torch.allclose(out.data[0], expected)
+
+
+def test_momentum_block_add_preserves_subtype_via_generic_tensor_add():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    band = _band_space("band", 2)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+
+    left = MomentumBlockTensor(
+        data=torch.tensor(
+            [
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[5.0, 6.0], [7.0, 8.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(pair_space, band, band),
+    )
+    right = MomentumBlockTensor(
+        data=torch.tensor(
+            [
+                [[0.5, 1.0], [1.5, 2.0]],
+                [[2.5, 3.0], [3.5, 4.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(pair_space, band, band),
+    )
+
+    out = left + right
+
+    assert isinstance(out, MomentumBlockTensor)
+    assert out.dims == (pair_space, band, band)
+    assert torch.allclose(out.data, left.data + right.data)
+
+
+def test_momentum_block_mean_downgrades_to_plain_tensor():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    left_band = _band_space("left", 2)
+    right_band = _band_space("right", 3)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+    tensor = MomentumBlockTensor(
+        data=torch.randn(
+            pair_space.dim, left_band.dim, right_band.dim, dtype=torch.float64
+        ),
+        dims=(pair_space, left_band, right_band),
+    )
+
+    out = tensor.mean(dim=0)
+
+    assert isinstance(out, Tensor)
+    assert not isinstance(out, MomentumBlockTensor)
+    assert out.dims == (left_band, right_band)
+    assert torch.allclose(out.data, tensor.data.mean(dim=0))
+
+
+def test_momentum_block_unsqueeze_downgrades_to_plain_tensor():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    band = _band_space("band", 2)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+    tensor = MomentumBlockTensor(
+        data=torch.randn(pair_space.dim, band.dim, band.dim, dtype=torch.float64),
+        dims=(pair_space, band, band),
+    )
+
+    out = tensor.unsqueeze(0)
+
+    assert isinstance(out, Tensor)
+    assert not isinstance(out, MomentumBlockTensor)
+    assert isinstance(out.dims[0], BroadcastSpace)
+    assert out.dims[1:] == (pair_space, band, band)
+    assert torch.allclose(out.data, tensor.data.unsqueeze(0))
+
+
+def test_momentum_block_argmax_downgrades_to_plain_tensor():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    left_band = _band_space("left", 2)
+    right_band = _band_space("right", 3)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+    tensor = MomentumBlockTensor(
+        data=torch.randn(
+            pair_space.dim, left_band.dim, right_band.dim, dtype=torch.float64
+        ),
+        dims=(pair_space, left_band, right_band),
+    )
+
+    out = tensor.argmax(0)
+
+    assert isinstance(out, Tensor)
+    assert not isinstance(out, MomentumBlockTensor)
+    assert out.rank() == 2
+    assert out.dims == (left_band, right_band)
+    assert torch.equal(out.data, tensor.data.argmax(dim=0))

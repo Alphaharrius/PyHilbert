@@ -72,7 +72,6 @@ from .symbolics import (
     brillouin_zone,
     interpolate_reciprocal_path,
     restructure,
-    same_rays,
 )
 from .utils.devices import Device
 
@@ -358,34 +357,29 @@ def _validate_block_transformable_tensor(
             f"{func_name} requires the third dimension to be a HilbertSpace."
         )
 
-    left_space = cast(HilbertSpace, tensor.dims[1])
-    right_space = cast(HilbertSpace, tensor.dims[2])
-    if not same_rays(left_space, right_space):
-        raise ValueError(
-            f"{func_name} requires the last two dimensions to span the same Hilbert space."
-        )
-
-    sampled_space = left_space if side == "left" else right_space
+    sampled_space = (
+        cast(HilbertSpace, tensor.dims[1])
+        if side == "left"
+        else cast(HilbertSpace, tensor.dims[2])
+    )
     return cast(MomentumSpace, tensor.dims[0]), sampled_space
 
 
 def get_band_transform(
     t: Opr,
     tensor: Tensor,
-    side: Literal["left", "right"] = "right",
+    side: Literal["left", "right"] = "left",
 ) -> MomentumBlockTensor:
     r"""
-    Build the momentum-block transform tensor used by [`bandtransform`][qten.bands.bandtransform].
+    Build the one-sided momentum-block transform used by [`bandtransform`][qten.bands.bandtransform].
 
-    This function factors the geometric basis change performed by
+    This function factors one side of the geometric basis change performed by
     [`bandtransform`][qten.bands.bandtransform] into an explicit
     [`MomentumBlockTensor`][qten.MomentumBlockTensor] `T_g`. For a
-    momentum-resolved operator `H`, the transformed tensor is recovered by the
-    block-conjugation formula
-
-    \[
-    H' = T_g @ H @ T_g^\dagger .
-    \]
+    momentum-resolved operator `H`, the one-sided transformed tensor is
+    recovered by `T_g @ H` when `side="left"` and by `H @ T_g^\dagger` when
+    `side="right"`. Applying both sides requires composing the two separately
+    constructed transforms.
 
     The leading axis of `T_g` is a
     [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
@@ -394,10 +388,9 @@ def get_band_transform(
 
     Basis sampling
     --------------
-    The input tensor may have dims `(K, B_left, B_right)` with `B_left` and
-    `B_right` differing by ordering or equivalent labels, provided they span
-    the same rays. The `side` argument chooses which matrix leg supplies the
-    canonical Hilbert space used to assemble `T_g`.
+    The input tensor may have dims `(K, B_left, B_right)` with potentially
+    different left and right Hilbert spaces. The `side` argument chooses which
+    matrix leg supplies the canonical Hilbert space used to assemble `T_g`.
 
     Parameters
     ----------
@@ -412,7 +405,7 @@ def get_band_transform(
     side : Literal["left", "right"], optional
         Which matrix leg to sample when constructing the transform basis.
         `side="left"` uses `tensor.dims[1]`; `side="right"` uses
-        `tensor.dims[2]`. The default is `"right"`.
+        `tensor.dims[2]`. The default is `"left"`.
 
     Returns
     -------
@@ -424,18 +417,18 @@ def get_band_transform(
     Raises
     ------
     ValueError
-        If `tensor` is not rank 3, if its last two dims do not span the same
-        Hilbert space, if the transformed Hilbert space is not closed on the
-        sampled basis after fractional wrapping, or if the momentum action of
-        `t` is not one-to-one on the input [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace].
+        If `tensor` is not rank 3, if the transformed Hilbert space is not
+        closed on the sampled basis after fractional wrapping, or if the
+        momentum action of `t` is not one-to-one on the input
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace].
     TypeError
         If the tensor dims do not have the required
         `MomentumSpace/HilbertSpace/HilbertSpace` structure.
 
     See Also
     --------
-    [`bandtransform(t, tensor, side=...)`][qten.bands.bandtransform]
-        Public wrapper that applies this block transform to a band tensor.
+    [`bandtransform(t, tensor, opt=...)`][qten.bands.bandtransform]
+        Public wrapper that applies one-sided or two-sided band transforms.
     [`get_band_fold(transform, tensor, side=...)`][qten.bands.get_band_fold]
         Folding analogue that builds the corresponding block transform for a
         basis-change-induced Brillouin-zone fold.
@@ -482,17 +475,17 @@ def get_band_transform(
 def get_band_fold(
     transform: BasisTransform,
     tensor: Tensor,
-    side: Literal["left", "right"] = "right",
+    side: Literal["left", "right"] = "left",
 ) -> MomentumBlockTensor:
     r"""
-    Build the momentum-block folding tensor used by [`bandfold`][qten.bands.bandfold].
+    Build the one-sided momentum-block folding tensor used by [`bandfold`][qten.bands.bandfold].
 
-    This function factors the Brillouin-zone folding operation into an explicit
-    [`MomentumBlockTensor`][qten.MomentumBlockTensor] `T_g` satisfying
-
-    \[
-    H_{\mathrm{fold}} = T_g @ H @ T_g^\dagger .
-    \]
+    This function factors one side of the Brillouin-zone folding operation
+    into an explicit [`MomentumBlockTensor`][qten.MomentumBlockTensor] `T_g`.
+    For a momentum-resolved operator `H`, the one-sided folded tensor is
+    recovered by `T_g @ H` when `side="left"` and by `H @ T_g^\dagger` when
+    `side="right"`. Folding both sides requires composing the two separately
+    constructed transforms.
 
     Each block of `T_g` is labelled by a pair `(k_{\mathrm{fold}}, k)` on its
     leading
@@ -504,9 +497,9 @@ def get_band_fold(
 
     Basis sampling
     --------------
-    The input tensor may have dims `(K, B_left, B_right)` with equivalent left
-    and right Hilbert spaces. The `side` argument chooses which leg supplies
-    the canonical basis from which the folding transform is built.
+    The input tensor may have dims `(K, B_left, B_right)` with potentially
+    different left and right Hilbert spaces. The `side` argument chooses which
+    leg supplies the canonical basis from which the folding transform is built.
 
     Parameters
     ----------
@@ -519,7 +512,7 @@ def get_band_fold(
     side : Literal["left", "right"], optional
         Which matrix leg to sample when constructing the folding basis.
         `side="left"` uses `tensor.dims[1]`; `side="right"` uses
-        `tensor.dims[2]`. The default is `"right"`.
+        `tensor.dims[2]`. The default is `"left"`.
 
     Returns
     -------
@@ -531,10 +524,9 @@ def get_band_fold(
     Raises
     ------
     ValueError
-        If `tensor` is not rank 3, if its last two dims do not span the same
-        Hilbert space, if its momentum axis is empty or inconsistent, or if the
-        sampled Hilbert basis cannot be uniquely matched by unit-cell offset
-        during the folding construction.
+        If `tensor` is not rank 3, if its momentum axis is empty or
+        inconsistent, or if the sampled Hilbert basis cannot be uniquely
+        matched by unit-cell offset during the folding construction.
     TypeError
         If the tensor dims do not have the required
         `MomentumSpace/HilbertSpace/HilbertSpace` structure, or if the momentum
@@ -543,7 +535,7 @@ def get_band_fold(
 
     See Also
     --------
-    [`bandfold(transform, tensor, side=...)`][qten.bands.bandfold]
+    [`bandfold(transform, tensor, opt=...)`][qten.bands.bandfold]
         Public wrapper that applies this block folding transform to a band
         tensor.
     [`get_band_transform(t, tensor, side=...)`][qten.bands.get_band_transform]
@@ -620,7 +612,7 @@ def get_band_fold(
 def bandtransform(
     t: Opr,
     tensor: Tensor,
-    side: Literal["left", "right"] = "right",
+    opt: Literal["left", "right", "both"] = "both",
 ) -> Tensor:
     r"""
     Apply a basis transform to a momentum-resolved operator tensor.
@@ -629,7 +621,7 @@ def bandtransform(
     [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] and
     `B_left`, `B_right` are
     [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] axes. This
-    function applies the operator-induced basis transform on both
+    function applies the operator-induced basis transform on the selected
     Hilbert-space legs of the band tensor.
 
     For each transformed side, a k-dependent matrix is built from the action of
@@ -638,21 +630,32 @@ def bandtransform(
 
     Mathematical action
     -------------------
-    Let \(B\) be the input Hilbert-space basis and \(tB\) the transformed basis.
-    After wrapping transformed sites back to the home unit cell, the finite
-    Fourier transform contributes a momentum-dependent phase. The resulting
-    basis-change matrix is denoted \(U_t(k)\). The transformed band block is
-    \(H'(t k) = U_t(k)\,H(k)\,U_t(k)^\dagger\). In code, `left_fourier` and `right_fourier` are the two \(U_t(k)\)-style
-    maps, and the products are `left_fourier @ tensor` and
-    `tensor @ right_fourier.h(-2, -1)`.
+    Let \(B_{\mathrm{left}}\) and \(B_{\mathrm{right}}\) be the input
+    Hilbert-space bases and let the corresponding transformed bases be
+    \(tB_{\mathrm{left}}\) and \(tB_{\mathrm{right}}\). After wrapping
+    transformed sites back to the home unit cell, the finite Fourier transform
+    contributes a momentum-dependent phase. The resulting basis-change matrices
+    are denoted \(U_t^{(\mathrm{left})}(k)\) and
+    \(U_t^{(\mathrm{right})}(k)\). Depending on `opt`, the transformed band
+    block is one of:
+
+    `opt="left"`:
+    \(H'(t k) = U_t^{(\mathrm{left})}(k)\,H(k)\)
+
+    `opt="right"`:
+    \(H'(t k) = H(k)\,U_t^{(\mathrm{right})}(k)^\dagger\)
+
+    `opt="both"`:
+    \(H'(t k) = U_t^{(\mathrm{left})}(k)\,H(k)\,U_t^{(\mathrm{right})}(k)^\dagger\)
 
     Momentum handling
     -----------------
-    - The action on [`Momentum`][qten.geometries.spatials.Momentum] is treated as a relabeling/permutation of sectors.
-    - The output tensor carries the transformed momentum axis
-      `mapped_kspace = {t @ k | k in kspace}`.
-    - Each output k-block is populated from the preimage source block before
-      the Hilbert-space conjugation is applied.
+    The action on [`Momentum`][qten.geometries.spatials.Momentum] is treated as
+    a relabeling or permutation of sectors.
+    The output tensor carries the transformed momentum axis
+    `mapped_kspace = {t @ k | k in kspace}`.
+    Each output k-block is populated from the preimage source block before the
+    selected Hilbert-space transforms are applied.
 
     Notes
     -----
@@ -660,15 +663,20 @@ def bandtransform(
     In practice, `t` must act coherently across the real-space and
     momentum-space labels carried by the tensor:
 
-    - `t @ k` must be defined for each [`Momentum`][qten.geometries.spatials.Momentum] in the first tensor axis.
-    - `t @ psi` must be defined for each [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] in the Hilbert-space axes,
-      in particular for the [`Offset`][qten.geometries.spatials.Offset] irrep stored inside each basis state.
-    - The Hilbert-space action and momentum action must be dual-compatible, so
-      that the Fourier transform remains consistent after applying `t`.
-    - After applying [`FuncOpr(Offset, Offset.fractional)`][qten.symbolics.hilbert_space.FuncOpr], the transformed
-      Hilbert space must have the same rays as the original one; otherwise the
-      transformed basis does not close on the input band space and this
-      function raises `ValueError`.
+    `t @ k` must be defined for each
+    [`Momentum`][qten.geometries.spatials.Momentum] in the first tensor axis.
+    `t @ psi` must be defined for each
+    [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] in the Hilbert-space
+    axes, in particular for the
+    [`Offset`][qten.geometries.spatials.Offset] irrep stored inside each basis
+    state.
+    The Hilbert-space action and momentum action must be dual-compatible, so
+    that the Fourier transform remains consistent after applying `t`.
+    For each selected side, after applying
+    [`FuncOpr(Offset, Offset.fractional)`][qten.symbolics.hilbert_space.FuncOpr],
+    the transformed Hilbert space must have the same rays as the sampled input
+    basis on that side. Otherwise the transformed basis does not close on that
+    band leg and this function raises `ValueError`.
 
     Operators that only act on abstract [`U1Basis`][qten.symbolics.hilbert_space.U1Basis] values or only on [`Momentum`][qten.geometries.spatials.Momentum]
     values are not sufficient. The operator must provide matching actions on
@@ -682,13 +690,19 @@ def bandtransform(
     tensor : Tensor
         Momentum-space tensor with dims
         `(MomentumSpace, HilbertSpace, HilbertSpace)`.
+    opt : Literal["left", "right", "both"], optional
+        Which matrix legs to transform. `"left"` applies only the left
+        transform, `"right"` applies only the right transform, and `"both"`
+        applies independent transforms on both sides. The default is `"both"`.
 
     Returns
     -------
     Tensor
         Transformed tensor with a transformed
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] axis and
-        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] matrix axes.
+        transformed or unchanged
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] matrix
+        axes according to `opt`.
 
     Raises
     ------
@@ -696,17 +710,28 @@ def bandtransform(
         If `tensor` is not rank 3 with a
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] axis and
         two [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] axes.
-        Also raised if a Hilbert-space side is not closed under the action of
-        `t`.
+        Also raised if a selected transformed Hilbert-space side is not closed
+        under the action of `t`, or if the momentum action of `t` is not
+        one-to-one on the input momentum space.
+    TypeError
+        If the tensor dims do not have the required
+        `MomentumSpace/HilbertSpace/HilbertSpace` structure.
     """
-    T_g = get_band_transform(t, tensor, side=side)
-    return cast(Tensor, T_g @ tensor @ T_g.h(-2, -1))
+    if opt == "left":
+        return cast(Tensor, get_band_transform(t, tensor, side="left") @ tensor)
+    if opt == "right":
+        right_transform = get_band_transform(t, tensor, side="right")
+        return cast(Tensor, tensor @ right_transform.h(-2, -1))
+
+    left_transform = get_band_transform(t, tensor, side="left")
+    right_transform = get_band_transform(t, tensor, side="right")
+    return cast(Tensor, left_transform @ tensor @ right_transform.h(-2, -1))
 
 
 def bandfold(
     transform: BasisTransform,
     tensor: Tensor,
-    side: Literal["left", "right"] = "right",
+    opt: Literal["left", "right", "both"] = "both",
 ) -> Tensor:
     r"""
     Fold a momentum-resolved band tensor into the Brillouin zone of a
@@ -717,21 +742,29 @@ def bandfold(
     applied to the direct lattice underlying the
     [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] axis, which
     produces a new Brillouin zone and a corresponding momentum remapping. One
-    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] leg is enlarged
-    to match the transformed unit cell, a Fourier-space change of basis is
-    applied, and the momentum sectors are then gathered into the new momentum
-    grid.
+    or both [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] legs
+    are enlarged to match the transformed unit cell, Fourier-space changes of
+    basis are applied, and the momentum sectors are then gathered into the new
+    momentum grid.
 
     Mathematical action
     -------------------
     A forward basis transform coarsens the direct lattice basis, so the
     reciprocal Brillouin zone shrinks and multiple old momenta fold onto one
-    new momentum sector. If \(F(k)\) is the Fourier map from the old cell basis
-    into the enlarged transformed-cell basis, each block is transformed as
-    \(H_{\mathrm{fold}}(k') \mathrel{+}= F(k)^\dagger H(k) F(k)\), with
-    \(k' = \mathrm{fold}(k)\). The code-level implementation uses `fh @ tensor @ f` for the block
-    transform and `index_add(0, k_indices, transformed)` to accumulate old
-    sectors into the folded momentum axis.
+    new momentum sector. If \(F_{\mathrm{left}}(k)\) and
+    \(F_{\mathrm{right}}(k)\) are the Fourier-based change-of-basis maps on the
+    selected tensor legs, then the folded block is one of:
+
+    `opt="left"`:
+    \(H_{\mathrm{fold}}(k') \mathrel{+}= F_{\mathrm{left}}(k)^\dagger H(k)\)
+
+    `opt="right"`:
+    \(H_{\mathrm{fold}}(k') \mathrel{+}= H(k) F_{\mathrm{right}}(k)\)
+
+    `opt="both"`:
+    \(H_{\mathrm{fold}}(k') \mathrel{+}= F_{\mathrm{left}}(k)^\dagger H(k) F_{\mathrm{right}}(k)\)
+
+    with \(k' = \mathrm{fold}(k)\).
 
     Parameters
     ----------
@@ -741,20 +774,27 @@ def bandfold(
     tensor : Tensor
         Rank-3 tensor with dimensions
         `(MomentumSpace, HilbertSpace, HilbertSpace)`.
+    opt : Literal["left", "right", "both"], optional
+        Which matrix legs to fold. `"left"` folds only the left leg,
+        `"right"` folds only the right leg, and `"both"` folds both legs. The
+        default is `"both"`.
 
     Returns
     -------
     Tensor
         Folded tensor on the transformed
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] grid with
-        transformed [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
-        matrix axes.
+        transformed or unchanged
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] matrix axes
+        according to `opt`.
 
     Raises
     ------
     ValueError
         If the tensor is not rank-3, if the momentum space is empty, or if the
-        momentum axis does not belong to a single Brillouin zone.
+        momentum axis does not belong to a single Brillouin zone. Also raised
+        if the sampled Hilbert basis on a selected side cannot be uniquely
+        matched by unit-cell offset during the folding construction.
     TypeError
         If the momentum axis is not a
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace], if its
@@ -763,8 +803,15 @@ def bandfold(
         if the selected Hilbert-space leg is not a
         [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
     """
-    T_g = get_band_fold(transform, tensor, side=side)
-    return cast(Tensor, T_g @ tensor @ T_g.h(-2, -1))
+    if opt == "left":
+        return cast(Tensor, get_band_fold(transform, tensor, side="left") @ tensor)
+    if opt == "right":
+        right_fold = get_band_fold(transform, tensor, side="right")
+        return cast(Tensor, tensor @ right_fold.h(-2, -1))
+
+    left_fold = get_band_fold(transform, tensor, side="left")
+    right_fold = get_band_fold(transform, tensor, side="right")
+    return cast(Tensor, left_fold @ tensor @ right_fold.h(-2, -1))
 
 
 def bandunfold(

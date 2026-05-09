@@ -1,4 +1,4 @@
-from typing import overload, Optional
+from typing import overload, Optional, Literal
 import torch
 
 from ..utils.devices import Device as Device
@@ -19,9 +19,17 @@ def fourier_transform(
 ) -> Tensor: ...
 @overload
 def region_restrict(
-    tensor: Tensor, R: HilbertSpace, *, device: Optional[Device] = None
+    tensor: Tensor,
+    R: HilbertSpace,
+    *,
+    side: Literal["left", "right"] = "left",
+    device: Optional[Device] = None,
 ) -> Tensor: ...
 @overload
 def region_restrict(
-    tensor: Tensor, region: tuple[Offset, ...], *, device: Optional[Device] = None
+    tensor: Tensor,
+    region: tuple[Offset, ...],
+    *,
+    side: Literal["left", "right"] = "left",
+    device: Optional[Device] = None,
 ) -> Tensor: ...

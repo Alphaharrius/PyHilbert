@@ -64,7 +64,7 @@ from typing import Tuple, cast
 
 import torch
 
-from .tensors import Tensor, permute, transpose
+from .tensors import Tensor, permute, strict_dims, transpose
 from ..abstracts import Operable
 from ..geometries import Momentum
 from ..symbolics import HilbertSpace, MomentumSpace, MomentumBlockSpace
@@ -160,6 +160,7 @@ def _momentum_space(momentums: tuple[Momentum, ...]) -> MomentumSpace:
 
 
 @need_validation(_validate_momentum_block_tensor)
+@strict_dims
 @dataclass(frozen=True)
 class MomentumBlockTensor(Tensor):
     """
