@@ -38,11 +38,22 @@ the momentum-sector matrices when filling or selecting bands.
 """
 
 from collections import OrderedDict
-from typing import Callable, Dict, Literal, Optional, Sequence, Tuple, Union, cast
+from typing import (
+    Callable,
+    Dict,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+    overload,
+)
 
 import numpy as np
 import sympy as sy
 from sympy import ImmutableDenseMatrix
+from multimethod import multimethod
 
 # TODO: Avoid using torch explicitly here.
 import torch
@@ -365,6 +376,82 @@ def _validate_block_transformable_tensor(
     return cast(MomentumSpace, tensor.dims[0]), sampled_space
 
 
+def _get_band_transform_from_spaces(
+    t: Opr,
+    kspace: MomentumSpace,
+    target_space: HilbertSpace,
+    *,
+    device: Optional[Device] = None,
+) -> MomentumBlockTensor:
+    mapped_kspace = _momentum_map(kspace, lambda k: cast(Momentum, t @ k))
+    if mapped_kspace.dim != kspace.dim:
+        raise ValueError(
+            "get_band_transform requires a one-to-one momentum map with no sector collisions."
+        )
+
+    fractional = FuncOpr(Offset, Offset.fractional)
+    raw_space = cast(HilbertSpace, t @ target_space)
+    new_space = cast(HilbertSpace, fractional @ raw_space)
+    if not target_space.same_rays(new_space):
+        raise ValueError(
+            f"Hilbert space {target_space} is not closed under the transform {t}!"
+        )
+
+    transformed_fourier = fourier_transform(
+        mapped_kspace, new_space, raw_space, device=device
+    ).replace_dim(2, target_space)
+    home_transform = cast(
+        Tensor, target_space.cross_gram(new_space, device=device)
+    ).replace_dim(1, new_space)
+    transform = cast(Tensor, home_transform @ transformed_fourier)
+
+    pair_space = MomentumBlockSpace(
+        structure=OrderedDict(
+            ((mapped_k, src_k), i)
+            for i, (mapped_k, src_k) in enumerate(
+                zip(mapped_kspace.elements(), kspace.elements())
+            )
+        )
+    )
+    return MomentumBlockTensor(
+        data=transform.data,
+        dims=(pair_space, target_space, target_space),
+    )
+
+
+@overload
+def get_band_transform(
+    t: Opr,
+    tensor: Tensor,
+    side: Literal["left", "right"] = "left",
+) -> MomentumBlockTensor:
+    """
+    Build a band transform from a rank-3 momentum-resolved tensor.
+    """
+    ...
+
+
+@overload
+def get_band_transform(
+    t: Opr,
+    kspace: MomentumSpace,
+    target_space: HilbertSpace,
+    *,
+    device: Optional[Device] = None,
+) -> MomentumBlockTensor:
+    """
+    Build a band transform directly from explicit symbolic spaces.
+
+    This overload accepts a
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] and the
+    sampled [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
+    directly, then dispatches to the main
+    [`get_band_transform`][qten.bands.get_band_transform] implementation.
+    """
+    ...
+
+
+@multimethod
 def get_band_transform(
     t: Opr,
     tensor: Tensor,
@@ -372,6 +459,19 @@ def get_band_transform(
 ) -> MomentumBlockTensor:
     r"""
     Build the one-sided momentum-block transform used by [`bandtransform`][qten.bands.bandtransform].
+
+    Supported forms
+    ---------------
+    [`get_band_transform(t, tensor, side=...)`][qten.bands.get_band_transform]
+        Build the transform from a rank-3 band tensor with dims
+        `(MomentumSpace, HilbertSpace, HilbertSpace)`, using `side` to choose
+        which Hilbert-space leg is sampled.
+
+    [`get_band_transform(t, kspace, target_space, device=...)`][qten.bands.get_band_transform]
+        Build the same transform directly from an explicit
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] `kspace`
+        and sampled [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
+        `target_space`, without first packaging them into a rank-3 tensor.
 
     This function factors one side of the geometric basis change performed by
     [`bandtransform`][qten.bands.bandtransform] into an explicit
@@ -425,6 +525,13 @@ def get_band_transform(
         If the tensor dims do not have the required
         `MomentumSpace/HilbertSpace/HilbertSpace` structure.
 
+    Notes
+    -----
+    The generated API docs for this module show overload signatures, but the
+    prose is rendered from this public implementation docstring. The explicit
+    space overload accepts `kspace` and `target_space` directly, then
+    dispatches here through the shared construction path.
+
     See Also
     --------
     [`bandtransform(t, tensor, opt=...)`][qten.bands.bandtransform]
@@ -436,42 +543,125 @@ def get_band_transform(
     kspace, target_space = _validate_block_transformable_tensor(
         tensor, "get_band_transform", side
     )
-    mapped_kspace = _momentum_map(kspace, lambda k: cast(Momentum, t @ k))
-    if mapped_kspace.dim != kspace.dim:
-        raise ValueError(
-            "get_band_transform requires a one-to-one momentum map with no sector collisions."
+    return _get_band_transform_from_spaces(
+        t, kspace, target_space, device=tensor.device
+    )
+
+
+# mypy does not model multimethod's dynamic .register API.
+@get_band_transform.register  # type: ignore[attr-defined]
+def _(
+    t: Opr,
+    kspace: MomentumSpace,
+    target_space: HilbertSpace,
+    *,
+    device: Optional[Device] = None,
+) -> MomentumBlockTensor:
+    return _get_band_transform_from_spaces(t, kspace, target_space, device=device)
+
+
+def _get_band_fold_from_spaces(
+    transform: BasisTransform,
+    k_space: MomentumSpace,
+    target_space: HilbertSpace,
+    *,
+    device: Optional[Device] = None,
+) -> MomentumBlockTensor:
+    if not k_space.elements():
+        raise ValueError("MomentumSpace is empty")
+    lattice_set = set(map(lambda k: k.space, k_space))
+    if len(lattice_set) != 1:
+        raise ValueError("Invalid BZ")
+    reciprocal_lattice = lattice_set.pop()
+    if not isinstance(reciprocal_lattice, ReciprocalLattice):
+        raise TypeError(
+            f"Space of momentum should be ReciprocalLattice, but got {type(reciprocal_lattice)}"
         )
+    reciprocal_lattice = cast(ReciprocalLattice, reciprocal_lattice)
+    lattice = reciprocal_lattice.dual
 
-    fractional = FuncOpr(Offset, Offset.fractional)
-    raw_space = cast(HilbertSpace, t @ target_space)
-    new_space = cast(HilbertSpace, fractional @ raw_space)
-    if not target_space.same_rays(new_space):
-        raise ValueError(
-            f"Hilbert space {target_space} is not closed under the transform {t}!"
+    scaled_lattice = transform(lattice)
+    scaled_reciprocal_lattice = scaled_lattice.dual
+    transformed_unit_cell = tuple(
+        sorted(scaled_lattice.unit_cell.values(), key=lambda x: tuple(x.rep))
+    )
+    enlarge_unit_cell = tuple(r.rebase(lattice) for r in transformed_unit_cell)
+
+    rebased_hilbert = HilbertSpace.new(
+        cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
+        for r in enlarge_unit_cell
+    )
+    transformed_hilbert = HilbertSpace.new(
+        cast(U1Basis, target_space.lookup({Offset: r_lookup.fractional()})).replace(
+            r_out
         )
+        for r_lookup, r_out in zip(enlarge_unit_cell, transformed_unit_cell)
+    )
 
-    transformed_fourier = fourier_transform(
-        mapped_kspace, new_space, raw_space, device=tensor.device
-    ).replace_dim(2, target_space)
-    home_transform = cast(
-        Tensor, target_space.cross_gram(new_space, device=tensor.device)
-    ).replace_dim(1, new_space)
-    transform = cast(Tensor, home_transform @ transformed_fourier)
+    f = fourier_transform(k_space, target_space, rebased_hilbert, device=device)
+    vratio = np.sqrt(len(enlarge_unit_cell) / len(lattice.unit_cell))
+    fh = (f / vratio).h(-2, -1)
 
+    new_k_space = brillouin_zone(scaled_reciprocal_lattice)
+    precision = get_precision_config()
+    old_basis_np = np.array(reciprocal_lattice.basis.evalf(), dtype=precision.np_float)
+    new_basis_np = np.array(
+        scaled_reciprocal_lattice.basis.evalf(), dtype=precision.np_float
+    )
+    M_rebase = np.linalg.solve(new_basis_np, old_basis_np)
+    k_indices = _momentum_match_indices(k_space, new_k_space, M_rebase, device=device)
+    new_k_elements = new_k_space.elements()
     pair_space = MomentumBlockSpace(
         structure=OrderedDict(
-            ((mapped_k, src_k), i)
-            for i, (mapped_k, src_k) in enumerate(
-                zip(mapped_kspace.elements(), kspace.elements())
+            (
+                (new_k_elements[int(dst_idx)], src_k),
+                i,
+            )
+            for i, (src_k, dst_idx) in enumerate(
+                zip(k_space.elements(), k_indices.data.tolist())
             )
         )
     )
+
     return MomentumBlockTensor(
-        data=transform.data,
-        dims=(pair_space, target_space, target_space),
+        data=fh.data,
+        dims=(pair_space, transformed_hilbert, target_space),
     )
 
 
+@overload
+def get_band_fold(
+    transform: BasisTransform,
+    tensor: Tensor,
+    side: Literal["left", "right"] = "left",
+) -> MomentumBlockTensor:
+    """
+    Build a band-folding transform from a rank-3 momentum-resolved tensor.
+    """
+    ...
+
+
+@overload
+def get_band_fold(
+    transform: BasisTransform,
+    k_space: MomentumSpace,
+    target_space: HilbertSpace,
+    *,
+    device: Optional[Device] = None,
+) -> MomentumBlockTensor:
+    """
+    Build a band-folding transform directly from explicit symbolic spaces.
+
+    This overload accepts a
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] and the
+    sampled [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
+    directly, then dispatches to the main
+    [`get_band_fold`][qten.bands.get_band_fold] implementation.
+    """
+    ...
+
+
+@multimethod
 def get_band_fold(
     transform: BasisTransform,
     tensor: Tensor,
@@ -479,6 +669,19 @@ def get_band_fold(
 ) -> MomentumBlockTensor:
     r"""
     Build the one-sided momentum-block folding tensor used by [`bandfold`][qten.bands.bandfold].
+
+    Supported forms
+    ---------------
+    [`get_band_fold(transform, tensor, side=...)`][qten.bands.get_band_fold]
+        Build the folding transform from a rank-3 band tensor with dims
+        `(MomentumSpace, HilbertSpace, HilbertSpace)`, using `side` to choose
+        which Hilbert-space leg is sampled.
+
+    [`get_band_fold(transform, k_space, target_space, device=...)`][qten.bands.get_band_fold]
+        Build the same folding transform directly from an explicit
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] `k_space`
+        and sampled [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
+        `target_space`, without first packaging them into a rank-3 tensor.
 
     This function factors one side of the Brillouin-zone folding operation
     into an explicit [`MomentumBlockTensor`][qten.MomentumBlockTensor] `T_g`.
@@ -533,6 +736,13 @@ def get_band_fold(
         axis is not backed by a
         [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice].
 
+    Notes
+    -----
+    The generated API docs for this module show overload signatures, but the
+    prose is rendered from this public implementation docstring. The explicit
+    space overload accepts `k_space` and `target_space` directly, then
+    dispatches here through the shared folding construction path.
+
     See Also
     --------
     [`bandfold(transform, tensor, opt=...)`][qten.bands.bandfold]
@@ -545,68 +755,21 @@ def get_band_fold(
     k_space, target_space = _validate_block_transformable_tensor(
         tensor, "get_band_fold", side
     )
-    if not k_space.elements():
-        raise ValueError("MomentumSpace is empty")
-    lattice_set = set(map(lambda k: k.space, k_space))
-    if len(lattice_set) != 1:
-        raise ValueError("Invalid BZ")
-    reciprocal_lattice = lattice_set.pop()
-    if not isinstance(reciprocal_lattice, ReciprocalLattice):
-        raise TypeError(
-            f"Space of momentum should be ReciprocalLattice, but got {type(reciprocal_lattice)}"
-        )
-    reciprocal_lattice = cast(ReciprocalLattice, reciprocal_lattice)
-    lattice = reciprocal_lattice.dual
-
-    scaled_lattice = transform(lattice)
-    scaled_reciprocal_lattice = scaled_lattice.dual
-    transformed_unit_cell = tuple(
-        sorted(scaled_lattice.unit_cell.values(), key=lambda x: tuple(x.rep))
-    )
-    enlarge_unit_cell = tuple(r.rebase(lattice) for r in transformed_unit_cell)
-
-    rebased_hilbert = HilbertSpace.new(
-        cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
-        for r in enlarge_unit_cell
-    )
-    transformed_hilbert = HilbertSpace.new(
-        cast(U1Basis, target_space.lookup({Offset: r_lookup.fractional()})).replace(
-            r_out
-        )
-        for r_lookup, r_out in zip(enlarge_unit_cell, transformed_unit_cell)
+    return _get_band_fold_from_spaces(
+        transform, k_space, target_space, device=tensor.device
     )
 
-    f = fourier_transform(k_space, target_space, rebased_hilbert, device=tensor.device)
-    vratio = np.sqrt(len(enlarge_unit_cell) / len(lattice.unit_cell))
-    fh = (f / vratio).h(-2, -1)
 
-    new_k_space = brillouin_zone(scaled_reciprocal_lattice)
-    precision = get_precision_config()
-    old_basis_np = np.array(reciprocal_lattice.basis.evalf(), dtype=precision.np_float)
-    new_basis_np = np.array(
-        scaled_reciprocal_lattice.basis.evalf(), dtype=precision.np_float
-    )
-    M_rebase = np.linalg.solve(new_basis_np, old_basis_np)
-    k_indices = _momentum_match_indices(
-        k_space, new_k_space, M_rebase, device=tensor.device
-    )
-    new_k_elements = new_k_space.elements()
-    pair_space = MomentumBlockSpace(
-        structure=OrderedDict(
-            (
-                (new_k_elements[int(dst_idx)], src_k),
-                i,
-            )
-            for i, (src_k, dst_idx) in enumerate(
-                zip(k_space.elements(), k_indices.data.tolist())
-            )
-        )
-    )
-
-    return MomentumBlockTensor(
-        data=fh.data,
-        dims=(pair_space, transformed_hilbert, target_space),
-    )
+# mypy does not model multimethod's dynamic .register API.
+@get_band_fold.register  # type: ignore[attr-defined]
+def _(
+    transform: BasisTransform,
+    k_space: MomentumSpace,
+    target_space: HilbertSpace,
+    *,
+    device: Optional[Device] = None,
+) -> MomentumBlockTensor:
+    return _get_band_fold_from_spaces(transform, k_space, target_space, device=device)
 
 
 def bandtransform(
