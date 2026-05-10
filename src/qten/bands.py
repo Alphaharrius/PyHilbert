@@ -458,7 +458,8 @@ def get_band_transform(
     side: Literal["left", "right"] = "left",
 ) -> MomentumBlockTensor:
     r"""
-    Build the one-sided momentum-block transform used by [`bandtransform`][qten.bands.bandtransform].
+    Construct a reusable one-sided geometric basis-change operator for a
+    momentum-resolved band tensor.
 
     Supported forms
     ---------------
@@ -473,24 +474,52 @@ def get_band_transform(
         and sampled [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
         `target_space`, without first packaging them into a rank-3 tensor.
 
+    Use cases
+    ---------
+    This helper is useful when the geometric action should be materialized once
+    and then reused across multiple band tensors, when only one matrix leg of a
+    non-Hermitian or rectangular band object should be transformed, or when the
+    transform itself should be inspected as a
+    [`MomentumBlockTensor`][qten.MomentumBlockTensor] rather than applied
+    immediately.
+
+    For example, a caller may build the left and right transforms separately,
+    cache them, and apply them to several tensors sharing the same symbolic
+    momentum and Hilbert spaces.
+
     This function factors one side of the geometric basis change performed by
     [`bandtransform`][qten.bands.bandtransform] into an explicit
-    [`MomentumBlockTensor`][qten.MomentumBlockTensor] `T_g`. For a
-    momentum-resolved operator `H`, the one-sided transformed tensor is
-    recovered by `T_g @ H` when `side="left"` and by `H @ T_g^\dagger` when
-    `side="right"`. Applying both sides requires composing the two separately
-    constructed transforms.
+    [`MomentumBlockTensor`][qten.MomentumBlockTensor] \(T_g\). For a
+    momentum-resolved operator \(H\), the one-sided transformed tensor is
+    recovered by \(T_g H\) when `side="left"` and by
+    \(H T_g^\dagger\) when `side="right"`. Applying both sides requires
+    composing the two separately constructed transforms.
 
-    The leading axis of `T_g` is a
+    The leading axis of \(T_g\) is a
     [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
     storing ordered pairs `(t @ k, k)`: each block describes the basis map from
     the source momentum sector `k` to the transformed sector `t @ k`.
+
+    Behavior
+    --------
+    This function does not transform tensor data directly. Instead it builds a
+    block operator whose momentum-pair axis records how source sectors feed
+    transformed sectors. The Hilbert-space block at each such pair combines:
+
+    1. the symbolic action of `t` on the sampled basis,
+    2. fractional wrapping back to the home unit cell, and
+    3. the Fourier phase needed to keep Bloch conventions consistent after the
+       geometric relabeling.
+
+    The returned transform is therefore the reusable one-sided ingredient of
+    [`bandtransform`][qten.bands.bandtransform], not merely a permutation of
+    momentum labels.
 
     Basis sampling
     --------------
     The input tensor may have dims `(K, B_left, B_right)` with potentially
     different left and right Hilbert spaces. The `side` argument chooses which
-    matrix leg supplies the canonical Hilbert space used to assemble `T_g`.
+    matrix leg supplies the canonical Hilbert space used to assemble \(T_g\).
 
     Parameters
     ----------
@@ -531,6 +560,29 @@ def get_band_transform(
     prose is rendered from this public implementation docstring. The explicit
     space overload accepts `kspace` and `target_space` directly, then
     dispatches here through the shared construction path.
+
+    Examples
+    --------
+    Build and apply only the left transform:
+
+    ```python
+    T_left = get_band_transform(t, tensor, side="left")
+    transformed = T_left @ tensor
+    ```
+
+    Build both one-sided transforms explicitly and compose them:
+
+    ```python
+    T_left = get_band_transform(t, tensor, side="left")
+    T_right = get_band_transform(t, tensor, side="right")
+    transformed = T_left @ tensor @ T_right.h(-2, -1)
+    ```
+
+    Build the transform directly from symbolic spaces:
+
+    ```python
+    T_left = get_band_transform(t, kspace, hilbert_space, device=device)
+    ```
 
     See Also
     --------
@@ -668,7 +720,8 @@ def get_band_fold(
     side: Literal["left", "right"] = "left",
 ) -> MomentumBlockTensor:
     r"""
-    Build the one-sided momentum-block folding tensor used by [`bandfold`][qten.bands.bandfold].
+    Construct a reusable one-sided Brillouin-zone folding operator for a
+    momentum-resolved band tensor.
 
     Supported forms
     ---------------
@@ -683,20 +736,47 @@ def get_band_fold(
         and sampled [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
         `target_space`, without first packaging them into a rank-3 tensor.
 
-    This function factors one side of the Brillouin-zone folding operation
-    into an explicit [`MomentumBlockTensor`][qten.MomentumBlockTensor] `T_g`.
-    For a momentum-resolved operator `H`, the one-sided folded tensor is
-    recovered by `T_g @ H` when `side="left"` and by `H @ T_g^\dagger` when
-    `side="right"`. Folding both sides requires composing the two separately
-    constructed transforms.
+    Use cases
+    ---------
+    This helper is useful when Brillouin-zone folding should be factored into a
+    reusable one-sided operator, when left and right Hilbert-space legs should
+    be folded independently, or when the folding map itself should be examined
+    as a block tensor before applying it to data.
 
-    Each block of `T_g` is labelled by a pair `(k_{\mathrm{fold}}, k)` on its
-    leading
+    Typical workflows include caching folded-cell transforms for repeated use,
+    applying folding to only one matrix leg of a tensor, or explicitly
+    constructing the left and right folded operators before composing them.
+
+    This function factors one side of the Brillouin-zone folding operation
+    into an explicit [`MomentumBlockTensor`][qten.MomentumBlockTensor] \(T_g\).
+    For a momentum-resolved operator \(H\), the one-sided folded tensor is
+    recovered by \(T_g H\) when `side="left"` and by
+    \(H T_g^\dagger\) when `side="right"`. Folding both sides requires
+    composing the two separately constructed transforms.
+
+    Each block of \(T_g\) is labelled by a pair
+    \((k_{\mathrm{fold}}, k)\) on its leading
     [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace],
-    where `k` is a momentum of the original Brillouin zone and
-    `k_{\mathrm{fold}}` is the momentum sector it maps to in the folded zone.
+    where \(k\) is a momentum of the original Brillouin zone and
+    \(k_{\mathrm{fold}}\) is the momentum sector it maps to in the folded
+    zone.
     The Hilbert-space legs encode the Fourier-based change of basis between the
     original unit cell and the enlarged transformed cell.
+
+    Behavior
+    --------
+    Folding changes both the momentum grid and the real-space basis. This
+    helper builds the one-sided block operator that performs those two tasks
+    together:
+
+    1. each source momentum sector is routed to its folded-zone momentum,
+    2. the sampled Hilbert-space basis is enlarged to the transformed unit
+       cell, and
+    3. the corresponding Fourier change of basis is assembled into each block.
+
+    The result is not just a relabeling of momentum sectors. It is the
+    reusable one-sided ingredient of [`bandfold`][qten.bands.bandfold] that
+    carries both sector routing and enlarged-cell basis conversion.
 
     Basis sampling
     --------------
@@ -742,6 +822,29 @@ def get_band_fold(
     prose is rendered from this public implementation docstring. The explicit
     space overload accepts `k_space` and `target_space` directly, then
     dispatches here through the shared folding construction path.
+
+    Examples
+    --------
+    Build and apply only the right folding transform:
+
+    ```python
+    T_right = get_band_fold(transform, tensor, side="right")
+    folded = tensor @ T_right.h(-2, -1)
+    ```
+
+    Build both one-sided folding transforms explicitly:
+
+    ```python
+    T_left = get_band_fold(transform, tensor, side="left")
+    T_right = get_band_fold(transform, tensor, side="right")
+    folded = T_left @ tensor @ T_right.h(-2, -1)
+    ```
+
+    Build the folding transform directly from symbolic spaces:
+
+    ```python
+    T_left = get_band_fold(transform, k_space, hilbert_space, device=device)
+    ```
 
     See Also
     --------
