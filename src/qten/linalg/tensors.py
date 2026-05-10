@@ -3776,8 +3776,7 @@ def all(
     Returns
     -------
     TensorType
-        Boolean tensor with reduced dimensions, preserving the input wrapper
-        type.
+        Boolean tensor with reduced dimensions.
 
     Notes
     -----
@@ -3837,7 +3836,7 @@ def all(
             tensor,
             data=reduced,
             dims=new_dims,
-            preserve_strict=keepdim,
+            preserve_strict=False,
         ),
     )
 

@@ -286,6 +286,31 @@ def test_momentum_block_mean_downgrades_to_plain_tensor():
     assert torch.allclose(out.data, tensor.data.mean(dim=0))
 
 
+def test_momentum_block_all_keepdim_downgrades_to_plain_tensor():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    band = _band_space("band", 2)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+    tensor = MomentumBlockTensor(
+        data=torch.tensor(
+            [
+                [[True, False], [True, True]],
+                [[True, True], [False, True]],
+            ]
+        ),
+        dims=(pair_space, band, band),
+    )
+
+    out = tensor.all(dim=1, keepdim=True)
+
+    assert isinstance(out, Tensor)
+    assert not isinstance(out, MomentumBlockTensor)
+    assert out.dims[0] == pair_space
+    assert isinstance(out.dims[1], BroadcastSpace)
+    assert out.dims[2] == band
+    assert torch.equal(out.data, torch.all(tensor.data, dim=1, keepdim=True))
+
+
 def test_momentum_block_unsqueeze_downgrades_to_plain_tensor():
     k_space = _k_space()
     k0, k1 = k_space.elements()
