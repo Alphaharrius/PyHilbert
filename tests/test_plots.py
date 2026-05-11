@@ -17,7 +17,7 @@ from qten.linalg.tensors import Tensor
 from qten.geometries.fourier import fourier_transform
 from qten.plottings import Plottable
 from qten_plots.plottables import PointCloud
-from qten_plots._utils import band_path_positions
+from qten_plots._utils import band_path_positions, compute_bonds
 
 
 @dataclass(frozen=True)
@@ -259,6 +259,38 @@ def test_plot_structure_2d_and_3d():
     assert isinstance(fig_3d, go.Figure)
     assert len(fig_2d.data) >= 1
     assert len(fig_3d.data) >= 1
+
+
+def test_compute_bonds_periodic_mode_requires_lattice_metadata():
+    coords = torch.tensor([[0.0, 0.0], [1.0, 0.0]], dtype=torch.float64)
+    with pytest.raises(ValueError, match="requires both lattice and offsets"):
+        compute_bonds(coords, dim=2, bond_mode="periodic")
+
+
+def test_plot_structure_accepts_explicit_nearest_bond_mode():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(3, 3)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    fig = lattice.plot("structure", show=False, bond_mode="nearest")
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) >= 1
+
+
+def test_plot_structure_rejects_invalid_bond_mode():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(3, 3)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+
+    with pytest.raises(ValueError, match="Invalid bond_mode"):
+        lattice.plot("structure", show=False, bond_mode="invalid")
 
 
 def test_plot_structure_accepts_pointcloud_highlights():

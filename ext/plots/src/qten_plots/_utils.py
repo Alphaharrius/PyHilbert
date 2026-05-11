@@ -1,5 +1,5 @@
 from itertools import product
-from typing import Optional, Sequence, Tuple
+from typing import Literal, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -88,6 +88,7 @@ def compute_bonds(
     *,
     lattice: Lattice | None = None,
     offsets: Sequence[Offset] | None = None,
+    bond_mode: Literal["auto", "nearest", "periodic"] = "auto",
     show_periodic_wrap_bonds: bool = False,
     nearest_rel_tol: float = 1e-6,
     nearest_abs_tol: float = 1e-9,
@@ -108,6 +109,12 @@ def compute_bonds(
     separated by NaN (line-break sentinel for both Plotly and Matplotlib).
     z_lines is None when *dim* != 3.
     """
+    valid_bond_modes = {"auto", "nearest", "periodic"}
+    if bond_mode not in valid_bond_modes:
+        raise ValueError(
+            f"Invalid bond_mode {bond_mode!r}. Options: {sorted(valid_bond_modes)}."
+        )
+
     _empty = np.empty(0, dtype=np.float64)
     n = coords.size(0)
     if n < 2:
@@ -116,7 +123,15 @@ def compute_bonds(
     pts = coords.numpy().astype(np.float64)
     n_cols = pts.shape[1]
 
-    if lattice is None or offsets is None:
+    use_nearest_only = bond_mode == "nearest" or (
+        bond_mode == "auto" and (lattice is None or offsets is None)
+    )
+    if not use_nearest_only and (lattice is None or offsets is None):
+        raise ValueError(
+            "bond_mode='periodic' requires both lattice and offsets metadata."
+        )
+
+    if use_nearest_only:
         tree = cKDTree(pts)
 
         dd, _ = tree.query(pts, k=2)

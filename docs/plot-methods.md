@@ -71,6 +71,7 @@ Inputs:
 | `color_by` | `str` | `basis` | `basis` colors by unit-cell site; `unit_cell` colors by translated cell. |
 | `highlights` | `Sequence[PointCloud]` | `None` | Styled point-cloud overlays. |
 | `use_lattice_coords` | `bool` | `False` | Show lattice-coordinate values in hover text where supported. |
+| `bond_mode` | `str` | `auto` | Bond-neighbor selection mode: `auto`, `nearest`, or `periodic`. |
 | `show_periodic_wrap_bonds` | `bool` | `False` | For periodic lattices, include nearest-neighbor bonds that wrap across periodic boundaries. |
 | `periodic_image_opacity` | `float` | `0.5` | Opacity for periodic-image overlays, in the inclusive range `[0, 1]`. |
 | `**kwargs` | `object` | `{}` | Backend-specific figure options such as `figsize`, `cmap`, or line settings. |
@@ -78,6 +79,8 @@ Inputs:
 Notes:
 
 - `show_periodic_wrap_bonds` affects bond connectivity only (used with `plot_type="edge-and-node"`).
+- `bond_mode="nearest"` forces nearest-neighbor bonds in plotted Cartesian coordinates.
+- `bond_mode="periodic"` requires periodic lattice metadata and enables periodic-aware bond selection.
 - `periodic_image_opacity` affects periodic-image visibility only and does not change which bonds are selected.
 
 Plotly inputs:

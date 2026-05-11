@@ -1,4 +1,4 @@
-from typing import Optional, Union, Tuple, Sequence, cast
+from typing import Literal, Optional, Union, Tuple, Sequence, cast
 import colorsys
 import math
 
@@ -142,6 +142,7 @@ def plot_structure(
     color_by: str = "basis",
     highlights: Sequence[PointCloud] | None = None,
     use_lattice_coords: bool = False,
+    bond_mode: Literal["auto", "nearest", "periodic"] = "auto",
     show_periodic_wrap_bonds: bool = False,
     periodic_image_opacity: float = 0.5,
     **kwargs,
@@ -166,6 +167,10 @@ def plot_structure(
         Existing figure to add traces to.
     color_by : {'basis', 'unit_cell'}, default 'basis'
         How to color the sites.
+    bond_mode : {'auto', 'nearest', 'periodic'}, default 'auto'
+        Bond-neighbor selection mode. ``auto`` uses periodic metadata when
+        available and otherwise falls back to nearest-neighbor bonds in the
+        plotted Cartesian coordinates.
     show_periodic_wrap_bonds : bool, default False
         Only relevant for periodic lattices. If True, bonds that cross periodic
         boundaries are drawn as "wrapped" connections by considering neighboring
@@ -189,6 +194,9 @@ def plot_structure(
     valid_color_by = ["basis", "unit_cell"]
     if color_by not in valid_color_by:
         raise ValueError(f"Invalid color_by '{color_by}'. Options: {valid_color_by}")
+    valid_bond_modes = ["auto", "nearest", "periodic"]
+    if bond_mode not in valid_bond_modes:
+        raise ValueError(f"Invalid bond_mode '{bond_mode}'. Options: {valid_bond_modes}")
     if not (0.0 <= periodic_image_opacity <= 1.0):
         raise ValueError(
             f"periodic_image_opacity must lie in [0, 1], got {periodic_image_opacity}."
@@ -219,6 +227,7 @@ def plot_structure(
             obj.dim,
             lattice=obj,
             offsets=ordered_site_offsets,
+            bond_mode=bond_mode,
             show_periodic_wrap_bonds=show_periodic_wrap_bonds,
         )
         if len(x_lines) > 0:
