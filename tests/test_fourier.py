@@ -1,3 +1,4 @@
+import pytest
 import torch
 import numpy as np
 import sympy as sy
@@ -6,7 +7,7 @@ from sympy import ImmutableDenseMatrix
 from qten.geometries.spatials import Lattice, Offset, Momentum
 from qten.symbolics.state_space import brillouin_zone
 from qten.symbolics.hilbert_space import U1Basis, HilbertSpace
-from qten.geometries.fourier import fourier_kernel, fourier_transform
+from qten.geometries.fourier import fourier_kernel, fourier_transform, region_restrict
 from qten.geometries.boundary import PeriodicBoundary
 
 
@@ -182,3 +183,23 @@ def test_fourier_transform_matches_internal_irreps():
         dtype=torch.complex128,
     )
     assert torch.allclose(ft_tensor.data, expected)
+
+
+def test_region_restrict_rejects_invalid_side():
+    basis = ImmutableDenseMatrix([[1]])
+    lat = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    recip = lat.dual
+    k_space = brillouin_zone(recip)
+
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lat)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lat)
+    bloch_space = HilbertSpace.new([_mode(r0, "s")])
+    region_space = HilbertSpace.new([_mode(r0, "s"), _mode(r1, "s")])
+    ft_tensor = fourier_transform(k_space, bloch_space, region_space)
+
+    with pytest.raises(ValueError, match="side must be 'left' or 'right'"):
+        region_restrict(ft_tensor, region_space, side="rigth")  # type: ignore[arg-type]

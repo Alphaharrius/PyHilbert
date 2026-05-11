@@ -4,9 +4,10 @@ Indexed symbolic state-space containers.
 This module defines ordered finite state spaces used as tensor dimensions in
 QTen. [`StateSpace`][qten.symbolics.state_space.StateSpace] stores arbitrary
 spatial or symbolic elements with stable integer indices, while specialized
-spaces such as [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] and
-[`BzPath`][qten.symbolics.state_space.BzPath] describe reciprocal-space grids
-and paths.
+spaces such as [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace],
+[`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace], and
+[`BzPath`][qten.symbolics.state_space.BzPath] describe reciprocal-space grids,
+momentum-pair block axes, and paths.
 
 Repository usage
 ----------------
@@ -514,6 +515,99 @@ class MomentumSpace(StateSpace[Momentum]):
             [f"{n}: {k}" for n, k in enumerate(self.structure.keys())]
         )
         return header + body
+
+
+@need_validation()
+@dataclass(frozen=True)
+class MomentumBlockSpace(StateSpace[Tuple[Momentum, Momentum]]):
+    """
+    Ordered state space of momentum-pair block labels.
+
+    Each element is a pair `(k1, k2)` of
+    [`Momentum`][qten.geometries.spatials.Momentum] objects. This is useful for
+    tensors whose leading axis labels momentum-resolved matrix blocks rather
+    than single momentum sectors.
+
+    Besides transposing the pair orientation, this class can project either
+    pair component onto a unique
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace]. Those
+    projections deduplicate repeated momenta while preserving first-seen order,
+    which is useful when constructing one-sided Fourier tensors intended to act
+    on a [`MomentumBlockTensor`][qten.MomentumBlockTensor] through the
+    specialized block-aware matrix multiplication rules.
+    """
+
+    def __hash__(self) -> int:
+        """
+        Return a hash derived from the ordered momentum-pair structure.
+
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
+        uses the same structure-based hash as
+        [`StateSpace`][qten.symbolics.state_space.StateSpace], rather than the
+        dataclass-generated hash for the raw `OrderedDict` field.
+        """
+        return StateSpace.__hash__(self)
+
+    def transposed(self) -> Self:
+        """
+        Return the same block space with every pair reversed.
+
+        This maps each momentum label `(k1, k2)` to `(k2, k1)` while preserving
+        the axis length and relative ordering of entries.
+        """
+        return self.map(lambda p: (p[1], p[0]))
+
+    def left(self) -> MomentumSpace:
+        """
+        Project block pairs onto their unique left momentum sectors.
+
+        This reads the first component of each `(k1, k2)` label, removes
+        duplicates, and returns the resulting
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] in
+        first-seen order.
+
+        Returns
+        -------
+        MomentumSpace
+            Unique left-side momentum sectors appearing in this block space.
+
+        Notes
+        -----
+        This is a deduplicating projection, not a lossless view of the block
+        axis. If several pairs share the same left momentum, the returned space
+        contains that momentum only once.
+        """
+        return MomentumSpace(
+            structure=restructure(
+                OrderedDict((k_left, i) for i, (k_left, _) in enumerate(self))
+            )
+        )
+
+    def right(self) -> MomentumSpace:
+        """
+        Project block pairs onto their unique right momentum sectors.
+
+        This reads the second component of each `(k1, k2)` label, removes
+        duplicates, and returns the resulting
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] in
+        first-seen order.
+
+        Returns
+        -------
+        MomentumSpace
+            Unique right-side momentum sectors appearing in this block space.
+
+        Notes
+        -----
+        This is a deduplicating projection, not a lossless view of the block
+        axis. If several pairs share the same right momentum, the returned
+        space contains that momentum only once.
+        """
+        return MomentumSpace(
+            structure=restructure(
+                OrderedDict((k_right, i) for i, (_, k_right) in enumerate(self))
+            )
+        )
 
 
 @dataclass(frozen=True)
