@@ -1989,3 +1989,256 @@ def nearest_bands(
 
     out_space = IndexSpace.linear(n_selected)
     return Tensor(data=projected, dims=(kspace, out_space, out_space))
+
+
+def proj_wannierization(
+    eigenvectors: Tensor[Any],
+    seeds: Tensor[Any],
+    svd_threshold: float = 1e-1,
+    wannierize_lattice: bool = True,
+) -> Tensor[Any]:
+    r"""
+    Perform projective Wannierization from localized real-space trial orbitals.
+
+    This helper implements the standard two-stage projective-Wannier workflow:
+
+    1. Fourier transform localized seed states into momentum space.
+    2. At each momentum sector, rotate the target band subspace into the gauge
+       that best matches those transformed seeds via the polar/SVD factor of
+       the overlap matrix.
+
+    The function is therefore a thin orchestration layer around
+    [`fourier_transform()`][qten.geometries.fourier.fourier_transform] and
+    [`svd_projection()`][qten.bands.svd_projection].
+
+    Mathematical convention
+    -----------------------
+    Let
+    \(k \in \mathcal{K}\) denote a sampled momentum,
+    let \(\{|b\rangle\}_{b=1}^{N_b}\) be the Bloch basis stored on the second
+    axis of `eigenvectors`, and let
+    \(\{|r\rangle\}_{r=1}^{N_r}\) be the localized basis stored on the first
+    axis of `seeds`.
+
+    Suppose the seed tensor stores coefficients
+    \(A_{r n}\), where \(n = 1, \dots, N_s\) labels the trial orbitals. In
+    matrix form,
+    \(A \in \mathbb{C}^{N_r \times N_s}\).
+
+    The discrete Fourier-transform tensor returned by
+    [`fourier_transform(k_space, bloch_space, local_seed_space)`][qten.geometries.fourier.fourier_transform]
+    is a rank-3 object with entries
+
+    \[
+    F(k)_{b r} =
+    \delta_{\text{internal}(b),\,\text{internal}(r)}
+    \exp(-\mathrm{i}\, k \cdot r),
+    \]
+
+    where the Kronecker-style matching factor indicates that only localized and
+    Bloch basis states with matching non-offset irreps are connected. In the
+    repository's fractional-coordinate convention, this phase is equivalently
+    \(\exp(-2\pi\mathrm{i}\,\kappa \cdot n)\).
+
+    For each momentum sector, the real-space seeds are lifted to Bloch form as
+
+    \[
+    S(k) = F(k)\,A,
+    \]
+
+    with
+    \(S(k) \in \mathbb{C}^{N_b \times N_s}\).
+
+    The input `eigenvectors` stores the target subspace as matrices
+
+    \[
+    U(k) \in \mathbb{C}^{N_b \times N_t},
+    \]
+
+    whose columns span the band manifold to be Wannierized.
+
+    The gauge-fixing step then forms the overlap
+
+    \[
+    M(k) = U(k)^\dagger S(k)
+    \in \mathbb{C}^{N_t \times N_s},
+    \]
+
+    computes its singular value decomposition
+
+    \[
+    M(k) = X(k)\,\Sigma(k)\,Y(k)^\dagger,
+    \]
+
+    discards the singular values, and keeps only the polar/unitary factor
+
+    \[
+    Q(k) = X(k)\,Y(k)^\dagger.
+    \]
+
+    The projected Wannier-gauge states are then
+
+    \[
+    \widetilde{U}(k) = U(k)\,Q(k).
+    \]
+
+    This is exactly the orthogonal-Procrustes solution used by
+    [`svd_projection()`][qten.bands.svd_projection]: it preserves the target
+    column space while choosing the column gauge that best aligns the target
+    states with the Fourier-transformed trial orbitals.
+
+    Step-by-step behavior
+    ---------------------
+    Given `eigenvectors` and `seeds`, the code performs:
+
+    1. Read the shared momentum grid `k_space = eigenvectors.dims[0]`.
+    2. Read the Bloch Hilbert space
+       `bloch_space = eigenvectors.dims[1]`.
+    3. Read the localized seed row basis
+       `local_seed_space = seeds.dims[0]`.
+    4. Build the discrete Fourier transform tensor
+       `F = fourier_transform(k_space, bloch_space, local_seed_space)`.
+    5. Convert localized trial orbitals into momentum-resolved trial orbitals
+       by the tensor contraction `crystal_seeds = F @ seeds`.
+    6. Call
+       `svd_projection(eigenvectors, crystal_seeds, svd_threshold, infer_lattice=wannierize_lattice)`.
+    7. Return the projected states.
+
+    Interpretation of the tensor legs
+    ---------------------------------
+    - `eigenvectors` must have dims
+      `(MomentumSpace, HilbertSpace, D_target)`, where the first two axes
+      represent momentum and Bloch basis, and the last axis enumerates the
+      target band columns.
+    - `seeds` must have dims
+      `(HilbertSpace_local, D_seed)`, where the first axis is a localized
+      real-space basis containing [`Offset`][qten.geometries.spatials.Offset]
+      labels, and the second axis enumerates trial orbitals.
+    - After Fourier transformation, `crystal_seeds` has dims
+      `(MomentumSpace, HilbertSpace, D_seed)`.
+
+    Here `D_target` and `D_seed` may be different state-space types. The most
+    common case is that both are
+    [`IndexSpace`][qten.symbolics.state_space.IndexSpace], but the seed-column
+    space may also be a
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+
+    Lattice-aware output
+    --------------------
+    The `wannierize_lattice` flag is forwarded to
+    [`svd_projection()`][qten.bands.svd_projection], but lattice rebuilding is
+    only possible when the **column space of the transformed seeds** still
+    carries a [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
+    with meaningful [`Offset`][qten.geometries.spatials.Offset] labels.
+
+    Concretely:
+
+    - if `seeds.dims[1]` is an
+      [`IndexSpace`][qten.symbolics.state_space.IndexSpace], projection still
+      works exactly as described above, but no lattice-backed output basis can
+      be inferred, so the result remains a plain rank-3 tensor;
+    - if `seeds.dims[1]` is a
+      [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace], then after
+      Fourier transformation the source columns retain those symbolic labels,
+      and `svd_projection(..., infer_lattice=True)` may return a
+      [`MomentumBlockTensor`][qten.MomentumBlockTensor] whose final Hilbert leg
+      has been rebuilt on the inferred Wannier lattice.
+
+    Numerical behavior
+    ------------------
+    The SVD warning threshold is interpreted exactly as in
+    [`svd_projection()`][qten.bands.svd_projection]: if the minimum singular
+    value of the overlap becomes smaller than `svd_threshold`, a warning is
+    emitted because the trial orbitals may poorly span the target subspace or
+    may be nearly linearly dependent after projection. Zero-padded columns, if
+    present in the target or source, are ignored sector by sector by the
+    underlying projection routine.
+
+    Parameters
+    ----------
+    eigenvectors : Tensor
+        Target band states with dims
+        `(MomentumSpace, HilbertSpace, D_target)`.
+    seeds : Tensor
+        Localized trial orbitals with dims `(HilbertSpace_local, D_seed)`.
+        The first axis is the localized real-space basis to be Fourier
+        transformed; the second axis enumerates the trial orbitals themselves.
+        `D_seed` does not have to be an
+        [`IndexSpace`][qten.symbolics.state_space.IndexSpace]: it may also be a
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+        This distinction controls whether `wannierize_lattice` can do
+        anything:
+
+        - if `D_seed` is an
+          [`IndexSpace`][qten.symbolics.state_space.IndexSpace], the function
+          still performs the full projective Wannierization, but the output
+          remains a plain rank-3 tensor because there is no symbolic
+          seed-column geometry to rebuild into a Wannier lattice;
+        - if `D_seed` is a
+          [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace], the
+          transformed seed columns retain their symbolic offset labels, so
+          `wannierize_lattice=True` may trigger lattice inference in the final
+          projection step.
+    svd_threshold : float, optional
+        Warning threshold passed to
+        [`svd_projection()`][qten.bands.svd_projection].
+    wannierize_lattice : bool, optional
+        Forwarded as `infer_lattice` to
+        [`svd_projection()`][qten.bands.svd_projection]. This only has an
+        effect when the transformed seed columns carry a
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] label.
+
+    Returns
+    -------
+    Tensor
+        Projected Wannier-gauge states. Usually this is a rank-3 tensor with
+        dims `(MomentumSpace, HilbertSpace, D_seed)`. If lattice inference is
+        enabled and succeeds, the result may instead be a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor].
+
+    Raises
+    ------
+    ValueError
+        If `eigenvectors` is not rank 3 or `seeds` is not rank 2.
+    TypeError
+        If `eigenvectors.dims[0]` is not a
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace], or if
+        `eigenvectors.dims[1]` / `seeds.dims[0]` are not
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+    """
+    if eigenvectors.rank() != 3:
+        raise ValueError("eigenvectors must be a rank-3 Tensor.")
+    if seeds.rank() != 2:
+        raise ValueError("seeds must be a rank-2 Tensor.")
+    if not isinstance(eigenvectors.dims[0], MomentumSpace):
+        raise TypeError(
+            "The first dimension of the eigenvectors must be a MomentumSpace."
+        )
+
+    kspace = eigenvectors.dims[0]
+    bloch_space = eigenvectors.dims[1]
+    local_seed_space = seeds.dims[0]
+    if not isinstance(bloch_space, HilbertSpace) or not isinstance(
+        local_seed_space, HilbertSpace
+    ):
+        raise TypeError(
+            "The second dimension of eigenvectors and first dimension "
+            "of seeds must be HilbertSpace."
+        )
+
+    # Perform Fourier transform on local seeds to move them to momentum space
+    # `f` has dims `(MomentumSpace, BlochHilbertSpace, LocalSeedHilbertSpace)`.
+    f = fourier_transform(
+        kspace, bloch_space, local_seed_space, device=eigenvectors.device
+    )
+
+    # Map the seeds to crystal momentum seeds
+    # f @ local_seeds -> (MomentumSpace, HilbertSpace_out, IndexSpace)
+    crystal_seeds = f @ seeds
+
+    return svd_projection(
+        eigenvectors,
+        crystal_seeds,
+        svd_threshold,
+        infer_lattice=wannierize_lattice,
+    )

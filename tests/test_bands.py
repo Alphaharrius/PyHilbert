@@ -12,15 +12,18 @@ from qten.bands import (
     bandselect,
     interpolate_path,
     _infer_wannier_bridge,
+    proj_wannierization,
     svd_projection,
 )
 from qten.geometries.boundary import PeriodicBoundary
+from qten.geometries.fourier import fourier_transform
 from qten.geometries.spatials import AffineSpace, Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
 from qten.symbolics.state_space import (
     BzPath,
     IndexSpace,
+    MomentumBlockSpace,
     MomentumSpace,
     brillouin_zone,
 )
@@ -31,6 +34,10 @@ def _space(name: str, n: int) -> HilbertSpace:
     return HilbertSpace.new(
         U1Basis(coef=sy.Integer(1), base=((name, i),)) for i in range(n)
     )
+
+
+def _mode(r: Offset, orb: str = "s") -> U1Basis:
+    return U1Basis(coef=sy.Integer(1), base=(r, orb))
 
 
 def _band_tensor() -> tuple[Tensor, HilbertSpace]:
@@ -184,6 +191,69 @@ def test_svd_projection_ignores_zero_padded_bands_and_sources():
     assert torch.allclose(
         projected.data[0, :, 1], torch.zeros(2, dtype=torch.complex128)
     )
+
+
+def test_proj_wannierization_matches_explicit_fourier_then_svd():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lattice.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lattice.affine)
+    bloch_space = HilbertSpace.new([_mode(r0, "s")])
+    local_seed_space = HilbertSpace.new([_mode(r0, "s"), _mode(r1, "s")])
+    seed_columns = IndexSpace.linear(1)
+
+    seeds = Tensor(
+        data=torch.tensor([[1.0], [0.0]], dtype=torch.complex128),
+        dims=(local_seed_space, seed_columns),
+    )
+    crystal_seeds = fourier_transform(k_space, bloch_space, local_seed_space) @ seeds
+    eigenvectors = Tensor(
+        data=crystal_seeds.data.clone(),
+        dims=crystal_seeds.dims,
+    )
+
+    projected = proj_wannierization(
+        eigenvectors, seeds, svd_threshold=1e-6, wannierize_lattice=False
+    )
+    expected = svd_projection(eigenvectors, crystal_seeds, svd_threshold=1e-6)
+
+    assert projected.dims == expected.dims
+    assert torch.allclose(projected.data, expected.data)
+
+
+def test_proj_wannierization_infers_lattice_when_seed_columns_are_hilbert_labeled():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lattice.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lattice.affine)
+    bloch_space = HilbertSpace.new([_mode(r0, "s")])
+    local_seed_space = HilbertSpace.new([_mode(r0, "s"), _mode(r1, "s")])
+    seed_col_space = HilbertSpace.new([_mode(r0, "s")])
+
+    seeds = Tensor(
+        data=torch.tensor([[1.0], [0.0]], dtype=torch.complex128),
+        dims=(local_seed_space, seed_col_space),
+    )
+    eigenvectors = fourier_transform(k_space, bloch_space, local_seed_space) @ seeds
+
+    projected = proj_wannierization(
+        eigenvectors, seeds, svd_threshold=1e-6, wannierize_lattice=True
+    )
+
+    assert isinstance(projected.dims[0], MomentumBlockSpace)
+    inferred_offset = projected.dims[2].elements()[0].irrep_of(Offset)
+    assert isinstance(inferred_offset.space, Lattice)
+    assert inferred_offset.fractional().rep == ImmutableDenseMatrix([0])
 
 
 def test_infer_wannier_bridge_rebases_seed_offsets_before_unit_cell_extraction():
