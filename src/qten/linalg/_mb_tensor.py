@@ -147,6 +147,17 @@ def _validate_momentum_block_tensor(tensor: Tensor) -> None:
         )
 
 
+def _require_hilbert_space(
+    dim: object, *, axis_name: str, operand_name: str
+) -> HilbertSpace:
+    """Return `dim` as a Hilbert space or raise an operand-specific error."""
+    if not isinstance(dim, HilbertSpace):
+        raise ValueError(
+            f"The {axis_name} dimension of the {operand_name} operand must be a HilbertSpace."
+        )
+    return dim
+
+
 def _pair_space(pairs: tuple[tuple[Momentum, Momentum], ...]) -> MomentumBlockSpace:
     """Build a contiguous [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace] from ordered pairs."""
     return MomentumBlockSpace(
@@ -322,12 +333,17 @@ def _(self: MomentumBlockTensor, other: Tensor) -> MomentumBlockTensor:
             "MomentumBlockTensor @ Tensor requires the right operand to have exactly 3 dimensions."
         )
 
-    other_k, _, other_out = other.dims
+    other_k, other_in, other_out = other.dims
     if not isinstance(other_k, MomentumSpace):
         raise ValueError(
             "The first dimension of the right operand must be a MomentumSpace."
         )
-    other_out = cast(HilbertSpace, other_out)
+    other_in = _require_hilbert_space(
+        other_in, axis_name="second", operand_name="right"
+    )
+    other_out = _require_hilbert_space(
+        other_out, axis_name="third", operand_name="right"
+    )
 
     other = other.align(1, self.dims[2])
 
@@ -381,12 +397,15 @@ def _(self: Tensor, other: MomentumBlockTensor) -> MomentumBlockTensor:
             "Tensor @ MomentumBlockTensor requires the left operand to have exactly 3 dimensions."
         )
 
-    self_k, self_out, _ = self.dims
+    self_k, self_out, self_contract = self.dims
     if not isinstance(self_k, MomentumSpace):
         raise ValueError(
             "The first dimension of the left operand must be a MomentumSpace."
         )
-    self_out = cast(HilbertSpace, self_out)
+    self_out = _require_hilbert_space(self_out, axis_name="second", operand_name="left")
+    self_contract = _require_hilbert_space(
+        self_contract, axis_name="third", operand_name="left"
+    )
 
     self = self.align(2, other.dims[1])
 
