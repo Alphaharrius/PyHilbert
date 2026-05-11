@@ -16,9 +16,17 @@ from qten.symbolics.hilbert_space import U1Basis, HilbertSpace
 from qten.symbolics import same_rays
 from qten.linalg.tensors import Tensor
 from qten.geometries.basis_transform import BasisTransform, InverseBasisTransform
-from qten.bands import bandfold, bandunfold, get_band_fold
+from qten.bands import (
+    bandfold,
+    bandtransform,
+    bandunfold,
+    get_band_fold,
+    get_band_transform,
+)
 from qten.linalg._mb_tensor import MomentumBlockTensor
 from qten.geometries.boundary import PeriodicBoundary
+from qten.pointgroups import pointgroup
+from qten.pointgroups.abelian import AbelianOpr
 
 
 @dataclass(frozen=True)
@@ -266,6 +274,72 @@ def test_bandfold_supports_both_sides_for_distinct_hilbert_spaces():
     assert isinstance(folded_ref.dims[0], MomentumSpace)
     assert torch.allclose(
         folded_factored.align_all(folded_ref.dims).data, folded_ref.data
+    )
+
+
+def test_bandtransform_one_sided_modes_return_momentum_block_tensors():
+    basis = ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
+    h_space = HilbertSpace.new([_mode(r_offset)])
+    tensor_in = Tensor(
+        data=torch.arange(4, dtype=torch.float64).reshape(4, 1, 1).to(torch.complex128),
+        dims=(k_space, h_space, h_space),
+    )
+    t = AbelianOpr(pointgroup("m-x:x"))
+
+    left_transform = get_band_transform(t, tensor_in, side="left")
+    right_transform = get_band_transform(t, tensor_in, side="right")
+    transformed_left = bandtransform(t, tensor_in, opt="left")
+    transformed_right = bandtransform(t, tensor_in, opt="right")
+
+    assert isinstance(left_transform, MomentumBlockTensor)
+    assert isinstance(right_transform, MomentumBlockTensor)
+    assert isinstance(transformed_left, MomentumBlockTensor)
+    assert isinstance(transformed_right, MomentumBlockTensor)
+    assert transformed_left.dims[0] == left_transform.dims[0]
+    assert transformed_right.dims[0] == right_transform.h(-2, -1).dims[0]
+    assert torch.allclose(
+        (left_transform @ tensor_in).align_all(transformed_left.dims).data,
+        transformed_left.data,
+    )
+    assert torch.allclose(
+        (tensor_in @ right_transform.h(-2, -1)).align_all(transformed_right.dims).data,
+        transformed_right.data,
+    )
+
+
+def test_bandtransform_both_returns_plain_momentum_space_tensor():
+    basis = ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
+    h_space = HilbertSpace.new([_mode(r_offset)])
+    tensor_in = Tensor(
+        data=torch.arange(4, dtype=torch.float64).reshape(4, 1, 1).to(torch.complex128),
+        dims=(k_space, h_space, h_space),
+    )
+    t = AbelianOpr(pointgroup("m-x:x"))
+
+    transformed = bandtransform(t, tensor_in, opt="both")
+    left_transform = get_band_transform(t, tensor_in, side="left")
+    right_transform = get_band_transform(t, tensor_in, side="right")
+
+    assert isinstance(transformed.dims[0], MomentumSpace)
+    assert torch.allclose(
+        (left_transform @ tensor_in @ right_transform.h(-2, -1))
+        .align_all(transformed.dims)
+        .data,
+        transformed.data,
     )
 
 

@@ -569,7 +569,7 @@ def get_band_transform(
 
     ```python
     T_left = get_band_transform(t, tensor, side="left")
-    transformed = T_left @ tensor
+    routed = T_left @ tensor
     ```
 
     Build both one-sided transforms explicitly and compose them:
@@ -831,7 +831,7 @@ def get_band_fold(
 
     ```python
     T_right = get_band_fold(transform, tensor, side="right")
-    folded = tensor @ T_right.h(-2, -1)
+    routed = tensor @ T_right.h(-2, -1)
     ```
 
     Build both one-sided folding transforms explicitly:
@@ -904,8 +904,8 @@ def bandtransform(
     transformed sites back to the home unit cell, the finite Fourier transform
     contributes a momentum-dependent phase. The resulting basis-change matrices
     are denoted \(U_t^{(\mathrm{left})}(k)\) and
-    \(U_t^{(\mathrm{right})}(k)\). Depending on `opt`, the transformed band
-    block is one of:
+    \(U_t^{(\mathrm{right})}(k)\). When routed contributions are collapsed back
+    onto the transformed momentum grid, the transformed band block is one of:
 
     `opt="left"`:
     \(H'(t k) = U_t^{(\mathrm{left})}(k)\,H(k)\)
@@ -919,11 +919,15 @@ def bandtransform(
     Momentum handling
     -----------------
     The action on [`Momentum`][qten.geometries.spatials.Momentum] is treated as
-    a relabeling or permutation of sectors.
-    The output tensor carries the transformed momentum axis
-    `mapped_kspace = {t @ k | k in kspace}`.
-    Each output k-block is populated from the preimage source block before the
-    selected Hilbert-space transforms are applied.
+    a relabeling or permutation of sectors. For `opt="both"`, the output
+    tensor carries the transformed momentum axis
+    `mapped_kspace = {t @ k | k in kspace}`. For `opt="left"` and
+    `opt="right"`, the implementation instead preserves a routed
+    [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace] pair
+    axis so each source block remains attached to its transformed target
+    sector. In either case, the selected Hilbert-space transforms are applied
+    before any optional collapse back to a plain
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace].
 
     Notes
     -----
@@ -966,11 +970,17 @@ def bandtransform(
     Returns
     -------
     Tensor
-        Transformed tensor with a transformed
+        If `opt="both"`, returns the transformed tensor with a transformed
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] axis and
-        transformed or unchanged
-        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] matrix
-        axes according to `opt`.
+        transformed Hilbert-space matrix legs.
+        If `opt="left"` or `opt="right"`, returns the corresponding one-sided
+        routed intermediate as a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor] whose leading
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
+        axis stores ordered pairs `(t @ k, k)` or `(k, t @ k)`,
+        respectively. In those one-sided modes, the transformed momentum labels
+        are carried on the pair axis rather than collapsed back to a plain
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace].
 
     Raises
     ------
@@ -1023,7 +1033,8 @@ def bandfold(
     reciprocal Brillouin zone shrinks and multiple old momenta fold onto one
     new momentum sector. If \(F_{\mathrm{left}}(k)\) and
     \(F_{\mathrm{right}}(k)\) are the Fourier-based change-of-basis maps on the
-    selected tensor legs, then the folded block is one of:
+    selected tensor legs, then, after routed contributions are collapsed onto
+    the folded momentum grid, the folded block is one of:
 
     `opt="left"`:
     \(H_{\mathrm{fold}}(k') \mathrel{+}= F_{\mathrm{left}}(k)^\dagger H(k)\)
