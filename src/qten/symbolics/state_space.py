@@ -28,7 +28,7 @@ from multimethod import multimethod
 
 from ..abstracts import Convertible, Operable, Span
 from ..validations import need_validation
-from ..geometries import Momentum, ReciprocalLattice
+from ..geometries import Lattice, Momentum, ReciprocalLattice
 from ..geometries.spatials import Spatial
 
 
@@ -465,6 +465,14 @@ class MomentumSpace(StateSpace[Momentum]):
     keys are [`Momentum`][qten.geometries.spatials.Momentum] objects and its
     values are the corresponding integer basis indices.
 
+    Extraction
+    ----------
+    When all stored momenta belong to one reciprocal lattice,
+    [`StateSpace.extract`][qten.symbolics.state_space.StateSpace.extract]
+    supports extracting both that
+    [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice] and its
+    dual [`Lattice`][qten.geometries.spatials.Lattice].
+
     Notes
     -----
     The class inherits the custom hashing behavior from
@@ -714,6 +722,33 @@ def _(space: MomentumSpace, _: type[ReciprocalLattice]) -> ReciprocalLattice:
         raise ValueError("MomentumSpace does not have a unique ReciprocalLattice")
 
     return reciprocal_lattices.pop()
+
+
+@StateSpace.extract.register
+def _(space: MomentumSpace, _: type[Lattice]) -> Lattice:
+    """
+    Extract the unique direct lattice dual to the shared reciprocal lattice.
+
+    Parameters
+    ----------
+    space : MomentumSpace
+        Momentum space whose elements should share one reciprocal lattice.
+    _ : type[Lattice]
+        Extraction target type.
+
+    Returns
+    -------
+    Lattice
+        The unique direct lattice dual to the reciprocal lattice used by every
+        momentum in `space`.
+
+    Raises
+    ------
+    ValueError
+        If the space is empty or contains momenta from multiple reciprocal
+        lattices.
+    """
+    return space.extract(ReciprocalLattice).dual
 
 
 @lru_cache

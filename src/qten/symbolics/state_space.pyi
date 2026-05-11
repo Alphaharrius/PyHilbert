@@ -1,5 +1,6 @@
 from ..abstracts import Convertible as Convertible, Span as Span
 from ..geometries.spatials import (
+    Lattice as Lattice,
     Momentum as Momentum,
     ReciprocalLattice as ReciprocalLattice,
     Spatial as Spatial,
