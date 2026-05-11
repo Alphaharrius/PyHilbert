@@ -95,11 +95,14 @@ def compute_bonds(
     """
     Generate bond lines connecting nearest neighbors.
 
-    When lattice metadata is provided, nearest neighbors are determined with a
-    periodic-aware KDTree search performed in numeric Cartesian coordinates.
-    This avoids false negatives for bonds crossing periodic boundaries while
-    keeping runtime close to the non-periodic KDTree path. Without lattice
-    metadata, a KDTree fallback is used.
+    Without lattice metadata, nearest neighbors are determined via a KDTree-based
+    search in numeric Cartesian coordinates.
+
+    When lattice metadata is provided for a periodic lattice, neighboring
+    periodic images can be considered (controlled by
+    ``show_periodic_wrap_bonds``), so nearest-neighbor connections that cross
+    periodic boundaries are not missed. This uses a KDTree built over translated
+    periodic images rather than a dense all-pairs distance matrix.
 
     Returns (x_lines, y_lines, z_lines) where arrays contain coordinates
     separated by NaN (line-break sentinel for both Plotly and Matplotlib).
@@ -147,36 +150,75 @@ def compute_bonds(
             else:
                 shift_coeffs = np.zeros((1, lattice.dim), dtype=np.float64)
             shift_cart = shift_coeffs @ physical_boundaries.T
-            delta_cart_base = pts[None, :, :] - pts[:, None, :]
+            aug_pts = (pts[None, :, :] + shift_cart[:, None, :]).reshape(-1, n_cols)
+            aug_orig_idx = np.tile(np.arange(n, dtype=np.int64), len(shift_cart))
 
-            best_norm2 = np.full((n, n), np.inf, dtype=np.float64)
-            best_disp = np.zeros((n, n, n_cols), dtype=np.float64)
-            for shift in shift_cart:
-                disp = delta_cart_base + shift.reshape(1, 1, -1)
-                norm2 = np.sum(disp * disp, axis=2)
-                mask = norm2 < best_norm2
-                if np.any(mask):
-                    best_norm2[mask] = norm2[mask]
-                    best_disp[mask] = disp[mask]
+            tree = cKDTree(aug_pts)
+            nearest = np.full(n, np.inf, dtype=np.float64)
+            initial_k = min(max(8, 2 * len(shift_cart)), aug_pts.shape[0])
+            for i in range(n):
+                k = initial_k
+                while True:
+                    dists, idxs = tree.query(pts[i], k=k)
+                    dists_arr = np.atleast_1d(np.asarray(dists, dtype=np.float64))
+                    idxs_arr = np.atleast_1d(np.asarray(idxs, dtype=np.int64))
 
-            np.fill_diagonal(best_norm2, np.inf)
-            min_dists = np.sqrt(best_norm2)
-            nearest = np.min(min_dists, axis=1)
+                    non_self = aug_orig_idx[idxs_arr] != i
+                    if np.any(non_self):
+                        nearest[i] = float(np.min(dists_arr[non_self]))
+                        break
+                    if k >= aug_pts.shape[0]:
+                        break
+                    k = min(aug_pts.shape[0], k * 2)
+
             finite_nearest = nearest[np.isfinite(nearest)]
             if finite_nearest.size == 0:
                 return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
 
-            nearest_pair_cutoff = np.minimum.outer(nearest, nearest)
-            shell_tol = np.maximum(
-                nearest_abs_tol, nearest_rel_tol * np.maximum(nearest_pair_cutoff, 1.0)
+            tol_per_site = np.maximum(
+                nearest_abs_tol, nearest_rel_tol * np.maximum(nearest, 1.0)
             )
-            pair_mask = np.triu(min_dists <= nearest_pair_cutoff + shell_tol, k=1)
-            pair_i, pair_j = np.where(pair_mask)
-            if pair_i.size == 0:
+            pair_disp: dict[tuple[int, int], tuple[float, np.ndarray]] = {}
+
+            for i in range(n):
+                if not np.isfinite(nearest[i]):
+                    continue
+                radius = float(nearest[i] + tol_per_site[i])
+                candidate_idxs = tree.query_ball_point(pts[i], r=radius)
+                for cand in candidate_idxs:
+                    j = int(aug_orig_idx[cand])
+                    if j == i:
+                        continue
+
+                    disp_ij = aug_pts[cand] - pts[i]
+                    dist2 = float(np.dot(disp_ij, disp_ij))
+                    dist = float(np.sqrt(dist2))
+                    nearest_pair_cutoff = min(float(nearest[i]), float(nearest[j]))
+                    shell_tol = max(
+                        nearest_abs_tol,
+                        nearest_rel_tol * max(nearest_pair_cutoff, 1.0),
+                    )
+                    if dist > nearest_pair_cutoff + shell_tol:
+                        continue
+
+                    if i < j:
+                        key = (i, j)
+                        oriented_disp = disp_ij
+                    else:
+                        key = (j, i)
+                        oriented_disp = -disp_ij
+
+                    prev = pair_disp.get(key)
+                    if prev is None or dist2 < prev[0]:
+                        pair_disp[key] = (dist2, oriented_disp.copy())
+
+            if not pair_disp:
                 return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
 
+            ordered_pairs = sorted(pair_disp.keys())
+            pair_i = np.array([i for i, _ in ordered_pairs], dtype=np.int64)
             p1 = pts[pair_i]
-            p2 = p1 + best_disp[pair_i, pair_j]
+            p2 = np.stack([pts[i] + pair_disp[(i, j)][1] for i, j in ordered_pairs])
         else:
             tree = cKDTree(pts)
 

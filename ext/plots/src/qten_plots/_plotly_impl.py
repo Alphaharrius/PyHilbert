@@ -166,6 +166,14 @@ def plot_structure(
         Existing figure to add traces to.
     color_by : {'basis', 'unit_cell'}, default 'basis'
         How to color the sites.
+    show_periodic_wrap_bonds : bool, default False
+        Only relevant for periodic lattices. If True, bonds that cross periodic
+        boundaries are drawn as "wrapped" connections by considering neighboring
+        periodic images; if False, bonds are computed using the canonical site
+        representatives only.
+    periodic_image_opacity : float, default 0.5
+        Opacity used when plotting periodic images (when applicable). Must lie in
+        [0, 1].
     **kwargs
         Additional keyword arguments passed to `go.Figure`.
 
