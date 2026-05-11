@@ -1164,6 +1164,32 @@ def test_get_band_transform_supports_left_sample_side():
     )
 
 
+def test_get_band_transform_rejects_invalid_side():
+    x, y = sy.symbols("x y")
+
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    r0 = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
+    h_space = HilbertSpace.new([_state(r0, Orb("s"))])
+    tensor_in = Tensor(
+        data=torch.ones((k_space.dim, 1, 1), dtype=torch.complex128),
+        dims=(k_space, h_space, h_space),
+    )
+    c4 = _affine(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice),
+        basis_function_order=1,
+    )
+
+    with pytest.raises(ValueError, match="side must be 'left' or 'right'"):
+        get_band_transform(c4, tensor_in, side="rigth")  # type: ignore[arg-type]
+
+
 def test_bandtransform_supports_both_sides_for_rectangular_tensors():
     x, y = sy.symbols("x y")
     lattice = Lattice(

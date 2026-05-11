@@ -207,6 +207,30 @@ def test_get_band_fold_supports_left_sample_side():
     )
 
 
+def test_get_band_fold_rejects_invalid_side():
+    basis = ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={
+            "a": ImmutableDenseMatrix([0]),
+            "b": ImmutableDenseMatrix([sy.Rational(1, 2)]),
+        },
+    )
+    k_space = brillouin_zone(lattice.dual)
+    a_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
+    b_offset = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2)]), space=lattice)
+    h_space = HilbertSpace.new([_mode(a_offset, "a"), _mode(b_offset, "b")])
+    tensor_in = Tensor(
+        data=torch.ones((4, 2, 2), dtype=torch.complex128),
+        dims=(k_space, h_space, h_space),
+    )
+    transform = BasisTransform(ImmutableDenseMatrix([[2]]))
+
+    with pytest.raises(ValueError, match="side must be 'left' or 'right'"):
+        get_band_fold(transform, tensor_in, side="rigth")  # type: ignore[arg-type]
+
+
 def test_bandfold_supports_both_sides_for_distinct_hilbert_spaces():
     basis = ImmutableDenseMatrix([[1]])
     lattice = Lattice(

@@ -355,6 +355,8 @@ def _validate_block_transformable_tensor(
 ) -> tuple[MomentumSpace, HilbertSpace]:
     if tensor.rank() != 3:
         raise ValueError(f"{func_name} requires a rank-3 tensor.")
+    if side not in ("left", "right"):
+        raise ValueError(f"side must be 'left' or 'right', got {side!r}.")
     if not isinstance(tensor.dims[0], MomentumSpace):
         raise TypeError(
             f"{func_name} requires the first dimension to be a MomentumSpace."
