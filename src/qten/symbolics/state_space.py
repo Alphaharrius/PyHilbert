@@ -465,6 +465,14 @@ class MomentumSpace(StateSpace[Momentum]):
     keys are [`Momentum`][qten.geometries.spatials.Momentum] objects and its
     values are the corresponding integer basis indices.
 
+    Extraction
+    ----------
+    When all stored momenta belong to one reciprocal lattice,
+    [`StateSpace.extract`][qten.symbolics.state_space.StateSpace.extract]
+    supports extracting both that
+    [`ReciprocalLattice`][qten.geometries.spatials.ReciprocalLattice] and its
+    dual [`Lattice`][qten.geometries.spatials.Lattice].
+
     Notes
     -----
     The class inherits the custom hashing behavior from
