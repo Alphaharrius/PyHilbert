@@ -873,7 +873,7 @@ class Tensor(
 
     def all(
         self, dim: Optional[Union[int, Tuple[int, ...]]] = None, keepdim: bool = False
-    ) -> Self:
+    ) -> Union[Self, "Tensor"]:
         """
         Return whether all elements evaluate to `True`.
 
@@ -886,8 +886,11 @@ class Tensor(
 
         Returns
         -------
-        Self
-            Boolean tensor after reduction.
+        Union[Self, Tensor]
+            Boolean tensor after reduction. For subclasses marked with
+            [`strict_dims`][qten.linalg.tensors.strict_dims], this may
+            downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
 
         See Also
         --------
@@ -1042,7 +1045,7 @@ class Tensor(
             index_type = Tensor
         return nonzero(self, as_tuple=as_tuple, index_type=index_type)
 
-    def unsqueeze(self, dim: int) -> Self:
+    def unsqueeze(self, dim: int) -> Union[Self, "Tensor"]:
         """
         Unsqueeze the specified dimension.
 
@@ -1058,12 +1061,15 @@ class Tensor(
 
         Returns
         -------
-        Self
-            The unsqueezed tensor.
+        Union[Self, Tensor]
+            The unsqueezed tensor. For subclasses marked with
+            [`strict_dims`][qten.linalg.tensors.strict_dims], this may
+            downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
         """
         return unsqueeze(self, dim)
 
-    def squeeze(self, dim: int) -> Self:
+    def squeeze(self, dim: int) -> Union[Self, "Tensor"]:
         """
         Squeeze the specified dimension.
 
@@ -1079,8 +1085,11 @@ class Tensor(
 
         Returns
         -------
-        Self
-            The squeezed tensor.
+        Union[Self, Tensor]
+            The squeezed tensor. For subclasses marked with
+            [`strict_dims`][qten.linalg.tensors.strict_dims], this may
+            downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
         """
         return squeeze(self, dim)
 
@@ -1176,7 +1185,9 @@ class Tensor(
         """
         return rank(self)
 
-    def mean(self, dim: Optional[Union[int, Tuple[int, ...]]] = None) -> Self:
+    def mean(
+        self, dim: Optional[Union[int, Tuple[int, ...]]] = None
+    ) -> Union[Self, "Tensor"]:
         """
         Compute the mean over specified dimension(s).
 
@@ -1192,8 +1203,11 @@ class Tensor(
 
         Returns
         -------
-        Self
-            A new tensor with the specified dimensions reduced.
+        Union[Self, Tensor]
+            A new tensor with the specified dimensions reduced. For subclasses
+            marked with [`strict_dims`][qten.linalg.tensors.strict_dims], this
+            may downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
         """
         return mean(self, dim)
 
@@ -1201,7 +1215,7 @@ class Tensor(
         self,
         ord: Optional[Union[int, float, str]] = None,
         dim: Optional[Union[int, Tuple[int, int]]] = None,
-    ) -> Self:
+    ) -> Union[Self, "Tensor"]:
         """
         Compute a vector or matrix norm over the specified dimension(s).
 
@@ -1243,8 +1257,11 @@ class Tensor(
 
         Returns
         -------
-        Self
-            A new tensor with the specified dimensions reduced.
+        Union[Self, Tensor]
+            A new tensor with the specified dimensions reduced. For subclasses
+            marked with [`strict_dims`][qten.linalg.tensors.strict_dims], this
+            may downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
 
         See Also
         --------
@@ -1253,7 +1270,7 @@ class Tensor(
         """
         return norm(self, ord=ord, dim=dim)
 
-    def argmax(self, dim: int) -> Self:
+    def argmax(self, dim: int) -> Union[Self, "Tensor"]:
         """
         Compute the indices of the maximum values over a specified dimension.
 
@@ -1269,12 +1286,15 @@ class Tensor(
 
         Returns
         -------
-        Self
-            A new tensor with the specified dimension reduced.
+        Union[Self, Tensor]
+            A new tensor with the specified dimension reduced. For subclasses
+            marked with [`strict_dims`][qten.linalg.tensors.strict_dims], this
+            may downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
         """
         return argmax(self, dim)
 
-    def argmin(self, dim: int) -> Self:
+    def argmin(self, dim: int) -> Union[Self, "Tensor"]:
         """
         Compute the indices of the minimum values over a specified dimension.
 
@@ -1290,8 +1310,11 @@ class Tensor(
 
         Returns
         -------
-        Self
-            A new tensor with the specified dimension reduced.
+        Union[Self, Tensor]
+            A new tensor with the specified dimension reduced. For subclasses
+            marked with [`strict_dims`][qten.linalg.tensors.strict_dims], this
+            may downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
         """
         return argmin(self, dim)
 
@@ -1649,7 +1672,9 @@ class Tensor(
                 axis += 1
         return Tensor(data=data, dims=compiled.dims)
 
-    def factorize_dim(self, dim: int, rule: StateSpaceFactorization) -> Self:
+    def factorize_dim(
+        self, dim: int, rule: StateSpaceFactorization
+    ) -> Union[Self, "Tensor"]:
         """
         Factorize one [`StateSpace`][qten.symbolics.state_space.StateSpace]-like dimension into multiple subspaces.
 
@@ -1669,8 +1694,12 @@ class Tensor(
 
         Returns
         -------
-        Self
-            A new tensor of the same wrapper type with the specified dimension factorized.
+        Union[Self, Tensor]
+            A new tensor with the specified dimension factorized. For
+            subclasses marked with
+            [`strict_dims`][qten.linalg.tensors.strict_dims], this may
+            downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
 
         See Also
         --------
@@ -1679,7 +1708,7 @@ class Tensor(
         """
         return factorize_dim(self, dim, rule)
 
-    def product_dims(self, *indices_group: Tuple[int, ...]) -> Self:
+    def product_dims(self, *indices_group: Tuple[int, ...]) -> Union[Self, "Tensor"]:
         """
         Combine selected tensor dimensions into product dimensions.
 
@@ -1709,10 +1738,13 @@ class Tensor(
 
         Returns
         -------
-        Self
-            A new tensor of the same wrapper type where each requested group is
-            replaced by one product dimension and all non-grouped dimensions
-            are retained.
+        Union[Self, Tensor]
+            A new tensor where each requested group is replaced by one product
+            dimension and all non-grouped dimensions are retained. For
+            subclasses marked with
+            [`strict_dims`][qten.linalg.tensors.strict_dims], this may
+            downgrade to a plain
+            [`Tensor`][qten.linalg.tensors.Tensor].
 
         See Also
         --------
@@ -3294,9 +3326,14 @@ def permute(tensor: Tensor, *order: Union[int, Sequence[int]]) -> Tensor:
 
     Returns
     -------
-    TensorType
-        Tensor with permuted data and correspondingly permuted `dims`,
-        preserving the input wrapper type.
+    Tensor
+        Tensor with permuted data and correspondingly permuted `dims`.
+
+        The public signature is `Tensor` because `permute` is exposed through
+        multimethod dispatch on the base `Tensor` type. At runtime, when no
+        strict-dims downgrade is required and the concrete subtype remains
+        valid, the implementation still preserves the input wrapper type via
+        `replace(tensor, ...)`.
 
     Raises
     ------
@@ -3341,9 +3378,15 @@ def transpose(tensor: Tensor, dim0: int, dim1: int) -> Tensor:
 
     Returns
     -------
-    TensorType
-        Tensor with the selected axes exchanged, preserving the input wrapper
-        type.
+    Tensor
+        Tensor with the selected axes exchanged.
+
+        The public signature is `Tensor` because `transpose` is exposed through
+        multimethod dispatch on the base `Tensor` type. At runtime, when no
+        strict-dims downgrade is required and the concrete subtype remains
+        valid, the implementation still preserves the input wrapper type via
+        `replace(tensor, ...)` through
+        [`permute`][qten.linalg.tensors.permute].
     """
     order = list(range(tensor.rank()))
     order[dim0], order[dim1] = order[dim1], order[dim0]
@@ -3400,7 +3443,7 @@ def abs(tensor: TensorType) -> TensorType:
     return replace(tensor, data=cast(T, tensor.data.abs()))
 
 
-def unsqueeze(tensor: TensorType, dim: int) -> TensorType:
+def unsqueeze(tensor: TensorType, dim: int) -> Union[TensorType, Tensor]:
     """
     Insert a singleton broadcast axis into a tensor.
 
@@ -3418,9 +3461,12 @@ def unsqueeze(tensor: TensorType, dim: int) -> TensorType:
 
     Returns
     -------
-    TensorType
+    Union[TensorType, Tensor]
         Tensor with one extra singleton axis and a matching inserted
-        [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] dim.
+        [`BroadcastSpace`][qten.symbolics.state_space.BroadcastSpace] dim. For
+        subclasses marked with
+        [`strict_dims`][qten.linalg.tensors.strict_dims], this returns a plain
+        [`Tensor`][qten.linalg.tensors.Tensor].
     """
     if dim < 0:
         dim = dim + len(tensor.dims) + 1
@@ -3438,7 +3484,7 @@ def unsqueeze(tensor: TensorType, dim: int) -> TensorType:
     )
 
 
-def squeeze(tensor: TensorType, dim: int) -> TensorType:
+def squeeze(tensor: TensorType, dim: int) -> Union[TensorType, Tensor]:
     """
     Remove a singleton broadcast axis from a tensor.
 
@@ -3456,9 +3502,10 @@ def squeeze(tensor: TensorType, dim: int) -> TensorType:
 
     Returns
     -------
-    TensorType
-        Tensor with the requested broadcast axis removed, preserving the input
-        wrapper type.
+    Union[TensorType, Tensor]
+        Tensor with the requested broadcast axis removed. For subclasses
+        marked with [`strict_dims`][qten.linalg.tensors.strict_dims], this may
+        return a plain [`Tensor`][qten.linalg.tensors.Tensor].
     """
     if dim < 0:
         dim = dim + len(tensor.dims)
@@ -3548,7 +3595,7 @@ def index_add(
     index: Tensor[Any],
     source: Tensor,
     alpha: Union[int, float, complex] = 1,
-) -> TensorType:
+) -> Union[TensorType, Tensor]:
     """
     Return a copy of `tensor` with `source` accumulated into positions `index`.
 
@@ -3775,8 +3822,10 @@ def all(
 
     Returns
     -------
-    TensorType
-        Boolean tensor with reduced dimensions.
+    Union[TensorType, Tensor]
+        Boolean tensor with reduced dimensions. For subclasses marked with
+        [`strict_dims`][qten.linalg.tensors.strict_dims], this may return a
+        plain [`Tensor`][qten.linalg.tensors.Tensor].
 
     Notes
     -----
@@ -3860,7 +3909,7 @@ def rank(tensor: Tensor) -> int:
 
 def mean(
     tensor: TensorType, dim: Optional[Union[int, Tuple[int, ...]]] = None
-) -> TensorType:
+) -> Union[TensorType, Tensor]:
     """
     Compute the mean over one or more tensor axes.
 
@@ -3876,9 +3925,11 @@ def mean(
 
     Returns
     -------
-    TensorType
-        Tensor with the requested axes reduced and removed from `dims`,
-        preserving the input wrapper type.
+    Union[TensorType, Tensor]
+        Tensor with the requested axes reduced and removed from `dims`. For
+        subclasses marked with
+        [`strict_dims`][qten.linalg.tensors.strict_dims], this may return a
+        plain [`Tensor`][qten.linalg.tensors.Tensor].
 
     Raises
     ------
@@ -3933,7 +3984,7 @@ def norm(
     tensor: TensorType,
     ord: Optional[Union[int, float, str]] = None,
     dim: Optional[Union[int, Tuple[int, int]]] = None,
-) -> TensorType:
+) -> Union[TensorType, Tensor]:
     """
     Compute a vector or matrix norm with metadata-aware dimension reduction.
 
@@ -3999,9 +4050,11 @@ def norm(
 
     Returns
     -------
-    TensorType
+    Union[TensorType, Tensor]
         Tensor containing the requested norm values with reduced axes removed
-        from `dims`.
+        from `dims`. For subclasses marked with
+        [`strict_dims`][qten.linalg.tensors.strict_dims], this may return a
+        plain [`Tensor`][qten.linalg.tensors.Tensor].
 
     Raises
     ------
@@ -4057,7 +4110,7 @@ def norm(
     )
 
 
-def argmax(tensor: TensorType, dim: int) -> TensorType:
+def argmax(tensor: TensorType, dim: int) -> Union[TensorType, Tensor]:
     """
     Return indices of maximum values along one tensor axis.
 
@@ -4070,9 +4123,11 @@ def argmax(tensor: TensorType, dim: int) -> TensorType:
 
     Returns
     -------
-    TensorType
-        Integer-valued tensor with the reduced axis removed from `dims`,
-        preserving the input wrapper type.
+    Union[TensorType, Tensor]
+        Integer-valued tensor with the reduced axis removed from `dims`. For
+        subclasses marked with
+        [`strict_dims`][qten.linalg.tensors.strict_dims], this may return a
+        plain [`Tensor`][qten.linalg.tensors.Tensor].
 
     Raises
     ------
@@ -4095,7 +4150,7 @@ def argmax(tensor: TensorType, dim: int) -> TensorType:
     )
 
 
-def argmin(tensor: TensorType, dim: int) -> TensorType:
+def argmin(tensor: TensorType, dim: int) -> Union[TensorType, Tensor]:
     """
     Return indices of minimum values along one tensor axis.
 
@@ -4108,9 +4163,11 @@ def argmin(tensor: TensorType, dim: int) -> TensorType:
 
     Returns
     -------
-    TensorType
-        Integer-valued tensor with the reduced axis removed from `dims`,
-        preserving the input wrapper type.
+    Union[TensorType, Tensor]
+        Integer-valued tensor with the reduced axis removed from `dims`. For
+        subclasses marked with
+        [`strict_dims`][qten.linalg.tensors.strict_dims], this may return a
+        plain [`Tensor`][qten.linalg.tensors.Tensor].
 
     Raises
     ------
@@ -4949,7 +5006,7 @@ def update_dim(
 
 def factorize_dim(
     tensor: TensorType, dim: int, rule: StateSpaceFactorization
-) -> TensorType:
+) -> Union[TensorType, Tensor]:
     """
     Factorize one symbolic dimension into multiple output axes.
 
@@ -5023,9 +5080,11 @@ def factorize_dim(
 
     Returns
     -------
-    TensorType
-        Tensor with the requested axis replaced by multiple factor axes,
-        preserving the input wrapper type.
+    Union[TensorType, Tensor]
+        Tensor with the requested axis replaced by multiple factor axes. For
+        subclasses marked with
+        [`strict_dims`][qten.linalg.tensors.strict_dims], this may return a
+        plain [`Tensor`][qten.linalg.tensors.Tensor].
 
     Raises
     ------
@@ -5121,7 +5180,9 @@ def _format_dims(dims: Tuple[StateSpace, ...]) -> str:
     return "(" + ", ".join(f"{type(dim).__name__}:{dim.dim}" for dim in dims) + ")"
 
 
-def product_dims(tensor: TensorType, *indices_group: Tuple[int, ...]) -> TensorType:
+def product_dims(
+    tensor: TensorType, *indices_group: Tuple[int, ...]
+) -> Union[TensorType, Tensor]:
     """
     Combine selected tensor dimensions into product dimensions.
 
@@ -5153,9 +5214,11 @@ def product_dims(tensor: TensorType, *indices_group: Tuple[int, ...]) -> TensorT
 
     Returns
     -------
-    TensorType
+    Union[TensorType, Tensor]
         A new tensor where each requested group is replaced by one product
-        dimension and all non-grouped dimensions are retained.
+        dimension and all non-grouped dimensions are retained. For subclasses
+        marked with [`strict_dims`][qten.linalg.tensors.strict_dims], this may
+        return a plain [`Tensor`][qten.linalg.tensors.Tensor].
 
     Raises
     ------
