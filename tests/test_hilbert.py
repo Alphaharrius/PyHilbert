@@ -493,6 +493,7 @@ def test_momentum_space_brillouin():
     ms = brillouin_zone(recip)
     assert isinstance(ms, MomentumSpace)
     assert ms.dim == 4
+    assert ms.extract(Lattice) == lat
     assert ms.extract(ReciprocalLattice) is recip
 
     assert str(ms) == "MomentumSpace(4)"
@@ -504,6 +505,9 @@ def test_momentum_space_extract_reciprocal_lattice_rejects_empty_space():
 
     with pytest.raises(ValueError, match="MomentumSpace is empty"):
         ms.extract(ReciprocalLattice)
+
+    with pytest.raises(ValueError, match="MomentumSpace is empty"):
+        ms.extract(Lattice)
 
 
 def test_momentum_space_extract_reciprocal_lattice_requires_uniqueness():
@@ -518,6 +522,11 @@ def test_momentum_space_extract_reciprocal_lattice_requires_uniqueness():
         ValueError, match="MomentumSpace does not have a unique ReciprocalLattice"
     ):
         ms.extract(ReciprocalLattice)
+
+    with pytest.raises(
+        ValueError, match="MomentumSpace does not have a unique ReciprocalLattice"
+    ):
+        ms.extract(Lattice)
 
 
 def test_statespace_type_errors():
