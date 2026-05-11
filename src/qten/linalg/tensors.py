@@ -3807,7 +3807,7 @@ def all(
     tensor: TensorType,
     dim: Optional[Union[int, Tuple[int, ...]]] = None,
     keepdim: bool = False,
-) -> TensorType:
+) -> Union[TensorType, Tensor]:
     """
     Reduce a tensor with logical AND, matching `torch.all` semantics.
 

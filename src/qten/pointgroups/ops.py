@@ -295,7 +295,7 @@ def abelian_column_symmetrize(
             projected = projector @ col
 
             projected_norm = projected.norm()
-            norm_value = float(projected_norm.item())
+            norm_value = abs(projected_norm.item())
             if norm_value <= tol:
                 continue
 
@@ -447,7 +447,7 @@ def joint_abelian_column_symmetrize(
                 projected = projector @ projected
 
             projected_norm = projected.norm()
-            norm_value = float(projected_norm.item())
+            norm_value = abs(projected_norm.item())
             if norm_value <= tol:
                 continue
 
