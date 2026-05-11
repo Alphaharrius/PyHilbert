@@ -142,6 +142,7 @@ def plot_structure(
     color_by: str = "basis",
     highlights: Sequence[PointCloud] | None = None,
     use_lattice_coords: bool = False,
+    show_periodic_wrap_bonds: bool = False,
     periodic_image_opacity: float = 0.5,
     **kwargs,
 ) -> go.Figure:
@@ -186,6 +187,7 @@ def plot_structure(
         )
 
     coords = obj.cartes(torch.Tensor)
+    ordered_site_offsets = tuple(obj.cartes(Offset))
     coords_np = coords.numpy()
     site_offsets = _lattice_site_offsets(obj)
     hovertext = [
@@ -204,7 +206,13 @@ def plot_structure(
         fig = go.Figure()
     # Bonds (Only for 'edge-and-node')
     if plot_type == "edge-and-node":
-        x_lines, y_lines, z_lines = compute_bonds(coords, obj.dim)
+        x_lines, y_lines, z_lines = compute_bonds(
+            coords,
+            obj.dim,
+            lattice=obj,
+            offsets=ordered_site_offsets,
+            show_periodic_wrap_bonds=show_periodic_wrap_bonds,
+        )
         if len(x_lines) > 0:
             bond_kwargs: dict = dict(
                 x=x_lines,

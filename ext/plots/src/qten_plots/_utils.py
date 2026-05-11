@@ -1,3 +1,4 @@
+from itertools import product
 from typing import Optional, Sequence, Tuple
 
 import numpy as np
@@ -82,13 +83,23 @@ def pointcloud_size_for_mpl(size: float | None, *, default_area: float) -> float
 
 
 def compute_bonds(
-    coords: torch.Tensor, dim: int
+    coords: torch.Tensor,
+    dim: int,
+    *,
+    lattice: Lattice | None = None,
+    offsets: Sequence[Offset] | None = None,
+    show_periodic_wrap_bonds: bool = False,
+    nearest_rel_tol: float = 1e-6,
+    nearest_abs_tol: float = 1e-9,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
     """
     Generate bond lines connecting nearest neighbors.
 
-    Uses a KDTree for O(N log N) neighbor search instead of O(N²) pairwise
-    distances, making this feasible for large lattices (100k+ sites).
+    When lattice metadata is provided, nearest neighbors are determined with a
+    periodic-aware KDTree search performed in numeric Cartesian coordinates.
+    This avoids false negatives for bonds crossing periodic boundaries while
+    keeping runtime close to the non-periodic KDTree path. Without lattice
+    metadata, a KDTree fallback is used.
 
     Returns (x_lines, y_lines, z_lines) where arrays contain coordinates
     separated by NaN (line-break sentinel for both Plotly and Matplotlib).
@@ -100,22 +111,86 @@ def compute_bonds(
         return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
 
     pts = coords.numpy().astype(np.float64)
-    tree = cKDTree(pts)
-
-    dd, _ = tree.query(pts, k=2)
-    min_dist = float(dd[:, 1].min())
-    if np.isinf(min_dist):
-        return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
-
-    pairs = tree.query_pairs(r=min_dist + 1e-4, output_type="ndarray")
-    if len(pairs) == 0:
-        return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
-
-    p1 = pts[pairs[:, 0]]
-    p2 = pts[pairs[:, 1]]
-    n_bonds = len(pairs)
     n_cols = pts.shape[1]
 
+    if lattice is None or offsets is None:
+        tree = cKDTree(pts)
+
+        dd, _ = tree.query(pts, k=2)
+        min_dist = float(dd[:, 1].min())
+        if np.isinf(min_dist):
+            return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
+
+        pairs = tree.query_pairs(r=min_dist + 1e-4, output_type="ndarray")
+        if len(pairs) == 0:
+            return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
+
+        p1 = pts[pairs[:, 0]]
+        p2 = pts[pairs[:, 1]]
+    else:
+        if len(offsets) != n:
+            raise ValueError(
+                f"offset count {len(offsets)} does not match coordinate count {n}."
+            )
+
+        if isinstance(lattice.boundaries, PeriodicBoundary):
+            lattice_basis = np.array(lattice.basis.evalf(), dtype=np.float64)
+            boundary_basis = np.array(lattice.boundaries.basis.evalf(), dtype=np.float64)
+            physical_boundaries = lattice_basis @ boundary_basis
+            if show_periodic_wrap_bonds:
+                shift_coeffs = np.array(
+                    tuple(product((-1, 0, 1), repeat=lattice.dim)),
+                    dtype=np.float64,
+                )
+            else:
+                shift_coeffs = np.zeros((1, lattice.dim), dtype=np.float64)
+            shift_cart = shift_coeffs @ physical_boundaries.T
+            delta_cart_base = pts[None, :, :] - pts[:, None, :]
+
+            best_norm2 = np.full((n, n), np.inf, dtype=np.float64)
+            best_disp = np.zeros((n, n, n_cols), dtype=np.float64)
+            for shift in shift_cart:
+                disp = delta_cart_base + shift.reshape(1, 1, -1)
+                norm2 = np.sum(disp * disp, axis=2)
+                mask = norm2 < best_norm2
+                if np.any(mask):
+                    best_norm2[mask] = norm2[mask]
+                    best_disp[mask] = disp[mask]
+
+            np.fill_diagonal(best_norm2, np.inf)
+            min_dists = np.sqrt(best_norm2)
+            nearest = np.min(min_dists, axis=1)
+            finite_nearest = nearest[np.isfinite(nearest)]
+            if finite_nearest.size == 0:
+                return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
+
+            nearest_pair_cutoff = np.minimum.outer(nearest, nearest)
+            shell_tol = np.maximum(
+                nearest_abs_tol, nearest_rel_tol * np.maximum(nearest_pair_cutoff, 1.0)
+            )
+            pair_mask = np.triu(min_dists <= nearest_pair_cutoff + shell_tol, k=1)
+            pair_i, pair_j = np.where(pair_mask)
+            if pair_i.size == 0:
+                return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
+
+            p1 = pts[pair_i]
+            p2 = p1 + best_disp[pair_i, pair_j]
+        else:
+            tree = cKDTree(pts)
+
+            dd, _ = tree.query(pts, k=2)
+            min_dist = float(dd[:, 1].min())
+            if np.isinf(min_dist):
+                return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
+
+            pairs = tree.query_pairs(r=min_dist + 1e-4, output_type="ndarray")
+            if len(pairs) == 0:
+                return _empty, _empty.copy(), (_empty.copy() if dim == 3 else None)
+
+            p1 = pts[pairs[:, 0]]
+            p2 = pts[pairs[:, 1]]
+
+    n_bonds = p1.shape[0]
     segments = np.empty((n_bonds, 3, n_cols), dtype=np.float64)
     segments[:, 0, :] = p1
     segments[:, 1, :] = p2

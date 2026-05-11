@@ -102,6 +102,7 @@ def plot_structure_mpl(
     color_by: str = "basis",
     highlights: Sequence[PointCloud] | None = None,
     use_lattice_coords: bool = False,
+    show_periodic_wrap_bonds: bool = False,
     periodic_image_opacity: float = 0.5,
     **kwargs,
 ) -> plt.Figure:
@@ -148,6 +149,7 @@ def plot_structure_mpl(
         )
 
     coords = obj.cartes(torch.Tensor)
+    site_offsets = tuple(obj.cartes(Offset))
     coords_np = coords.numpy()
 
     x = coords_np[:, 0]
@@ -171,7 +173,13 @@ def plot_structure_mpl(
 
     # Bonds
     if plot_type == "edge-and-node":
-        x_lines, y_lines, z_lines = compute_bonds(coords, obj.dim)
+        x_lines, y_lines, z_lines = compute_bonds(
+            coords,
+            obj.dim,
+            lattice=obj,
+            offsets=site_offsets,
+            show_periodic_wrap_bonds=show_periodic_wrap_bonds,
+        )
         if len(x_lines) > 0:
             if is_3d and z_lines is not None:
                 ax.plot(
