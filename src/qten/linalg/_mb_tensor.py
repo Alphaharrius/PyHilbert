@@ -172,7 +172,7 @@ def _momentum_space(momentums: tuple[Momentum, ...]) -> MomentumSpace:
 
 @need_validation(_validate_momentum_block_tensor)
 @strict_dims
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class MomentumBlockTensor(Tensor):
     """
     Rank-3 tensor subtype for momentum-labelled matrix blocks.

@@ -66,6 +66,41 @@ def test_momentum_block_transpose_updates_pair_axis_when_band_dims_match():
     assert torch.allclose(transposed.data, tensor.data.transpose(1, 2))
 
 
+def test_momentum_block_tensor_inherits_tensor_equality_and_hash():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    band = _band_space("band", 2)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+
+    left = MomentumBlockTensor(
+        data=torch.tensor(
+            [
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[5.0, 6.0], [7.0, 8.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(pair_space, band, band),
+    )
+    right = MomentumBlockTensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0], [3.0, 9.0]],
+                [[5.0, 0.0], [0.0, 8.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(pair_space, band, band),
+    )
+
+    compared = left == right
+
+    assert isinstance(compared, Tensor)
+    assert compared.dims == left.dims
+    assert compared.data.dtype == torch.bool
+    assert MomentumBlockTensor.__hash__ is Tensor.__hash__
+
+
 def test_momentum_block_right_matmul_uses_pair_second_momentum():
     k_space = _k_space()
     k0, k1 = k_space.elements()
