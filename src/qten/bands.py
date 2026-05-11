@@ -39,6 +39,7 @@ the momentum-sector matrices when filling or selecting bands.
 
 from collections import OrderedDict
 from typing import (
+    Any,
     Callable,
     Dict,
     Literal,
@@ -49,6 +50,7 @@ from typing import (
     cast,
     overload,
 )
+import warnings
 
 import numpy as np
 import sympy as sy
@@ -67,7 +69,7 @@ from .geometries import (
     ReciprocalLattice,
 )
 from .geometries.fourier import fourier_transform
-from .linalg import eigh
+from .linalg import eigh, svd
 from .linalg._mb_tensor import MomentumBlockTensor
 from .linalg.tensors import Tensor
 from .precision import get_precision_config
@@ -81,7 +83,9 @@ from .symbolics import (
     Opr,
     U1Basis,
     brillouin_zone,
+    fractional_opr,
     interpolate_reciprocal_path,
+    rebase_opr,
     restructure,
 )
 from .utils.devices import Device
@@ -1359,6 +1363,336 @@ def bandfillings(tensor: Tensor, frac: float) -> Tensor:
     packed = packed * valid[:, None, :]
 
     return Tensor(data=packed, dims=(kspace, band_space, out_dim))
+
+
+def _wannier_reciprocal_lattice(k_space: MomentumSpace) -> ReciprocalLattice:
+    if not k_space.elements():
+        raise ValueError("MomentumSpace is empty")
+
+    lattice_set = {k.space for k in k_space}
+    if len(lattice_set) != 1:
+        raise ValueError("Invalid BZ")
+
+    reciprocal_lattice = lattice_set.pop()
+    if not isinstance(reciprocal_lattice, ReciprocalLattice):
+        raise TypeError(
+            "Space of momentum should be ReciprocalLattice, but got "
+            f"{type(reciprocal_lattice)}"
+        )
+    return cast(ReciprocalLattice, reciprocal_lattice)
+
+
+def _infer_wannier_bridge(
+    eigenvectors: Tensor, seed_col_space: HilbertSpace
+) -> MomentumBlockTensor | None:
+    try:
+        old_k_space = cast(MomentumSpace, eigenvectors.dims[0])
+        reciprocal_lattice = _wannier_reciprocal_lattice(old_k_space)
+        direct_lattice = reciprocal_lattice.dual
+
+        rebased_seed_space = cast(
+            HilbertSpace, rebase_opr(direct_lattice.affine) @ seed_col_space
+        )
+        fractional_seed_space = cast(
+            HilbertSpace, fractional_opr() @ rebased_seed_space
+        )
+    except Exception:
+        return None
+
+    if not fractional_seed_space:
+        return None
+
+    unique_offsets: "OrderedDict[tuple[sy.Expr, ...], ImmutableDenseMatrix]" = (
+        OrderedDict()
+    )
+    for psi in fractional_seed_space:
+        offset = cast(U1Basis, psi).irrep_of(Offset).fractional()
+        key = tuple(offset.rep)
+        if key not in unique_offsets:
+            unique_offsets[key] = offset.rep
+
+    new_lattice = Lattice(
+        basis=direct_lattice.basis,
+        boundaries=direct_lattice.boundaries,
+        unit_cell=OrderedDict(
+            (f"r{i}", rep) for i, rep in enumerate(unique_offsets.values())
+        ),
+    )
+
+    wannier_hilbert = cast(
+        HilbertSpace, rebase_opr(new_lattice) @ fractional_seed_space
+    )
+
+    new_k_space = brillouin_zone(new_lattice.dual)
+    # Build the Bloch matching labels in the same affine space as the region
+    # labels so Fourier matching does not depend on Offset ambient-space
+    # equality. The output is relabeled back onto the inferred lattice below.
+    affine_wannier_hilbert = fractional_seed_space
+    f = fourier_transform(
+        new_k_space,
+        affine_wannier_hilbert,
+        rebased_seed_space,
+        device=eigenvectors.device,
+    )
+    fh = f.h(-2, -1).replace_dim(1, seed_col_space).replace_dim(2, wannier_hilbert)
+
+    new_by_rep = {
+        tuple(cast(Momentum, new_k).rep): cast(Momentum, new_k)
+        for new_k in new_k_space.elements()
+    }
+    gather_indices = []
+    pair_structure: "OrderedDict[tuple[Momentum, Momentum], int]" = OrderedDict()
+    for i, old_k in enumerate(old_k_space.elements()):
+        new_k = new_by_rep.get(tuple(old_k.rep))
+        if new_k is None:
+            return None
+        gather_indices.append(new_k_space.structure[new_k])
+        pair_structure[(old_k, new_k)] = i
+
+    gathered = fh.data[
+        torch.tensor(gather_indices, dtype=torch.long, device=fh.data.device)
+    ]
+    return MomentumBlockTensor(
+        data=gathered,
+        dims=(
+            MomentumBlockSpace(structure=pair_structure),
+            seed_col_space,
+            wannier_hilbert,
+        ),
+    )
+
+
+def svd_projection(
+    target: Tensor[Any],
+    source: Tensor[Any],
+    svd_threshold: float = 1e-1,
+    infer_lattice: bool = False,
+) -> Tensor[Any]:
+    r"""
+    Align target states to a source-defined gauge via sectorwise SVD.
+
+    This function computes the sectorwise overlap between target and source
+    states, extracts the polar/unitary factor of that overlap via SVD, and
+    rotates the target columns into the source-selected gauge.
+
+    Mathematical convention
+    -----------------------
+    For each momentum sector \(k\), collect the target columns into a matrix
+    \(T(k)\) and the source columns into a matrix \(S(k)\). If the target
+    Hilbert dimension is \(N\), the target rank is \(r_t\), and the source
+    rank is \(r_s\), then
+    \(T(k) \in \mathbb{C}^{N \times r_t}\) and
+    \(S(k) \in \mathbb{C}^{N \times r_s}\).
+
+    The method proceeds sector by sector:
+
+    1. Form the overlap matrix
+       \(M(k) = T(k)^\dagger S(k)\), so
+       \(M(k) \in \mathbb{C}^{r_t \times r_s}\).
+
+    2. Compute the singular value decomposition
+       \(M(k) = U(k)\,\Sigma(k)\,V(k)^\dagger\).
+
+    3. Discard the singular values and keep only the unitary/polar factor
+       \(Q(k) = U(k)\,V(k)^\dagger\).
+
+    4. Rotate the target states by that factor:
+       \(T_{\mathrm{proj}}(k) = T(k)\,Q(k)\).
+
+    This output has the same row space as the target states, but its column
+    gauge is chosen to optimally match the source states in the orthogonal
+    Procrustes sense. Equivalently, \(Q(k)\) solves
+    \(\min_Q \|T(k)Q - S(k)\|_F\) over partial isometries \(Q\) of the form
+    \(Q = U V^\dagger\) induced by the SVD of \(T(k)^\dagger S(k)\).
+
+    When \(r_t \neq r_s\), the overlap \(M(k)\) is rectangular, so the method
+    still makes sense: it returns the best SVD-induced alignment from the
+    target column space toward the source column space without requiring equal
+    rank.
+
+    If either `target` or `source` uses zero-padded columns to represent
+    an inconsistent number of states across the Brillouin zone, those padded
+    columns are ignored on a per-momentum basis when forming the SVD. The
+    projection therefore acts only on the intersection of nonzero target
+    columns and nonzero source columns at each momentum sector.
+
+    In the default branch, or whenever the source metadata is insufficient to
+    infer a lattice-backed column space, the result is a plain rank-3
+    [`Tensor`][qten.linalg.tensors.Tensor] with the input
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] axis preserved.
+
+    If `infer_lattice=True` and the source column space is a
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] carrying
+    [`Offset`][qten.geometries.spatials.Offset] labels, the function tries to
+    build a lattice description directly from those labels.
+
+    A simple example is:
+
+    - suppose the source-side basis contains states such as
+      \(|r_1\rangle \otimes |\alpha\rangle\),
+      \(|r_2\rangle \otimes |\beta\rangle\),
+      \(|r_1\rangle \otimes |\gamma\rangle\);
+    - then the new unit cell is built from the distinct site positions
+      \(r_1, r_2\) in the order they first appear;
+    - the extra labels \(|\alpha\rangle\), \(|\beta\rangle\),
+      \(|\gamma\rangle\) are kept, but they are now understood as living on
+      that newly built unit cell.
+
+    More concretely, the construction:
+
+    - rebases the source offsets onto the direct lattice of the input momentum
+      grid;
+    - converts those offsets to fractional coordinates;
+    - uses the distinct fractional positions as the sites of a new unit cell;
+    - keeps the same overall lattice basis and boundary conditions, so only the
+      unit-cell contents are being rebuilt.
+
+    In that branch, the return value becomes a
+    [`MomentumBlockTensor`][qten.MomentumBlockTensor]. Its leading
+    [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
+    stores pairs `(k_old, k_new)`, where `k_old` is the original momentum
+    sector from the input tensor and `k_new` is the momentum sector in the
+    newly created reciprocal lattice with the same fractional momentum
+    coordinate.
+
+    The last two tensor legs also become more specific:
+
+    - the middle leg stays in the original target/band Hilbert space;
+    - the last leg becomes the Bloch space built from the newly created
+      lattice, so its basis states now refer to the newly constructed unit-cell
+      sites rather than the original source labels.
+
+    If this lattice inference cannot be carried out, the function simply falls
+    back to the plain rank-3 projected tensor.
+
+    Parameters
+    ----------
+    target : Tensor
+        Target states with dims
+        `(MomentumSpace, HilbertSpace, IndexSpace)`.
+    source : Tensor
+        Source states with dims `(MomentumSpace, HilbertSpace, D)`, where `D`
+        may
+        be an [`IndexSpace`][qten.symbolics.state_space.IndexSpace] or a
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+    svd_threshold : float, optional
+        Warn if the minimum singular value of the overlap drops below this
+        threshold, which signals linearly dependent source states or poor projection
+        onto the target subspace after zero-padded columns have been ignored.
+    infer_lattice : bool, optional
+        If `True`, try to build a new unit cell from the source-side offset
+        labels by taking their distinct fractional positions. When this
+        succeeds, the output is no longer a plain `(k, band, column)` tensor:
+        it becomes a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor] whose momentum axis
+        records how each original momentum sector matches a momentum sector in
+        the reciprocal lattice of that new unit cell, and whose final
+        Hilbert-space leg is rebuilt on that lattice. If inference fails, the
+        function falls back to the plain-tensor result.
+
+    Returns
+    -------
+    Tensor
+        Projected states. The fallback result has dims
+        `(MomentumSpace, HilbertSpace, D)`. The lattice-aware result is a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor] with dims
+        `(MomentumBlockSpace(k_old, k_new), HilbertSpace, InferredHilbertSpace)`,
+        where `k_old` is the original momentum label, `k_new` is the momentum
+        label in the reciprocal lattice built from the new unit cell, and
+        `InferredHilbertSpace` is the source-side Bloch space rewritten on that
+        lattice.
+
+    Raises
+    ------
+    ValueError
+        If either input tensor is not rank 3.
+    TypeError
+        If either input tensor does not have
+        `MomentumSpace/HilbertSpace/...` leading dimensions.
+    """
+    if target.rank() != 3 or source.rank() != 3:
+        raise ValueError("Both target and source must be rank-3 Tensors.")
+    if not isinstance(target.dims[0], MomentumSpace):
+        raise TypeError("The first dimension of target must be a MomentumSpace.")
+    if not isinstance(source.dims[0], MomentumSpace):
+        raise TypeError("The first dimension of source must be a MomentumSpace.")
+    if not isinstance(target.dims[1], HilbertSpace):
+        raise TypeError("The second dimension of target must be a HilbertSpace.")
+    if not isinstance(source.dims[1], HilbertSpace):
+        raise TypeError("The second dimension of source must be a HilbertSpace.")
+
+    overlap = target.h(-2, -1) @ source
+    overlap_data = overlap.data
+    eps = torch.finfo(overlap_data.real.dtype).eps
+
+    def _valid_column_mask(data: torch.Tensor) -> torch.Tensor:
+        norms = (data.abs() ** 2).sum(dim=1)
+        if not norms.numel():
+            return torch.zeros_like(norms, dtype=torch.bool)
+        scale = norms.amax(dim=1, keepdim=True).clamp_min(1.0)
+        return norms > (scale * eps * max(data.shape[1], 1) * 8)
+
+    valid_target_mask = _valid_column_mask(target.data)
+    valid_source_mask = _valid_column_mask(source.data)
+
+    min_singular_values: list[float] = []
+    if (
+        overlap_data.shape[-2] == 0
+        or overlap_data.shape[-1] == 0
+        or (
+            bool(valid_target_mask.all().item())
+            and bool(valid_source_mask.all().item())
+        )
+    ):
+        U, S, Vh = svd(overlap)
+        unitary = U @ Vh
+        if S.data.numel():
+            min_singular_values.append(float(S.data.min().item()))
+    else:
+        unitary_data = overlap_data.new_zeros(overlap_data.shape)
+        for k_idx in range(overlap_data.shape[0]):
+            valid_target_idx = torch.nonzero(
+                valid_target_mask[k_idx], as_tuple=False
+            ).flatten()
+            valid_source_idx = torch.nonzero(
+                valid_source_mask[k_idx], as_tuple=False
+            ).flatten()
+            if valid_target_idx.numel() == 0 or valid_source_idx.numel() == 0:
+                continue
+
+            local_overlap = overlap_data[k_idx].index_select(0, valid_target_idx)
+            local_overlap = local_overlap.index_select(1, valid_source_idx)
+            u_data, s_data, vh_data = torch.linalg.svd(
+                local_overlap, full_matrices=False
+            )
+            local_unitary = u_data @ vh_data
+            unitary_data[k_idx].index_put_(
+                (valid_target_idx[:, None], valid_source_idx[None, :]),
+                local_unitary,
+            )
+            if s_data.numel():
+                min_singular_values.append(float(s_data.min().item()))
+
+        unitary = Tensor(data=unitary_data, dims=overlap.dims)
+
+    min_svd_val = min(min_singular_values, default=float("inf"))
+    if min_svd_val < svd_threshold:
+        warnings.warn(
+            f"Precarious SVD projection with minimum singular value of {min_svd_val:.4g}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    projected = cast(Tensor[Any], target @ unitary)
+
+    if not infer_lattice or not isinstance(source.dims[2], HilbertSpace):
+        return projected
+
+    bridge = _infer_wannier_bridge(projected, cast(HilbertSpace, source.dims[2]))
+    if bridge is None:
+        return projected
+
+    return cast(Tensor[Any], projected @ bridge)
 
 
 def bandselect(

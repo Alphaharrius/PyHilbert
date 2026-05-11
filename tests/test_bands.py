@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 import torch
@@ -5,12 +7,15 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix
 
 from qten.bands import (
+    bandfillings,
     nearest_bands,
     bandselect,
     interpolate_path,
+    _infer_wannier_bridge,
+    svd_projection,
 )
 from qten.geometries.boundary import PeriodicBoundary
-from qten.geometries.spatials import Lattice
+from qten.geometries.spatials import AffineSpace, Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
 from qten.symbolics.state_space import (
@@ -101,6 +106,163 @@ def test_bandselect_supports_callable_criterion_with_padding():
     expected[0, :, 1] = torch.eye(4, dtype=torch.complex128)[:, 1]
     expected[1, :, 0] = torch.eye(4, dtype=torch.complex128)[:, 0]
     assert torch.allclose(selected.data, expected)
+
+
+def test_svd_projection_ignores_zero_padded_filled_bands():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    seed_space = IndexSpace.linear(2)
+
+    energies = torch.tensor(
+        [[-2.0, 0.0], [-1.0, -1.0]],
+        dtype=torch.float64,
+    )
+    hamiltonian = Tensor(
+        data=torch.diag_embed(energies).to(torch.complex128),
+        dims=(k_space, band_space, band_space),
+    )
+    filled = bandfillings(hamiltonian, 0.5)
+
+    seeds = Tensor(
+        data=torch.eye(2, dtype=torch.complex128).expand(k_space.dim, -1, -1),
+        dims=(k_space, band_space, seed_space),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        projected = svd_projection(filled, seeds)
+
+    assert not [w for w in caught if issubclass(w.category, UserWarning)]
+    assert torch.allclose(projected.data, filled.data)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(2, dtype=torch.complex128)
+    )
+
+
+def test_svd_projection_ignores_zero_padded_bands_and_sources():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    packed_space = IndexSpace.linear(2)
+
+    eigenvectors = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0], [0.0, 0.0]],
+                [[1.0, 0.0], [0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    seeds = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0], [0.0, 0.0]],
+                [[1.0, 0.0], [0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        projected = svd_projection(eigenvectors, seeds)
+
+    assert not [w for w in caught if issubclass(w.category, UserWarning)]
+    assert torch.allclose(projected.data, eigenvectors.data)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(2, dtype=torch.complex128)
+    )
+
+
+def test_infer_wannier_bridge_rebases_seed_offsets_before_unit_cell_extraction():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 1)
+    seed_space = HilbertSpace.new(
+        [
+            U1Basis(
+                coef=sy.Integer(1),
+                base=(
+                    Offset(
+                        rep=ImmutableDenseMatrix([sy.Rational(1, 2)]),
+                        space=AffineSpace(ImmutableDenseMatrix([[2]])),
+                    ),
+                    "seed",
+                ),
+            )
+        ]
+    )
+
+    eigenvectors = Tensor(
+        data=torch.ones((k_space.dim, band_space.dim, 1), dtype=torch.complex128),
+        dims=(k_space, band_space, IndexSpace.linear(1)),
+    )
+
+    bridge = _infer_wannier_bridge(eigenvectors, seed_space)
+
+    assert bridge is not None
+    inferred_offset = bridge.dims[2].elements()[0].irrep_of(Offset)
+    assert inferred_offset.space.unit_cell["r0"].rep == ImmutableDenseMatrix([0])
+    assert inferred_offset.fractional().rep == ImmutableDenseMatrix([0])
+
+
+def test_svd_projection_lattice_output_keeps_lattice_backed_offsets_on_dim_2():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1, 0], [0, 1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1, 1)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 1)
+    seed_space = HilbertSpace.new(
+        [
+            U1Basis(
+                coef=sy.Integer(1),
+                base=(
+                    Offset(
+                        rep=ImmutableDenseMatrix(
+                            [sy.Rational(1, 8), sy.Rational(1, 8)]
+                        ),
+                        space=lattice.affine,
+                    ),
+                    "seed",
+                ),
+            )
+        ]
+    )
+
+    eigenvectors = Tensor(
+        data=torch.ones((k_space.dim, band_space.dim, 1), dtype=torch.complex128),
+        dims=(k_space, band_space, IndexSpace.linear(1)),
+    )
+    seeds = Tensor(
+        data=torch.ones(
+            (k_space.dim, band_space.dim, seed_space.dim), dtype=torch.complex128
+        ),
+        dims=(k_space, band_space, seed_space),
+    )
+
+    projected = svd_projection(eigenvectors, seeds, infer_lattice=True)
+
+    inferred_offset = projected.dims[2].elements()[0].irrep_of(Offset)
+    assert isinstance(inferred_offset.space, Lattice)
+    assert str(inferred_offset) == "r[r0; 1/8, 1/8]"
 
 
 # --- interpolate_path tests ---
