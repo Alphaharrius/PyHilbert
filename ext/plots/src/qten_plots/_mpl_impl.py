@@ -19,6 +19,7 @@ from ._utils import (
     interpolate_path_on_grid,
     pointcloud_marker_for_mpl,
     pointcloud_size_for_mpl,
+    triangulate_surface_points,
     unwrap_periodic_offsets,
 )
 from .plottables import PointCloud
@@ -886,25 +887,59 @@ def plot_bandstructure_mpl(
         surface_k_cart = k_cart[surface_order]
         surface_eigvals = eigvals_np[surface_order]
 
-        evals_grid = surface_eigvals.reshape(recip.shape[0], recip.shape[1], n_bands)
-        if hide_nullspace:
-            evals_grid = evals_grid.copy()
-            evals_grid[np.abs(evals_grid) <= nullspace_tol] = np.nan
-
-        KX = surface_k_cart[:, 0].reshape(recip.shape[0], recip.shape[1])
-        KY = surface_k_cart[:, 1].reshape(recip.shape[0], recip.shape[1])
-
         cmap = kwargs.get("cmap", "viridis")
         surface_alpha = kwargs.get("surface_alpha", 0.85)
-        for b in range(n_bands):
-            ax.plot_surface(
-                KX,
-                KY,
-                evals_grid[:, :, b],
-                cmap=cmap,
-                alpha=surface_alpha,
-                linewidth=0,
-                antialiased=True,
+        use_rect_surface = recip.lattice.boundaries.basis.is_diagonal()
+        if use_rect_surface:
+            evals_grid = surface_eigvals.reshape(
+                recip.shape[0], recip.shape[1], n_bands
+            )
+            if hide_nullspace:
+                evals_grid = evals_grid.copy()
+                evals_grid[np.abs(evals_grid) <= nullspace_tol] = np.nan
+
+            KX = surface_k_cart[:, 0].reshape(recip.shape[0], recip.shape[1])
+            KY = surface_k_cart[:, 1].reshape(recip.shape[0], recip.shape[1])
+
+            for b in range(n_bands):
+                ax.plot_surface(
+                    KX,
+                    KY,
+                    evals_grid[:, :, b],
+                    cmap=cmap,
+                    alpha=surface_alpha,
+                    linewidth=0,
+                    antialiased=True,
+                )
+        else:
+            triangles = triangulate_surface_points(surface_k_cart[:, :2])
+            finite_evals = []
+            for b in range(n_bands):
+                band_z = surface_eigvals[:, b].copy()
+                if hide_nullspace:
+                    band_z[np.abs(band_z) <= nullspace_tol] = np.nan
+                valid_triangles = (
+                    triangles[np.all(np.isfinite(band_z)[triangles], axis=1)]
+                    if triangles.size > 0
+                    else np.empty((0, 3), dtype=int)
+                )
+                if valid_triangles.size == 0:
+                    continue
+                finite_evals.append(band_z[np.isfinite(band_z)])
+                ax.plot_trisurf(
+                    surface_k_cart[:, 0],
+                    surface_k_cart[:, 1],
+                    band_z,
+                    triangles=valid_triangles,
+                    cmap=cmap,
+                    alpha=surface_alpha,
+                    linewidth=0,
+                    antialiased=True,
+                )
+            KX = surface_k_cart[:, 0]
+            KY = surface_k_cart[:, 1]
+            evals_grid = (
+                np.concatenate(finite_evals) if finite_evals else np.array([0.0])
             )
 
         ax.set_title(title)

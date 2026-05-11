@@ -46,10 +46,16 @@ def create_dummy_tensor(data_like):
 
 
 def _make_square_lattice_band_tensor(shape: tuple[int, int]) -> Tensor:
+    return _make_band_tensor_for_boundary(
+        PeriodicBoundary(sy.ImmutableDenseMatrix.diag(*shape))
+    )
+
+
+def _make_band_tensor_for_boundary(boundary: PeriodicBoundary) -> Tensor:
     basis = sy.ImmutableDenseMatrix([[1, 0.0], [0.0, 1]])
     lat = Lattice(
         basis=basis,
-        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(*shape)),
+        boundaries=boundary,
         unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
     )
 
@@ -784,6 +790,23 @@ def test_bandstructure_plot_keeps_surface_mode_for_permuted_2d_k_mesh():
     assert isinstance(fig, go.Figure)
     assert len(fig.data) >= 1
     assert all(isinstance(trace, go.Surface) for trace in fig.data)
+
+
+def test_bandstructure_plot_uses_triangulated_surface_for_skew_2d_k_mesh():
+    h_k = _make_band_tensor_for_boundary(
+        PeriodicBoundary(sy.ImmutableDenseMatrix([[4, 1], [0, 4]]))
+    )
+
+    fig = h_k.plot(
+        "bandstructure",
+        backend="plotly",
+        title="Skew 2D Bandstructure",
+        show=False,
+    )
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) >= 1
+    assert all(isinstance(trace, go.Mesh3d) for trace in fig.data)
 
 
 def test_bandstructure_plot_auto_falls_back_to_path_for_effectively_1d_k_mesh():
