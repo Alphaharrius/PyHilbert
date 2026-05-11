@@ -135,7 +135,9 @@ def compute_bonds(
 
         if isinstance(lattice.boundaries, PeriodicBoundary):
             lattice_basis = np.array(lattice.basis.evalf(), dtype=np.float64)
-            boundary_basis = np.array(lattice.boundaries.basis.evalf(), dtype=np.float64)
+            boundary_basis = np.array(
+                lattice.boundaries.basis.evalf(), dtype=np.float64
+            )
             physical_boundaries = lattice_basis @ boundary_basis
             if show_periodic_wrap_bonds:
                 shift_coeffs = np.array(
