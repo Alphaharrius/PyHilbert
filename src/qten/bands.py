@@ -985,6 +985,8 @@ def bandtransform(
         If the tensor dims do not have the required
         `MomentumSpace/HilbertSpace/HilbertSpace` structure.
     """
+    if opt not in ("left", "right", "both"):
+        raise ValueError(f"opt must be 'left', 'right', or 'both', got {opt!r}.")
     if opt == "left":
         return cast(Tensor, get_band_transform(t, tensor, side="left") @ tensor)
     if opt == "right":
@@ -1071,6 +1073,8 @@ def bandfold(
         if the selected Hilbert-space leg is not a
         [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
     """
+    if opt not in ("left", "right", "both"):
+        raise ValueError(f"opt must be 'left', 'right', or 'both', got {opt!r}.")
     if opt == "left":
         return cast(Tensor, get_band_fold(transform, tensor, side="left") @ tensor)
     if opt == "right":

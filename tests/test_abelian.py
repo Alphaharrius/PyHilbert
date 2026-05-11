@@ -1227,6 +1227,31 @@ def test_bandtransform_supports_both_sides_for_rectangular_tensors():
     )
 
 
+def test_bandtransform_rejects_invalid_opt():
+    x, y = sy.symbols("x y")
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix.eye(2),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2, 2)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    r0 = Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice.affine)
+    h_space = HilbertSpace.new([_state(r0, Orb("s"))])
+    tensor_in = Tensor(
+        data=torch.ones((k_space.dim, 1, 1), dtype=torch.complex128),
+        dims=(k_space, h_space, h_space),
+    )
+    c4 = _affine(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=lattice),
+        basis_function_order=1,
+    )
+
+    with pytest.raises(ValueError, match="opt must be 'left', 'right', or 'both'"):
+        bandtransform(c4, tensor_in, opt="bothe")  # type: ignore[arg-type]
+
+
 def test_bandtransform_c4_twice_restores_c2_symmetric_but_not_c4_tensor():
     x, y = sy.symbols("x y")
 

@@ -264,6 +264,30 @@ def test_bandfold_supports_both_sides_for_distinct_hilbert_spaces():
     )
 
 
+def test_bandfold_rejects_invalid_opt():
+    basis = ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={
+            "a": ImmutableDenseMatrix([0]),
+            "b": ImmutableDenseMatrix([sy.Rational(1, 2)]),
+        },
+    )
+    k_space = brillouin_zone(lattice.dual)
+    a_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
+    b_offset = Offset(rep=ImmutableDenseMatrix([sy.Rational(1, 2)]), space=lattice)
+    h_space = HilbertSpace.new([_mode(a_offset, "a"), _mode(b_offset, "b")])
+    tensor_in = Tensor(
+        data=torch.ones((4, 2, 2), dtype=torch.complex128),
+        dims=(k_space, h_space, h_space),
+    )
+    transform = BasisTransform(ImmutableDenseMatrix([[2]]))
+
+    with pytest.raises(ValueError, match="opt must be 'left', 'right', or 'both'"):
+        bandfold(transform, tensor_in, opt="bothe")  # type: ignore[arg-type]
+
+
 def test_bandunfold_handles_fractional_sector_collisions():
     basis = ImmutableDenseMatrix([[1]])
     lattice = Lattice(
