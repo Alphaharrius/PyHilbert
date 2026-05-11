@@ -11,7 +11,7 @@ from qten.geometries.spatials import (
     ReciprocalLattice,
     Momentum,
 )
-from qten.symbolics.state_space import brillouin_zone
+from qten.symbolics.state_space import MomentumSpace, brillouin_zone
 from qten.symbolics.hilbert_space import U1Basis, HilbertSpace
 from qten.symbolics import same_rays
 from qten.linalg.tensors import Tensor
@@ -171,6 +171,8 @@ def test_get_band_fold_factorizes_bandfold_with_alignable_matrix_dims():
     folded_factored = tensor_in @ T_g.h(-2, -1)
 
     assert isinstance(T_g, MomentumBlockTensor)
+    assert isinstance(folded_ref, MomentumBlockTensor)
+    assert folded_ref.dims[0] == T_g.h(-2, -1).dims[0]
     assert torch.allclose(
         folded_factored.align_all(folded_ref.dims).data, folded_ref.data
     )
@@ -201,6 +203,8 @@ def test_get_band_fold_supports_left_sample_side():
     folded_factored = T_g @ tensor_in
 
     assert isinstance(T_g, MomentumBlockTensor)
+    assert isinstance(folded_ref, MomentumBlockTensor)
+    assert folded_ref.dims[0] == T_g.dims[0]
     assert T_g.dims[2] == h_space_perm
     assert torch.allclose(
         folded_factored.align_all(folded_ref.dims).data, folded_ref.data
@@ -259,6 +263,7 @@ def test_bandfold_supports_both_sides_for_distinct_hilbert_spaces():
     folded_ref = bandfold(transform, tensor_in, opt="both")
     folded_factored = left_fold @ tensor_in @ right_fold.h(-2, -1)
 
+    assert isinstance(folded_ref.dims[0], MomentumSpace)
     assert torch.allclose(
         folded_factored.align_all(folded_ref.dims).data, folded_ref.data
     )

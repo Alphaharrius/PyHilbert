@@ -1052,11 +1052,16 @@ def bandfold(
     Returns
     -------
     Tensor
-        Folded tensor on the transformed
+        If `opt="both"`, returns the folded tensor on the transformed
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] grid with
-        transformed or unchanged
-        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] matrix axes
-        according to `opt`.
+        both Hilbert-space legs expressed in the folded-cell basis.
+        If `opt="left"` or `opt="right"`, returns the corresponding one-sided
+        routed intermediate as a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor] whose leading
+        [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
+        axis stores ordered pairs `(k_fold, k)` or `(k, k_fold)`,
+        respectively. In those one-sided modes, accumulation onto the folded
+        momentum grid is deferred until the complementary side is composed.
 
     Raises
     ------
