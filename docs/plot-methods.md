@@ -71,8 +71,14 @@ Inputs:
 | `color_by` | `str` | `basis` | `basis` colors by unit-cell site; `unit_cell` colors by translated cell. |
 | `highlights` | `Sequence[PointCloud]` | `None` | Styled point-cloud overlays. |
 | `use_lattice_coords` | `bool` | `False` | Show lattice-coordinate values in hover text where supported. |
-| `periodic_image_opacity` | `float` | `0.5` | Opacity for periodic highlight images, in the inclusive range `[0, 1]`. |
+| `show_periodic_wrap_bonds` | `bool` | `False` | For periodic lattices, include nearest-neighbor bonds that wrap across periodic boundaries. |
+| `periodic_image_opacity` | `float` | `0.5` | Opacity for periodic-image overlays, in the inclusive range `[0, 1]`. |
 | `**kwargs` | `object` | `{}` | Backend-specific figure options such as `figsize`, `cmap`, or line settings. |
+
+Notes:
+
+- `show_periodic_wrap_bonds` affects bond connectivity only (used with `plot_type="edge-and-node"`).
+- `periodic_image_opacity` affects periodic-image visibility only and does not change which bonds are selected.
 
 Plotly inputs:
 
