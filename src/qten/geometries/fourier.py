@@ -222,6 +222,8 @@ def _region_restrict_spaces(
 ) -> tuple[MomentumSpace, HilbertSpace]:
     if tensor.rank() != 3:
         raise ValueError("region_restrict requires a rank-3 tensor.")
+    if side not in ("left", "right"):
+        raise ValueError(f"side must be 'left' or 'right', got {side!r}.")
 
     leading_space = tensor.dims[0]
     if side == "left":
