@@ -1121,7 +1121,9 @@ def plot_bandstructure(
             if k_space == bz_path.k_space:
                 plot_eigvals = eigvals_np[list(bz_path.path_order)]
             else:
-                plot_eigvals = interpolate_path_on_grid(bz_path, k_space, eigvals_np)
+                H_np = obj.data.detach().cpu().numpy()
+                H_interp = interpolate_path_on_grid(bz_path, k_space, H_np)
+                plot_eigvals = np.linalg.eigvalsh(H_interp)
         else:
             x_vals = band_path_positions(k_space, k_cart)
             plot_eigvals = eigvals_np

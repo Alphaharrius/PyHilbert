@@ -277,21 +277,21 @@ def _effective_dimensionality(points: np.ndarray, tol: float = 1e-12) -> int:
 def interpolate_path_on_grid(
     bz_path: BzPath,
     grid_k_space: MomentumSpace,
-    eigvals: np.ndarray,
+    data: np.ndarray,
 ) -> np.ndarray:
-    """Interpolate eigenvalues from a regular BZ grid onto a path.
+    """Interpolate data (e.g. eigenvalues or Hamiltonian matrices) from a regular BZ grid onto a path.
 
-    Uses trilinear interpolation with periodic padding so that bands are
+    Uses trilinear interpolation with periodic padding so that values are
     smooth even when path k-points fall between grid points.
 
-    Returns an array of shape ``(len(bz_path.path_order), n_bands)``.
+    Returns an array of shape ``(len(bz_path.path_order), *data.shape[1:])``.
     """
     from scipy.interpolate import RegularGridInterpolator
 
     grid_k_points = list(grid_k_space)
     grid_recip = grid_k_points[0].space
     dim = grid_recip.dim
-    n_bands = eigvals.shape[1]
+    trailing_shape = data.shape[1:]
 
     grid_fracs = np.array(
         [np.array(k.rep, dtype=float).flatten() for k in grid_k_points]
@@ -305,19 +305,19 @@ def interpolate_path_on_grid(
     shape = tuple(len(ax) for ax in axes)
 
     # Map each grid k-point to its (i, j, k, ...) position and fill the array.
-    evals_grid = np.empty((*shape, n_bands))
-    evals_grid[:] = np.nan
-    for frac, ev in zip(grid_fracs, eigvals):
+    data_grid = np.empty((*shape, *trailing_shape), dtype=data.dtype)
+    data_grid[:] = np.nan
+    for frac, val in zip(grid_fracs, data):
         idx = tuple(
             int(np.searchsorted(axes[d], round(frac[d], 10))) for d in range(dim)
         )
-        evals_grid[idx] = ev
+        data_grid[idx] = val
 
     # Pad one extra slice at the end of each axis (periodic copy of the
     # first slice) so interpolation wraps smoothly across the BZ boundary.
     for d in range(dim):
-        evals_grid = np.concatenate(
-            [evals_grid, np.take(evals_grid, [0], axis=d)], axis=d
+        data_grid = np.concatenate(
+            [data_grid, np.take(data_grid, [0], axis=d)], axis=d
         )
         axes[d] = np.append(axes[d], 1.0)
 
@@ -335,15 +335,21 @@ def interpolate_path_on_grid(
 
     path_fracs = path_fracs_unique[list(bz_path.path_order)] % 1.0
 
-    result = np.empty((len(bz_path.path_order), n_bands))
-    for b in range(n_bands):
+    result = np.empty((len(bz_path.path_order), *trailing_shape), dtype=data.dtype)
+    
+    # Flatten trailing dimensions to interpolate them
+    n_trailing = int(np.prod(trailing_shape))
+    data_grid_flat = data_grid.reshape(*[len(ax) for ax in axes], n_trailing)
+    result_flat = result.reshape(len(bz_path.path_order), n_trailing)
+
+    for b in range(n_trailing):
         interp = RegularGridInterpolator(
             tuple(axes),
-            evals_grid[..., b],
-            method="linear",
+            data_grid_flat[..., b],
+            method="cubic",
             bounds_error=False,
             fill_value=None,
         )
-        result[:, b] = interp(path_fracs)
+        result_flat[:, b] = interp(path_fracs)
 
-    return result
+    return result_flat.reshape(len(bz_path.path_order), *trailing_shape)
