@@ -744,6 +744,156 @@ def test_plot_column_scatter_can_unwrap_periodic_display_coordinates():
     assert "(-1, -1)" in fig_lattice.data[0].text[1]
 
 
+def test_plot_kcontour_2d_real_plotly():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    values = torch.tensor(
+        [float(k.rep[0, 0] ** 2 + k.rep[1, 0] ** 2) for k in k_space],
+        dtype=torch.float64,
+    )
+    tensor = Tensor(data=values, dims=(k_space,))
+
+    fig = tensor.plot("kcontour", show=False, levels=16)
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert isinstance(fig.data[0], go.Contour)
+
+
+def test_plot_kcontour_2d_complex_plotly_adds_phase_and_magnitude_layers():
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    values = torch.tensor(
+        [
+            complex(
+                float(np.cos(2 * np.pi * float(k.rep[0, 0]))),
+                float(np.sin(2 * np.pi * float(k.rep[1, 0]))),
+            )
+            for k in k_space
+        ],
+        dtype=torch.complex128,
+    )
+    tensor = Tensor(data=values, dims=(k_space,))
+
+    fig = tensor.plot("kcontour", show=False, levels=12)
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert isinstance(fig.data[0], go.Image)
+    assert fig.layout.yaxis.autorange is True
+
+
+def test_plot_kcontour_2d_complex_matplotlib_uses_rgb_image_field():
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    basis = sy.ImmutableDenseMatrix([[1, 0], [0, 1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(4, 4)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    values = torch.tensor(
+        [
+            complex(
+                float(np.cos(2 * np.pi * float(k.rep[0, 0]))),
+                float(np.sin(2 * np.pi * float(k.rep[1, 0]))),
+            )
+            for k in k_space
+        ],
+        dtype=torch.complex128,
+    )
+    tensor = Tensor(data=values, dims=(k_space,))
+
+    fig = tensor.plot("kcontour", backend="matplotlib")
+    ax = fig.axes[0]
+
+    assert len(ax.images) == 1
+    assert len(ax.collections) == 0
+
+
+def test_plot_kcontour_requires_rank1_momentum_space():
+    tensor_rank2 = create_dummy_tensor(np.zeros((2, 2)))
+    with pytest.raises(ValueError, match="rank-1 tensor"):
+        tensor_rank2.plot("kcontour", show=False)
+
+    tensor_wrong_dim = create_dummy_tensor(np.zeros((4,)))
+    with pytest.raises(ValueError, match="MomentumSpace"):
+        tensor_wrong_dim.plot("kcontour", show=False)
+
+
+def test_plot_kcontour_1d_complex_plotly_uses_colored_line_segments():
+    basis = sy.ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(16)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    values = torch.tensor(
+        [
+            complex(
+                float(np.cos(2 * np.pi * float(k.rep[0, 0]))),
+                float(np.sin(2 * np.pi * float(k.rep[0, 0]))),
+            )
+            for k in k_space
+        ],
+        dtype=torch.complex128,
+    )
+    tensor = Tensor(data=values, dims=(k_space,))
+
+    fig = tensor.plot("kcontour", show=False)
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == len(k_space) - 1
+    assert all(isinstance(trace, go.Scatter) for trace in fig.data)
+    assert all(trace.mode == "lines" for trace in fig.data)
+    assert fig.layout.showlegend is False
+
+
+def test_plot_kcontour_1d_complex_matplotlib_uses_colored_line_segments():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib.collections import LineCollection
+
+    basis = sy.ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(sy.ImmutableDenseMatrix.diag(16)),
+        unit_cell={"r": sy.ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    values = torch.tensor(
+        [
+            complex(
+                float(np.cos(2 * np.pi * float(k.rep[0, 0]))),
+                float(np.sin(2 * np.pi * float(k.rep[0, 0]))),
+            )
+            for k in k_space
+        ],
+        dtype=torch.complex128,
+    )
+    tensor = Tensor(data=values, dims=(k_space,))
+
+    fig = tensor.plot("kcontour", backend="matplotlib")
+    ax = fig.axes[0]
+
+    assert any(isinstance(coll, LineCollection) for coll in ax.collections)
+
+
 def test_bandstructure_plot():
     h_k = _make_square_lattice_band_tensor((4, 4))
 
