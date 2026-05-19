@@ -36,6 +36,7 @@ Point-group operations
 - [`joint_abelian_basis()`][qten.pointgroups.ops.joint_abelian_basis]
 - [`abelian_column_symmetrize()`][qten.pointgroups.ops.abelian_column_symmetrize]
 - [`joint_abelian_column_symmetrize()`][qten.pointgroups.ops.joint_abelian_column_symmetrize]
+- [`get_direct_transform()`][qten.pointgroups.ops.get_direct_transform]
 
 Notes
 -----
@@ -67,6 +68,7 @@ from .symbolics import (
 from .bands import interpolate_path as interpolate_path
 from .pointgroups.ops import (
     abelian_column_symmetrize as abelian_column_symmetrize,
+    get_direct_transform as get_direct_transform,
     joint_abelian_basis as joint_abelian_basis,
     joint_abelian_column_symmetrize as joint_abelian_column_symmetrize,
 )

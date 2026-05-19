@@ -12,6 +12,7 @@ from qten.pointgroups.abelian import (
 )
 from qten.pointgroups.ops import (
     abelian_column_symmetrize,
+    get_direct_transform,
     joint_abelian_basis,
     joint_abelian_column_symmetrize,
 )
@@ -270,6 +271,58 @@ def test_joint_abelian_basis_returns_common_diagonal_mirror_eigenfunctions():
     assert {
         sy.expand(bases[0].expr) for bases in common.values() if len(bases) == 1
     } == {x + y, x - y}
+
+
+def test_get_direct_transform_builds_transformed_output_space_for_affine_offsets():
+    x = sy.symbols("x")
+    space = AffineSpace(basis=ImmutableDenseMatrix.eye(1))
+    shift = _opr_with_offset(
+        irrep=ImmutableDenseMatrix([[1]]),
+        axes=(x,),
+        offset=Offset(rep=ImmutableDenseMatrix([1]), space=space),
+    )
+
+    src = HilbertSpace.new([_state(Offset(rep=ImmutableDenseMatrix([0]), space=space))])
+    transform = get_direct_transform(shift, src)
+
+    assert transform.dims[0] == src
+    assert isinstance(transform.dims[1], HilbertSpace)
+    assert transform.dims[1].elements() == (
+        _state(Offset(rep=ImmutableDenseMatrix([1]), space=space)),
+    )
+    assert torch.equal(
+        transform.data,
+        torch.tensor([[1.0 + 0.0j]], dtype=torch.complex128),
+    )
+
+
+def test_get_direct_transform_rotates_abelian_basis_directly_without_phase_in_data():
+    x, y = sy.symbols("x y")
+    space = AffineSpace(basis=ImmutableDenseMatrix.eye(2))
+    c4 = _opr_with_offset(
+        irrep=ImmutableDenseMatrix([[0, -1], [1, 0]]),
+        axes=(x, y),
+        offset=Offset(rep=ImmutableDenseMatrix([0, 0]), space=space),
+    )
+
+    fx = AbelianBasis(expr=x, axes=(x, y), order=1, rep=ImmutableDenseMatrix([1, 0]))
+    fy = AbelianBasis(expr=y, axes=(x, y), order=1, rep=ImmutableDenseMatrix([0, 1]))
+    src = HilbertSpace.new([_state(fx), _state(fy)])
+
+    transform = get_direct_transform(c4, src)
+    out_basis = transform.dims[1].elements()
+
+    assert out_basis[0].coef == sy.Integer(1)
+    assert out_basis[0].irrep_of(AbelianBasis).expr == y
+    assert out_basis[1].coef == sy.Integer(1)
+    assert out_basis[1].irrep_of(AbelianBasis).expr == -x
+    assert torch.equal(
+        transform.data,
+        torch.tensor(
+            [[1.0 + 0.0j, 0.0 + 0.0j], [0.0 + 0.0j, 1.0 + 0.0j]],
+            dtype=torch.complex128,
+        ),
+    )
 
 
 @pytest.mark.parametrize(
