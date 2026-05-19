@@ -69,7 +69,7 @@ from .geometries import (
     ReciprocalLattice,
 )
 from .geometries.fourier import fourier_transform
-from .linalg import eigh, svd
+from .linalg import eigh
 from .linalg._mb_tensor import MomentumBlockTensor
 from .linalg.tensors import Tensor
 from .precision import get_precision_config
@@ -1621,61 +1621,78 @@ def svd_projection(
     if not isinstance(source.dims[1], HilbertSpace):
         raise TypeError("The second dimension of source must be a HilbertSpace.")
 
-    overlap = target.h(-2, -1) @ source
-    overlap_data = overlap.data
-    eps = torch.finfo(overlap_data.real.dtype).eps
+    eps = torch.finfo(target.data.real.dtype).eps
 
     def _valid_column_mask(data: torch.Tensor) -> torch.Tensor:
         norms = (data.abs() ** 2).sum(dim=1)
         if not norms.numel():
             return torch.zeros_like(norms, dtype=torch.bool)
         scale = norms.amax(dim=1, keepdim=True).clamp_min(1.0)
-        return norms > (scale * eps * max(data.shape[1], 1) * 8)
+        # Zero-padded columns are expected to have vanishing norm compared to
+        # genuine state columns. Use a noticeably looser threshold than machine
+        # epsilon so tiny numerical leakage does not resurrect padded bands.
+        tol = scale * (eps**0.5) * max(data.shape[1], 1) * 8
+        return norms > tol
 
     valid_target_mask = _valid_column_mask(target.data)
     valid_source_mask = _valid_column_mask(source.data)
 
-    min_singular_values: list[float] = []
-    if (
-        overlap_data.shape[-2] == 0
-        or overlap_data.shape[-1] == 0
-        or (
-            bool(valid_target_mask.all().item())
-            and bool(valid_source_mask.all().item())
-        )
-    ):
-        U, S, Vh = svd(overlap)
-        unitary = U @ Vh
-        if S.data.numel():
-            min_singular_values.append(float(S.data.min().item()))
-    else:
-        unitary_data = overlap_data.new_zeros(overlap_data.shape)
-        for k_idx in range(overlap_data.shape[0]):
-            valid_target_idx = torch.nonzero(
-                valid_target_mask[k_idx], as_tuple=False
-            ).flatten()
-            valid_source_idx = torch.nonzero(
-                valid_source_mask[k_idx], as_tuple=False
-            ).flatten()
-            if valid_target_idx.numel() == 0 or valid_source_idx.numel() == 0:
-                continue
+    def _pack_active_columns(
+        data: torch.Tensor, mask: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        order = torch.argsort(mask.to(torch.int8), dim=1, descending=True, stable=True)
+        packed = data.gather(2, order[:, None, :].expand(-1, data.shape[1], -1))
+        packed_mask = mask.gather(1, order)
+        packed = packed * packed_mask[:, None, :].to(dtype=data.dtype)
+        return packed, packed_mask.sum(dim=1), order
 
-            local_overlap = overlap_data[k_idx].index_select(0, valid_target_idx)
-            local_overlap = local_overlap.index_select(1, valid_source_idx)
-            u_data, s_data, vh_data = torch.linalg.svd(
-                local_overlap, full_matrices=False
-            )
-            local_unitary = u_data @ vh_data
-            unitary_data[k_idx].index_put_(
-                (valid_target_idx[:, None], valid_source_idx[None, :]),
-                local_unitary,
-            )
-            if s_data.numel():
-                min_singular_values.append(float(s_data.min().item()))
+    packed_target, target_counts, _ = _pack_active_columns(
+        target.data, valid_target_mask
+    )
+    packed_source, source_counts, source_order = _pack_active_columns(
+        source.data, valid_source_mask
+    )
 
-        unitary = Tensor(data=unitary_data, dims=overlap.dims)
+    projected_packed = target.data.new_zeros(
+        target.data.shape[0],
+        target.data.shape[1],
+        source.data.shape[2],
+    )
+    min_svd_val = float("inf")
+    count_pairs = torch.stack((target_counts, source_counts), dim=1)
 
-    min_svd_val = min(min_singular_values, default=float("inf"))
+    for target_count, source_count in torch.unique(count_pairs, dim=0):
+        n_target = int(target_count.item())
+        n_source = int(source_count.item())
+        if n_target == 0 or n_source == 0:
+            continue
+
+        pair_mask = (target_counts == target_count) & (source_counts == source_count)
+        local_target = packed_target[pair_mask, :, :n_target]
+        local_source = packed_source[pair_mask, :, :n_source]
+        overlap = local_target.conj().transpose(1, 2) @ local_source
+        u_data, s_data, vh_data = torch.linalg.svd(overlap, full_matrices=False)
+        if s_data.numel():
+            min_svd_val = min(min_svd_val, float(s_data.min().item()))
+
+        # Match the Julia wannierprojection contract: ignore padded zero
+        # columns, warn on small singular values, and always build the active
+        # block from the full thin polar factor of the overlap. This preserves
+        # the active source column count while giving an effective support of
+        # min(rank(target), rank(source)) sectorwise.
+        projected_packed[pair_mask, :, :n_source] = local_target @ (u_data @ vh_data)
+
+    projected_data = target.data.new_zeros(
+        target.data.shape[0],
+        target.data.shape[1],
+        source.data.shape[2],
+    )
+    projected_data.scatter_(
+        2,
+        source_order[:, None, :].expand(-1, projected_data.shape[1], -1),
+        projected_packed,
+    )
+
     if min_svd_val < svd_threshold:
         warnings.warn(
             f"Precarious SVD projection with minimum singular value of {min_svd_val:.4g}",
@@ -1683,7 +1700,10 @@ def svd_projection(
             stacklevel=2,
         )
 
-    projected = cast(Tensor[Any], target @ unitary)
+    projected = Tensor(
+        data=projected_data,
+        dims=(target.dims[0], target.dims[1], source.dims[2]),
+    )
 
     if not infer_lattice or not isinstance(source.dims[2], HilbertSpace):
         return projected

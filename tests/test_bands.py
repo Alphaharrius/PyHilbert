@@ -193,6 +193,186 @@ def test_svd_projection_ignores_zero_padded_bands_and_sources():
     )
 
 
+def test_svd_projection_warns_but_keeps_full_active_source_block():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    packed_space = IndexSpace.linear(2)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.0], [0.0, 1.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[1.0, 1.0], [0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        projected = svd_projection(target, source)
+
+    assert [w for w in caught if issubclass(w.category, UserWarning)]
+    gram = projected.h(-2, -1) @ projected
+    assert torch.allclose(
+        gram.data[0], torch.eye(2, dtype=torch.complex128), atol=1e-12
+    )
+
+
+def test_svd_projection_ignores_numerically_noisy_padded_columns():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    packed_space = IndexSpace.linear(2)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 1e-10], [0.0, 1e-10]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[1.0, -1e-10], [0.0, 1e-10]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+    singular_values = torch.linalg.svdvals(projected.data[0])
+
+    assert singular_values[1].abs() < 1e-12
+
+
+def test_svd_projection_output_rank_is_bounded_by_target_rank():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 3)
+    packed_space = IndexSpace.linear(3)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.0, 1e-9], [0.0, 1.0, -1e-9], [0.0, 0.0, 1e-9]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.5, -0.5], [0.0, 0.5, 0.5], [0.0, 0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+    singular_values = torch.linalg.svdvals(projected.data[0])
+
+    assert singular_values[2].abs() < 1e-12
+
+
+def test_svd_projection_ignores_zero_padded_columns_in_middle_across_k():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 3)
+    packed_space = IndexSpace.linear(3)
+
+    target = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0]],
+                [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0]],
+                [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+
+    assert torch.allclose(projected.data, source.data)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(3, dtype=torch.complex128)
+    )
+
+
+def test_svd_projection_scatter_restores_original_source_column_positions():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 3)
+    packed_space = IndexSpace.linear(3)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+    expected = torch.tensor(
+        [[[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]],
+        dtype=torch.complex128,
+    )
+
+    assert torch.allclose(projected.data, expected)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(3, dtype=torch.complex128)
+    )
+    assert torch.allclose(
+        projected.data[0, :, 0], torch.tensor([0.0, 1.0, 0.0], dtype=torch.complex128)
+    )
+    assert torch.allclose(
+        projected.data[0, :, 2], torch.tensor([1.0, 0.0, 0.0], dtype=torch.complex128)
+    )
+
+
 def test_proj_wannierization_matches_explicit_fourier_then_svd():
     lattice = Lattice(
         basis=ImmutableDenseMatrix([[1]]),
