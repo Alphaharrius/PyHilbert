@@ -18,6 +18,12 @@ Joint-basis helper
 ------------------
 [`joint_abelian_basis`][qten.pointgroups.ops.joint_abelian_basis] constructs a
 common eigen-basis for compatible commuting operators.
+
+Non-abelian helper
+------------------
+[`FiniteGroupRepresentation`][qten.pointgroups.nonabelian.FiniteGroupRepresentation]
+and its projector helpers provide a first-step workflow for finite non-abelian
+isotypic decomposition.
 """
 
 from ._pointgroups import pointgroup as pointgroup
@@ -26,6 +32,12 @@ from .abelian import (
     AbelianBasis as AbelianBasis,
     AbelianGroup as AbelianGroup,
     AbelianOpr as AbelianOpr,
+)
+from .nonabelian import (
+    FiniteGroupRepresentation as FiniteGroupRepresentation,
+    NonAbelianSectorBasis as NonAbelianSectorBasis,
+    nonabelian_column_symmetrize as nonabelian_column_symmetrize,
+    nonabelian_isotypic_projectors as nonabelian_isotypic_projectors,
 )
 from .ops import (
     joint_abelian_basis as joint_abelian_basis,

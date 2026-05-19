@@ -36,6 +36,8 @@ Point-group operations
 - [`joint_abelian_basis()`][qten.pointgroups.ops.joint_abelian_basis]
 - [`abelian_column_symmetrize()`][qten.pointgroups.ops.abelian_column_symmetrize]
 - [`joint_abelian_column_symmetrize()`][qten.pointgroups.ops.joint_abelian_column_symmetrize]
+- [`nonabelian_isotypic_projectors()`][qten.pointgroups.nonabelian.nonabelian_isotypic_projectors]
+- [`nonabelian_column_symmetrize()`][qten.pointgroups.nonabelian.nonabelian_column_symmetrize]
 
 Notes
 -----
@@ -69,4 +71,8 @@ from .pointgroups.ops import (
     abelian_column_symmetrize as abelian_column_symmetrize,
     joint_abelian_basis as joint_abelian_basis,
     joint_abelian_column_symmetrize as joint_abelian_column_symmetrize,
+)
+from .pointgroups.nonabelian import (
+    nonabelian_column_symmetrize as nonabelian_column_symmetrize,
+    nonabelian_isotypic_projectors as nonabelian_isotypic_projectors,
 )
