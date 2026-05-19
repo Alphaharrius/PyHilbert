@@ -213,9 +213,7 @@ def plot_tensor_kcontour_mpl(
         if is_complex:
             grid_resolution = int(kwargs.get("grid_resolution", 120))
             if grid_resolution <= 1:
-                raise ValueError(
-                    f"grid_resolution must be > 1, got {grid_resolution}."
-                )
+                raise ValueError(f"grid_resolution must be > 1, got {grid_resolution}.")
             grid_x = np.linspace(float(np.min(x)), float(np.max(x)), grid_resolution)
             grid_y = np.linspace(float(np.min(y)), float(np.max(y)), grid_resolution)
             gx, gy = np.meshgrid(grid_x, grid_y)
@@ -225,7 +223,9 @@ def plot_tensor_kcontour_mpl(
                 mag_grid = griddata((x, y), magnitudes, (gx, gy), method="nearest")
             phase_grid = griddata((x, y), np.angle(values), (gx, gy), method="linear")
             if np.all(np.isnan(phase_grid)):
-                phase_grid = griddata((x, y), np.angle(values), (gx, gy), method="nearest")
+                phase_grid = griddata(
+                    (x, y), np.angle(values), (gx, gy), method="nearest"
+                )
             phase_grid = np.nan_to_num(phase_grid, nan=0.0)
             mag_grid = np.nan_to_num(mag_grid, nan=0.0)
 
@@ -259,7 +259,9 @@ def plot_tensor_kcontour_mpl(
                 interpolation="bilinear",
             )
         else:
-            contourf = ax.tricontourf(triang, np.real(values), levels=levels, cmap="viridis")
+            contourf = ax.tricontourf(
+                triang, np.real(values), levels=levels, cmap="viridis"
+            )
             fig.colorbar(contourf, ax=ax, label="value")
         ax.set_aspect("equal")
         ax.set_xlabel("kx")

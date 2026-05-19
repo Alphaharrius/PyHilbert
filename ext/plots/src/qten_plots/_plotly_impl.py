@@ -277,7 +277,9 @@ def plot_tensor_kcontour(
                 mag_grid = griddata((x, y), magnitudes, (gx, gy), method="nearest")
             phase_grid = griddata((x, y), np.angle(values), (gx, gy), method="linear")
             if np.all(np.isnan(phase_grid)):
-                phase_grid = griddata((x, y), np.angle(values), (gx, gy), method="nearest")
+                phase_grid = griddata(
+                    (x, y), np.angle(values), (gx, gy), method="nearest"
+                )
             phase_grid = np.nan_to_num(phase_grid, nan=0.0)
             mag_grid = np.nan_to_num(mag_grid, nan=0.0)
 
@@ -316,7 +318,9 @@ def plot_tensor_kcontour(
         else:
             real_grid = griddata((x, y), np.real(values), (gx, gy), method="linear")
             if np.all(np.isnan(real_grid)):
-                real_grid = griddata((x, y), np.real(values), (gx, gy), method="nearest")
+                real_grid = griddata(
+                    (x, y), np.real(values), (gx, gy), method="nearest"
+                )
             real_grid = np.nan_to_num(real_grid, nan=0.0)
             fig.add_trace(
                 go.Contour(
