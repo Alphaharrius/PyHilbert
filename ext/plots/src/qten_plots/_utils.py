@@ -333,9 +333,7 @@ def interpolate_path_on_grid(
     # Pad one extra slice at the end of each axis (periodic copy of the
     # first slice) so interpolation wraps smoothly across the BZ boundary.
     for d in range(dim):
-        data_grid = np.concatenate(
-            [data_grid, np.take(data_grid, [0], axis=d)], axis=d
-        )
+        data_grid = np.concatenate([data_grid, np.take(data_grid, [0], axis=d)], axis=d)
         axes[d] = np.append(axes[d], 1.0)
 
     # Resolve path fractional coordinates in the *grid's* reciprocal lattice.
@@ -353,7 +351,7 @@ def interpolate_path_on_grid(
     path_fracs = path_fracs_unique[list(bz_path.path_order)] % 1.0
 
     result = np.empty((len(bz_path.path_order), *trailing_shape), dtype=data.dtype)
-    
+
     # Flatten trailing dimensions to interpolate them
     n_trailing = int(np.prod(trailing_shape))
     data_grid_flat = data_grid.reshape(*[len(ax) for ax in axes], n_trailing)
