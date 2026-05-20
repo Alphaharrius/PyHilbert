@@ -87,6 +87,23 @@ from .symbolics import (
 from .utils.devices import Device
 
 
+def _basis_states_at_fractional_offset(
+    space: HilbertSpace, offset: Offset
+) -> tuple[U1Basis, ...]:
+    """Return all basis states whose Offset matches the requested fractional site."""
+    target = offset.fractional()
+    matches = tuple(
+        cast(U1Basis, psi)
+        for psi in space.elements()
+        if cast(U1Basis, psi).irrep_of(Offset) == target
+    )
+    if not matches:
+        raise ValueError(
+            f"No basis states found for fractional offset {target!r} in HilbertSpace."
+        )
+    return matches
+
+
 def interpolate_path(
     recip: ReciprocalLattice,
     waypoints: Sequence[Union[Tuple[float, ...], str]],
@@ -642,14 +659,14 @@ def _get_band_fold_from_spaces(
     enlarge_unit_cell = tuple(r.rebase(lattice) for r in transformed_unit_cell)
 
     rebased_hilbert = HilbertSpace.new(
-        cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
+        psi.replace(r)
         for r in enlarge_unit_cell
+        for psi in _basis_states_at_fractional_offset(target_space, r)
     )
     transformed_hilbert = HilbertSpace.new(
-        cast(U1Basis, target_space.lookup({Offset: r_lookup.fractional()})).replace(
-            r_out
-        )
-        for r_lookup, r_out in zip(enlarge_unit_cell, transformed_unit_cell)
+        psi.replace(r_out)
+        for r, r_out in zip(enlarge_unit_cell, transformed_unit_cell)
+        for psi in _basis_states_at_fractional_offset(target_space, r)
     )
 
     f = fourier_transform(k_space, target_space, rebased_hilbert, device=device)
