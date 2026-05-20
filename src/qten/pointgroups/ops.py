@@ -18,7 +18,7 @@ Hilbert-space data. The group definitions themselves live in
 
 from itertools import product
 from math import prod
-from typing import Sequence, cast
+from typing import Any, Optional, Sequence, Tuple, cast
 
 import sympy as sy
 
@@ -27,9 +27,10 @@ from .abelian import (
     AbelianGroup,
     AbelianOpr,
 )
-from ..linalg.tensors import Tensor, cat, eye
-from ..symbolics import HilbertSpace, IndexSpace, U1Basis, hilbert_opr_repr
+from ..linalg.tensors import Tensor, cat, eye, mapping_matrix
+from ..symbolics import HilbertSpace, IndexSpace, Multiple, U1Basis, hilbert_opr_repr
 from ..utils.collections_ext import FrozenDict
+from ..utils.devices import Device
 
 
 def _same_phase(a: sy.Expr, b: sy.Expr) -> bool:
@@ -71,6 +72,87 @@ def _attach_degeneracy_tag(seed: U1Basis, index: int) -> U1Basis:
         return seed.replace(tag)
     except ValueError:
         return U1Basis(coef=seed.coef, base=seed.base + (tag,))
+
+
+def _transform_abelian_basis_direct(
+    opr: AbelianOpr, basis: AbelianBasis
+) -> Multiple[AbelianBasis]:
+    group = opr.g
+    if set(group.axes) != set(basis.axes):
+        raise ValueError(
+            f"Axes of AbelianGroup and AbelianBasis must match: {group.axes} != {basis.axes}"
+        )
+
+    transformed_rep = sy.ImmutableDenseMatrix(
+        group.euclidean_repr(basis.order) @ basis.rep
+    )
+    scale = next(entry for entry in transformed_rep if entry != 0)
+    transformed_basis = AbelianBasis.from_rep(
+        rep=transformed_rep,
+        euclidean_basis=group.euclidean_basis(basis.order),
+        axes=group.axes,
+        order=basis.order,
+    )
+    return Multiple(sy.Abs(scale), transformed_basis)
+
+
+def _ext_transform_basis(opr: AbelianOpr, psi: U1Basis) -> U1Basis:
+    new_coef: sy.Expr = psi.coef
+    new_base: Tuple[Any, ...] = tuple()
+    for rep in psi.base:
+        if isinstance(rep, AbelianBasis):
+            transformed = _transform_abelian_basis_direct(opr, rep)
+            new_coef *= transformed.coef
+            new_rep = transformed.base
+        elif opr.allows(rep):
+            ret = opr(rep)
+            if isinstance(ret, Multiple):
+                new_coef *= ret.coef
+                new_rep = ret.base
+            else:
+                new_rep = ret
+        else:
+            new_rep = rep
+        new_base += (new_rep,)
+    return U1Basis(new_coef, new_base)
+
+
+def get_direct_transform(
+    opr: AbelianOpr,
+    space: HilbertSpace,
+    *,
+    device: Optional[Device] = None,
+) -> Tensor:
+    r"""
+    Build the external basis-mapping tensor from a Hilbert space to its transformed image.
+
+    Unlike [`hilbert_opr_repr()`][qten.symbolics.ops.hilbert_opr_repr], this helper does not require `opr` to preserve the ray structure of
+    `space`. Instead it explicitly constructs the transformed output
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] and returns a one-hot mapping matrix with dims `(space, out_space)`.
+
+    When a basis state contains an [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] irrep, that irrep is transformed directly in the Euclidean polynomial basis.
+    In particular, no eigen-phase is factored out. For example, a basis
+    function `x` rotated by `C4` is mapped to `y` in the output space rather
+    than left as `x` with a phase in the tensor data.
+
+    Parameters
+    ----------
+    opr : AbelianOpr
+        Point-group operator used to transform basis labels.
+    space : HilbertSpace
+        Input Hilbert space whose ordered basis defines the source axis.
+    device : Optional[Device], optional
+        Device on which to allocate the returned mapping tensor.
+
+    Returns
+    -------
+    Tensor
+        Rank-2 tensor with dimensions `(space, out_space)` and only `1`
+        numerical entries at the mapped basis positions.
+    """
+    transformed = {psi: _ext_transform_basis(opr, psi) for psi in space.elements()}
+    out_space = space.map(lambda psi: transformed[psi])
+    return mapping_matrix(space, out_space, transformed, device=device)
 
 
 def joint_abelian_basis(

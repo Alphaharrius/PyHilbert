@@ -28,5 +28,6 @@ from .abelian import (
     AbelianOpr as AbelianOpr,
 )
 from .ops import (
+    get_direct_transform as get_direct_transform,
     joint_abelian_basis as joint_abelian_basis,
 )

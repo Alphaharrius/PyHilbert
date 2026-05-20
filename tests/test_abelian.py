@@ -82,6 +82,19 @@ def test_affine_function_dim_and_str():
     assert repr(f) == "x"
 
 
+def test_abelian_basis_from_rep_normalizes_magnitude_but_keeps_sign():
+    x = sy.symbols("x")
+    basis = AbelianBasis.from_rep(
+        rep=ImmutableDenseMatrix([-2]),
+        euclidean_basis=ImmutableDenseMatrix([x]),
+        axes=(x,),
+        order=1,
+    )
+
+    assert basis.rep == ImmutableDenseMatrix([-1])
+    assert basis.expr == -x
+
+
 def test_affine_group_full_rep_kronecker_power():
     x, y = sy.symbols("x y")
     _, offset = _space_and_offset(2)
