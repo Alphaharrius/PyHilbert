@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 import torch
@@ -5,17 +7,23 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix
 
 from qten.bands import (
+    bandfillings,
     nearest_bands,
     bandselect,
     interpolate_path,
+    _infer_wannier_bridge,
+    proj_wannierization,
+    svd_projection,
 )
 from qten.geometries.boundary import PeriodicBoundary
-from qten.geometries.spatials import Lattice
+from qten.geometries.fourier import fourier_transform
+from qten.geometries.spatials import AffineSpace, Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
 from qten.symbolics.state_space import (
     BzPath,
     IndexSpace,
+    MomentumBlockSpace,
     MomentumSpace,
     brillouin_zone,
 )
@@ -26,6 +34,10 @@ def _space(name: str, n: int) -> HilbertSpace:
     return HilbertSpace.new(
         U1Basis(coef=sy.Integer(1), base=((name, i),)) for i in range(n)
     )
+
+
+def _mode(r: Offset, orb: str = "s") -> U1Basis:
+    return U1Basis(coef=sy.Integer(1), base=(r, orb))
 
 
 def _band_tensor() -> tuple[Tensor, HilbertSpace]:
@@ -101,6 +113,406 @@ def test_bandselect_supports_callable_criterion_with_padding():
     expected[0, :, 1] = torch.eye(4, dtype=torch.complex128)[:, 1]
     expected[1, :, 0] = torch.eye(4, dtype=torch.complex128)[:, 0]
     assert torch.allclose(selected.data, expected)
+
+
+def test_svd_projection_ignores_zero_padded_filled_bands():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    seed_space = IndexSpace.linear(2)
+
+    energies = torch.tensor(
+        [[-2.0, 0.0], [-1.0, -1.0]],
+        dtype=torch.float64,
+    )
+    hamiltonian = Tensor(
+        data=torch.diag_embed(energies).to(torch.complex128),
+        dims=(k_space, band_space, band_space),
+    )
+    filled = bandfillings(hamiltonian, 0.5)
+
+    seeds = Tensor(
+        data=torch.eye(2, dtype=torch.complex128).expand(k_space.dim, -1, -1),
+        dims=(k_space, band_space, seed_space),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        projected = svd_projection(filled, seeds)
+
+    assert not [w for w in caught if issubclass(w.category, UserWarning)]
+    assert torch.allclose(projected.data, filled.data)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(2, dtype=torch.complex128)
+    )
+
+
+def test_svd_projection_ignores_zero_padded_bands_and_sources():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    packed_space = IndexSpace.linear(2)
+
+    eigenvectors = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0], [0.0, 0.0]],
+                [[1.0, 0.0], [0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    seeds = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0], [0.0, 0.0]],
+                [[1.0, 0.0], [0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        projected = svd_projection(eigenvectors, seeds)
+
+    assert not [w for w in caught if issubclass(w.category, UserWarning)]
+    assert torch.allclose(projected.data, eigenvectors.data)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(2, dtype=torch.complex128)
+    )
+
+
+def test_svd_projection_warns_but_keeps_full_active_source_block():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    packed_space = IndexSpace.linear(2)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.0], [0.0, 1.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[1.0, 1.0], [0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        projected = svd_projection(target, source)
+
+    assert [w for w in caught if issubclass(w.category, UserWarning)]
+    gram = projected.h(-2, -1) @ projected
+    assert torch.allclose(
+        gram.data[0], torch.eye(2, dtype=torch.complex128), atol=1e-12
+    )
+
+
+def test_svd_projection_ignores_numerically_noisy_padded_columns():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 2)
+    packed_space = IndexSpace.linear(2)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 1e-10], [0.0, 1e-10]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[1.0, -1e-10], [0.0, 1e-10]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+    singular_values = torch.linalg.svdvals(projected.data[0])
+
+    assert singular_values[1].abs() < 1e-12
+
+
+def test_svd_projection_output_rank_is_bounded_by_target_rank():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 3)
+    packed_space = IndexSpace.linear(3)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.0, 1e-9], [0.0, 1.0, -1e-9], [0.0, 0.0, 1e-9]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.5, -0.5], [0.0, 0.5, 0.5], [0.0, 0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+    singular_values = torch.linalg.svdvals(projected.data[0])
+
+    assert singular_values[2].abs() < 1e-12
+
+
+def test_svd_projection_ignores_zero_padded_columns_in_middle_across_k():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 3)
+    packed_space = IndexSpace.linear(3)
+
+    target = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0]],
+                [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [
+                [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0]],
+                [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            ],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+
+    assert torch.allclose(projected.data, source.data)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(3, dtype=torch.complex128)
+    )
+
+
+def test_svd_projection_scatter_restores_original_source_column_positions():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 3)
+    packed_space = IndexSpace.linear(3)
+
+    target = Tensor(
+        data=torch.tensor(
+            [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+    source = Tensor(
+        data=torch.tensor(
+            [[[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]],
+            dtype=torch.complex128,
+        ),
+        dims=(k_space, band_space, packed_space),
+    )
+
+    projected = svd_projection(target, source)
+    expected = torch.tensor(
+        [[[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]],
+        dtype=torch.complex128,
+    )
+
+    assert torch.allclose(projected.data, expected)
+    assert torch.allclose(
+        projected.data[0, :, 1], torch.zeros(3, dtype=torch.complex128)
+    )
+    assert torch.allclose(
+        projected.data[0, :, 0], torch.tensor([0.0, 1.0, 0.0], dtype=torch.complex128)
+    )
+    assert torch.allclose(
+        projected.data[0, :, 2], torch.tensor([1.0, 0.0, 0.0], dtype=torch.complex128)
+    )
+
+
+def test_proj_wannierization_matches_explicit_fourier_then_svd():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lattice.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lattice.affine)
+    bloch_space = HilbertSpace.new([_mode(r0, "s")])
+    local_seed_space = HilbertSpace.new([_mode(r0, "s"), _mode(r1, "s")])
+    seed_columns = IndexSpace.linear(1)
+
+    seeds = Tensor(
+        data=torch.tensor([[1.0], [0.0]], dtype=torch.complex128),
+        dims=(local_seed_space, seed_columns),
+    )
+    crystal_seeds = fourier_transform(k_space, bloch_space, local_seed_space) @ seeds
+    eigenvectors = Tensor(
+        data=crystal_seeds.data.clone(),
+        dims=crystal_seeds.dims,
+    )
+
+    projected = proj_wannierization(
+        eigenvectors, seeds, svd_threshold=1e-6, wannierize_lattice=False
+    )
+    expected = svd_projection(eigenvectors, crystal_seeds, svd_threshold=1e-6)
+
+    assert projected.dims == expected.dims
+    assert torch.allclose(projected.data, expected.data)
+
+
+def test_proj_wannierization_infers_lattice_when_seed_columns_are_hilbert_labeled():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(2)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+
+    r0 = Offset(rep=ImmutableDenseMatrix([0]), space=lattice.affine)
+    r1 = Offset(rep=ImmutableDenseMatrix([1]), space=lattice.affine)
+    bloch_space = HilbertSpace.new([_mode(r0, "s")])
+    local_seed_space = HilbertSpace.new([_mode(r0, "s"), _mode(r1, "s")])
+    seed_col_space = HilbertSpace.new([_mode(r0, "s")])
+
+    seeds = Tensor(
+        data=torch.tensor([[1.0], [0.0]], dtype=torch.complex128),
+        dims=(local_seed_space, seed_col_space),
+    )
+    eigenvectors = fourier_transform(k_space, bloch_space, local_seed_space) @ seeds
+
+    projected = proj_wannierization(
+        eigenvectors, seeds, svd_threshold=1e-6, wannierize_lattice=True
+    )
+
+    assert isinstance(projected.dims[0], MomentumBlockSpace)
+    inferred_offset = projected.dims[2].elements()[0].irrep_of(Offset)
+    assert isinstance(inferred_offset.space, Lattice)
+    assert inferred_offset.fractional().rep == ImmutableDenseMatrix([0])
+
+
+def test_infer_wannier_bridge_rebases_seed_offsets_before_unit_cell_extraction():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 1)
+    seed_space = HilbertSpace.new(
+        [
+            U1Basis(
+                coef=sy.Integer(1),
+                base=(
+                    Offset(
+                        rep=ImmutableDenseMatrix([sy.Rational(1, 2)]),
+                        space=AffineSpace(ImmutableDenseMatrix([[2]])),
+                    ),
+                    "seed",
+                ),
+            )
+        ]
+    )
+
+    eigenvectors = Tensor(
+        data=torch.ones((k_space.dim, band_space.dim, 1), dtype=torch.complex128),
+        dims=(k_space, band_space, IndexSpace.linear(1)),
+    )
+
+    bridge = _infer_wannier_bridge(eigenvectors, seed_space)
+
+    assert bridge is not None
+    inferred_offset = bridge.dims[2].elements()[0].irrep_of(Offset)
+    assert inferred_offset.space.unit_cell["r0"].rep == ImmutableDenseMatrix([0])
+    assert inferred_offset.fractional().rep == ImmutableDenseMatrix([0])
+
+
+def test_svd_projection_lattice_output_keeps_lattice_backed_offsets_on_dim_2():
+    lattice = Lattice(
+        basis=ImmutableDenseMatrix([[1, 0], [0, 1]]),
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(1, 1)),
+        unit_cell={"r": ImmutableDenseMatrix([0, 0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    band_space = _space("band", 1)
+    seed_space = HilbertSpace.new(
+        [
+            U1Basis(
+                coef=sy.Integer(1),
+                base=(
+                    Offset(
+                        rep=ImmutableDenseMatrix(
+                            [sy.Rational(1, 8), sy.Rational(1, 8)]
+                        ),
+                        space=lattice.affine,
+                    ),
+                    "seed",
+                ),
+            )
+        ]
+    )
+
+    eigenvectors = Tensor(
+        data=torch.ones((k_space.dim, band_space.dim, 1), dtype=torch.complex128),
+        dims=(k_space, band_space, IndexSpace.linear(1)),
+    )
+    seeds = Tensor(
+        data=torch.ones(
+            (k_space.dim, band_space.dim, seed_space.dim), dtype=torch.complex128
+        ),
+        dims=(k_space, band_space, seed_space),
+    )
+
+    projected = svd_projection(eigenvectors, seeds, infer_lattice=True)
+
+    inferred_offset = projected.dims[2].elements()[0].irrep_of(Offset)
+    assert isinstance(inferred_offset.space, Lattice)
+    assert str(inferred_offset) == "r[r0; 1/8, 1/8]"
 
 
 # --- interpolate_path tests ---
