@@ -5,6 +5,7 @@ import sympy as sy
 from sympy import ImmutableDenseMatrix
 
 from qten.bands import (
+    bandcounts,
     nearest_bands,
     bandselect,
     interpolate_path,
@@ -101,6 +102,26 @@ def test_bandselect_supports_callable_criterion_with_padding():
     expected[0, :, 1] = torch.eye(4, dtype=torch.complex128)[:, 1]
     expected[1, :, 0] = torch.eye(4, dtype=torch.complex128)[:, 0]
     assert torch.allclose(selected.data, expected)
+
+
+def test_bandcounts_counts_nonzero_columns_per_momentum_sector():
+    tensor, band_space = _band_tensor()
+    selected = bandselect(tensor, window=(-1.5, 2.5))["window"]
+
+    counts = bandcounts(selected)
+
+    assert counts.dims == (tensor.dims[0],)
+    assert counts.data.dtype == torch.int64
+    assert torch.equal(counts.data, torch.tensor([2, 1], dtype=torch.int64))
+
+
+def test_bandcounts_accepts_hilbertspace_as_trailing_statespace():
+    tensor, _ = _band_tensor()
+
+    counts = bandcounts(tensor)
+
+    assert counts.dims == (tensor.dims[0],)
+    assert torch.equal(counts.data, torch.tensor([4, 4], dtype=torch.int64))
 
 
 # --- interpolate_path tests ---
@@ -268,7 +289,7 @@ def test_interpolate_path_mixed_names_and_tuples():
 
 
 def test_interpolate_path_accessible_via_ops():
-    from qten.ops import interpolate_path as ip
+    from qten.bands import interpolate_path as ip
 
     recip = _recip_2d()
     path = ip(recip, [(0, 0), (0.5, 0)], n_points=10)

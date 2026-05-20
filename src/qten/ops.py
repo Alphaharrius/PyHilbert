@@ -64,7 +64,6 @@ from .symbolics import (
     rebase_opr as rebase_opr,
     translate_opr as translate_opr,
 )
-from .bands import interpolate_path as interpolate_path
 from .pointgroups.ops import (
     abelian_column_symmetrize as abelian_column_symmetrize,
     joint_abelian_basis as joint_abelian_basis,

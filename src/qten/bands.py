@@ -79,6 +79,7 @@ from .symbolics import (
     MomentumBlockSpace,
     MomentumSpace,
     Opr,
+    StateSpace,
     U1Basis,
     brillouin_zone,
     interpolate_reciprocal_path,
@@ -1244,6 +1245,55 @@ def bandunfold(
     f = f / vratio
     unfolded = f @ gathered @ f.h(-2, -1)
     return unfolded
+
+
+def bandcounts(tensor: Tensor) -> Tensor:
+    r"""
+    Count nonzero columns in each momentum-sector matrix.
+
+    The input tensor is expected to have dimensions
+    `(MomentumSpace, HilbertSpace, StateSpace)`. For each momentum sector, the
+    trailing two axes are treated as a matrix with rows labelled by the
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] axis and
+    columns labelled by the trailing
+    [`StateSpace`][qten.symbolics.state_space.StateSpace] axis. A column is
+    counted if any entry in that column is nonzero.
+
+    Parameters
+    ----------
+    tensor : Tensor
+        Rank-3 tensor with dimensions `(MomentumSpace, HilbertSpace,
+        StateSpace)`.
+
+    Returns
+    -------
+    Tensor
+        Integer-valued tensor with dimensions `(MomentumSpace,)` whose entries
+        are the nonzero-column counts of the corresponding momentum blocks.
+
+    Raises
+    ------
+    ValueError
+        If `tensor` is not rank 3.
+    TypeError
+        If the tensor axes are not `MomentumSpace`, `HilbertSpace`, and
+        `StateSpace`, respectively.
+    """
+    if tensor.rank() != 3:
+        raise ValueError(
+            f"Input tensor must be of rank 3, but has rank {tensor.rank()}"
+        )
+    if not isinstance(tensor.dims[0], MomentumSpace):
+        raise TypeError("The first dimension of the tensor must be a MomentumSpace.")
+    if not isinstance(tensor.dims[1], HilbertSpace):
+        raise TypeError("The second dimension of the tensor must be a HilbertSpace.")
+    if not isinstance(tensor.dims[2], StateSpace):
+        raise TypeError("The third dimension of the tensor must be a StateSpace.")
+
+    kspace = cast(MomentumSpace, tensor.dims[0])
+    nonzero_columns = torch.any(tensor.data != 0, dim=1)
+    counts = nonzero_columns.sum(dim=1, dtype=torch.int64)
+    return Tensor(data=counts, dims=(kspace,))
 
 
 def bandfillings(tensor: Tensor, frac: float) -> Tensor:
