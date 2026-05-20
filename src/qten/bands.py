@@ -796,6 +796,9 @@ def get_band_fold(
     The result is not just a relabeling of momentum sectors. It is the
     reusable one-sided ingredient of [`bandfold`][qten.bands.bandfold] that
     carries both sector routing and enlarged-cell basis conversion.
+    When multiple basis states share the same fractional site within the
+    sampled Hilbert space, all of them are preserved in the enlarged folded
+    basis.
 
     Basis sampling
     --------------
@@ -827,8 +830,8 @@ def get_band_fold(
     ------
     ValueError
         If `tensor` is not rank 3, if its momentum axis is empty or
-        inconsistent, or if the sampled Hilbert basis cannot be uniquely
-        matched by unit-cell offset during the folding construction.
+        inconsistent, or if the sampled Hilbert basis has no states at a
+        required unit-cell offset during the folding construction.
     TypeError
         If the tensor dims do not have the required
         `MomentumSpace/HilbertSpace/HilbertSpace` structure, or if the momentum
@@ -1042,7 +1045,9 @@ def bandfold(
     or both [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] legs
     are enlarged to match the transformed unit cell, Fourier-space changes of
     basis are applied, and the momentum sectors are then gathered into the new
-    momentum grid.
+    momentum grid. If multiple basis states share the same site offset in the
+    sampled Hilbert space, folding preserves all of them at the corresponding
+    folded-cell site.
 
     Mathematical action
     -------------------
@@ -1096,8 +1101,8 @@ def bandfold(
     ValueError
         If the tensor is not rank-3, if the momentum space is empty, or if the
         momentum axis does not belong to a single Brillouin zone. Also raised
-        if the sampled Hilbert basis on a selected side cannot be uniquely
-        matched by unit-cell offset during the folding construction.
+        if the sampled Hilbert basis on a selected side has no states at a
+        required unit-cell offset during the folding construction.
     TypeError
         If the momentum axis is not a
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace], if its
