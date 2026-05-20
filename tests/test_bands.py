@@ -134,8 +134,8 @@ def test_bandcounts_accepts_hilbertspace_as_trailing_statespace():
 
     assert counts.dims == (tensor.dims[0],)
     assert torch.equal(counts.data, torch.tensor([4, 4], dtype=torch.int64))
-    
-    
+
+
 def test_svd_projection_ignores_zero_padded_filled_bands():
     lattice = Lattice(
         basis=ImmutableDenseMatrix([[1]]),
