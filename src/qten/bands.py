@@ -92,6 +92,23 @@ from .symbolics import (
 from .utils.devices import Device
 
 
+def _basis_states_at_fractional_offset(
+    space: HilbertSpace, offset: Offset
+) -> tuple[U1Basis, ...]:
+    """Return all basis states whose Offset matches the requested fractional site."""
+    target = offset.fractional()
+    matches = tuple(
+        cast(U1Basis, psi)
+        for psi in space.elements()
+        if cast(U1Basis, psi).irrep_of(Offset) == target
+    )
+    if not matches:
+        raise ValueError(
+            f"No basis states found for fractional offset {target!r} in HilbertSpace."
+        )
+    return matches
+
+
 def interpolate_path(
     recip: ReciprocalLattice,
     waypoints: Sequence[Union[Tuple[float, ...], str]],
@@ -647,14 +664,14 @@ def _get_band_fold_from_spaces(
     enlarge_unit_cell = tuple(r.rebase(lattice) for r in transformed_unit_cell)
 
     rebased_hilbert = HilbertSpace.new(
-        cast(U1Basis, target_space.lookup({Offset: r.fractional()})).replace(r)
+        psi.replace(r)
         for r in enlarge_unit_cell
+        for psi in _basis_states_at_fractional_offset(target_space, r)
     )
     transformed_hilbert = HilbertSpace.new(
-        cast(U1Basis, target_space.lookup({Offset: r_lookup.fractional()})).replace(
-            r_out
-        )
-        for r_lookup, r_out in zip(enlarge_unit_cell, transformed_unit_cell)
+        psi.replace(r_out)
+        for r, r_out in zip(enlarge_unit_cell, transformed_unit_cell)
+        for psi in _basis_states_at_fractional_offset(target_space, r)
     )
 
     f = fourier_transform(k_space, target_space, rebased_hilbert, device=device)
@@ -784,6 +801,9 @@ def get_band_fold(
     The result is not just a relabeling of momentum sectors. It is the
     reusable one-sided ingredient of [`bandfold`][qten.bands.bandfold] that
     carries both sector routing and enlarged-cell basis conversion.
+    When multiple basis states share the same fractional site within the
+    sampled Hilbert space, all of them are preserved in the enlarged folded
+    basis.
 
     Basis sampling
     --------------
@@ -815,8 +835,8 @@ def get_band_fold(
     ------
     ValueError
         If `tensor` is not rank 3, if its momentum axis is empty or
-        inconsistent, or if the sampled Hilbert basis cannot be uniquely
-        matched by unit-cell offset during the folding construction.
+        inconsistent, or if the sampled Hilbert basis has no states at a
+        required unit-cell offset during the folding construction.
     TypeError
         If the tensor dims do not have the required
         `MomentumSpace/HilbertSpace/HilbertSpace` structure, or if the momentum
@@ -1030,7 +1050,9 @@ def bandfold(
     or both [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] legs
     are enlarged to match the transformed unit cell, Fourier-space changes of
     basis are applied, and the momentum sectors are then gathered into the new
-    momentum grid.
+    momentum grid. If multiple basis states share the same site offset in the
+    sampled Hilbert space, folding preserves all of them at the corresponding
+    folded-cell site.
 
     Mathematical action
     -------------------
@@ -1084,8 +1106,8 @@ def bandfold(
     ValueError
         If the tensor is not rank-3, if the momentum space is empty, or if the
         momentum axis does not belong to a single Brillouin zone. Also raised
-        if the sampled Hilbert basis on a selected side cannot be uniquely
-        matched by unit-cell offset during the folding construction.
+        if the sampled Hilbert basis on a selected side has no states at a
+        required unit-cell offset during the folding construction.
     TypeError
         If the momentum axis is not a
         [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace], if its

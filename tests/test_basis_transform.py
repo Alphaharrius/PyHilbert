@@ -393,6 +393,40 @@ def test_bandunfold_handles_fractional_sector_collisions():
     )
 
 
+def test_bandfold_preserves_transformed_unit_cell_offsets_for_multiorbital_site():
+    basis = ImmutableDenseMatrix([[1]])
+    lattice = Lattice(
+        basis=basis,
+        boundaries=PeriodicBoundary(ImmutableDenseMatrix.diag(4)),
+        unit_cell={"r": ImmutableDenseMatrix([0])},
+    )
+    k_space = brillouin_zone(lattice.dual)
+    r_offset = Offset(rep=ImmutableDenseMatrix([0]), space=lattice)
+    h_space = HilbertSpace.new([_mode(r_offset, "s"), _mode(r_offset, "p")])
+
+    tensor_in = Tensor(
+        data=torch.arange(16, dtype=torch.float64)
+        .reshape(4, 2, 2)
+        .to(torch.complex128),
+        dims=(k_space, h_space, h_space),
+    )
+    transform = BasisTransform(ImmutableDenseMatrix([[2]]))
+
+    folded = bandfold(transform, tensor_in)
+    folded_offsets = [psi.irrep_of(Offset) for psi in folded.dims[1].elements()]
+    folded_reps = [tuple(offset.rep) for offset in folded_offsets]
+    expected_reps = [
+        tuple(offset.rep)
+        for offset in sorted(
+            transform(lattice).unit_cell.values(), key=lambda offset: tuple(offset.rep)
+        )
+    ]
+
+    assert folded.dims[1].dim == 4
+    for rep in expected_reps:
+        assert folded_reps.count(rep) == 2
+
+
 def test_bandunfold_preserves_primitive_unit_cell_metadata():
     basis = ImmutableDenseMatrix([[1]])
     lattice = Lattice(
