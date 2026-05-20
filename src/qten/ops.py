@@ -21,6 +21,7 @@ Fourier and band operations
 - [`fourier_transform()`][qten.geometries.fourier.fourier_transform]
 - [`region_restrict()`][qten.geometries.fourier.region_restrict]
 - [`interpolate_path()`][qten.bands.interpolate_path]
+- [`svd_projection()`][qten.bands.svd_projection]
 
 Symbolic operations
 -------------------
@@ -64,7 +65,10 @@ from .symbolics import (
     rebase_opr as rebase_opr,
     translate_opr as translate_opr,
 )
-from .bands import interpolate_path as interpolate_path
+from .bands import (
+    interpolate_path as interpolate_path,
+    svd_projection as svd_projection,
+)
 from .pointgroups.ops import (
     abelian_column_symmetrize as abelian_column_symmetrize,
     joint_abelian_basis as joint_abelian_basis,
