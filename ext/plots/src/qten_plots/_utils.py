@@ -2,7 +2,7 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import torch
-from scipy.spatial import cKDTree
+from scipy.spatial import Delaunay, cKDTree
 
 from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice, Offset, ReciprocalLattice
@@ -231,6 +231,23 @@ def analyze_bandstructure_sampling(
         effective_dim,
         surface_order,
     )
+
+
+def triangulate_surface_points(points_2d: np.ndarray) -> np.ndarray:
+    """
+    Triangulate 2D sample coordinates for direct surface rendering.
+
+    This is used for skew or otherwise non-rectangular Brillouin-zone meshes
+    where reshaping points into an `(nx, ny)` index grid would connect the
+    wrong neighbors.
+    """
+    if points_2d.ndim != 2 or points_2d.shape[1] != 2:
+        raise ValueError(
+            f"Expected points_2d with shape (n_points, 2), got {points_2d.shape}."
+        )
+    if points_2d.shape[0] < 3:
+        return np.empty((0, 3), dtype=int)
+    return Delaunay(points_2d).simplices.astype(int, copy=False)
 
 
 def band_path_positions(k_space: MomentumSpace, k_cart: np.ndarray) -> np.ndarray:

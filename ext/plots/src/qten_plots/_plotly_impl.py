@@ -20,6 +20,7 @@ from ._utils import (
     compute_bonds,
     interpolate_path_on_grid,
     pointcloud_marker_for_plotly,
+    triangulate_surface_points,
     unwrap_periodic_offsets,
 )
 from .plottables import PointCloud
@@ -1092,27 +1093,69 @@ def plot_bandstructure(
             )
         surface_k_cart = k_cart[surface_order]
         surface_eigvals = eigvals_np[surface_order]
+        use_rect_surface = recip.lattice.boundaries.basis.is_diagonal()
 
-        KX = surface_k_cart[:, 0].reshape(nx, ny)
-        KY = surface_k_cart[:, 1].reshape(nx, ny)
-        evals_grid = surface_eigvals.reshape(nx, ny, n_bands)
-        if hide_nullspace:
-            evals_grid = evals_grid.copy()
-            evals_grid[np.abs(evals_grid) <= nullspace_tol] = np.nan
+        if use_rect_surface:
+            KX = surface_k_cart[:, 0].reshape(nx, ny)
+            KY = surface_k_cart[:, 1].reshape(nx, ny)
+            evals_grid = surface_eigvals.reshape(nx, ny, n_bands)
+            if hide_nullspace:
+                evals_grid = evals_grid.copy()
+                evals_grid[np.abs(evals_grid) <= nullspace_tol] = np.nan
 
-        for b in range(n_bands):
-            fig.add_trace(
-                go.Surface(
-                    x=KX,
-                    y=KY,
-                    z=evals_grid[:, :, b],
-                    name=f"Band {b}",
-                    showscale=(b == 0),
-                    colorscale="Viridis",
-                    opacity=0.9,
-                    hovertemplate="kx: %{x:.2f}<br>ky: %{y:.2f}<br>E: %{z:.3f}<extra></extra>",
+            for b in range(n_bands):
+                fig.add_trace(
+                    go.Surface(
+                        x=KX,
+                        y=KY,
+                        z=evals_grid[:, :, b],
+                        name=f"Band {b}",
+                        showscale=(b == 0),
+                        colorscale="Viridis",
+                        opacity=0.9,
+                        hovertemplate="kx: %{x:.2f}<br>ky: %{y:.2f}<br>E: %{z:.3f}<extra></extra>",
+                    )
                 )
-            )
+        else:
+            triangles = triangulate_surface_points(surface_k_cart[:, :2])
+            for b in range(n_bands):
+                band_z = surface_eigvals[:, b].copy()
+                if hide_nullspace:
+                    band_z[np.abs(band_z) <= nullspace_tol] = np.nan
+                finite = np.isfinite(band_z)
+                if not np.any(finite):
+                    continue
+
+                valid_triangles = (
+                    triangles[np.all(finite[triangles], axis=1)]
+                    if triangles.size > 0
+                    else np.empty((0, 3), dtype=int)
+                )
+                if valid_triangles.size == 0:
+                    continue
+
+                used_vertices = np.unique(valid_triangles.reshape(-1))
+                remap = np.full(len(band_z), -1, dtype=int)
+                remap[used_vertices] = np.arange(len(used_vertices), dtype=int)
+                remapped_triangles = remap[valid_triangles]
+
+                fig.add_trace(
+                    go.Mesh3d(
+                        x=surface_k_cart[used_vertices, 0],
+                        y=surface_k_cart[used_vertices, 1],
+                        z=band_z[used_vertices],
+                        i=remapped_triangles[:, 0],
+                        j=remapped_triangles[:, 1],
+                        k=remapped_triangles[:, 2],
+                        intensity=band_z[used_vertices],
+                        intensitymode="vertex",
+                        name=f"Band {b}",
+                        showscale=(b == 0),
+                        colorscale="Viridis",
+                        opacity=0.9,
+                        hovertemplate="kx: %{x:.2f}<br>ky: %{y:.2f}<br>E: %{z:.3f}<extra></extra>",
+                    )
+                )
 
     else:
         # === 1D Line Plot ===
