@@ -128,7 +128,9 @@ class AbelianBasis(Spatial):
         Build an [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis] from a Euclidean representation vector.
 
         The input `rep` is first normalized to a canonical representative by
-        dividing through its first non-zero coefficient. The normalized vector
+        dividing through the magnitude of its first non-zero coefficient. This
+        preserves the overall sign/phase of that leading term while removing
+        pure magnitude. The normalized vector
         is then converted into the symbolic polynomial expression in
         [`euclidean_basis`][qten.pointgroups.abelian.AbelianGroup.euclidean_basis] and stored as both `expr` and canonical `rep` data
         of the resulting [`AbelianBasis`][qten.pointgroups.abelian.AbelianBasis].
@@ -150,8 +152,8 @@ class AbelianBasis(Spatial):
         -------
         AbelianBasis
             Canonicalized abelian basis function whose stored `rep` is the
-            normalized version of the input vector and whose `expr` is the
-            corresponding symbolic polynomial.
+            magnitude-normalized version of the input vector and whose `expr`
+            is the corresponding symbolic polynomial.
 
         Raises
         ------
@@ -160,7 +162,7 @@ class AbelianBasis(Spatial):
             coefficient available for normalization.
         """
         principle_term = next(x for x in rep if x != 0)
-        normalized = sy.ImmutableDenseMatrix(sy.simplify(rep / principle_term))
+        normalized = sy.ImmutableDenseMatrix(sy.simplify(rep / sy.Abs(principle_term)))
         expr = sy.simplify(normalized.dot(euclidean_basis))
         return cls(expr=expr, axes=axes, order=order, rep=normalized)
 
