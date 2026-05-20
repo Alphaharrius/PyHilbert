@@ -4,9 +4,9 @@ Momentum-block tensor types and specialized multiplication rules.
 This module defines a rank-3 [`Tensor`][qten.linalg.tensors.Tensor] subtype for
 momentum-resolved block matrices whose first axis stores ordered momentum pairs
 `(k1, k2)`. Each entry on that leading axis labels one matrix block acting
-between two Hilbert-space sectors, so a
+between two symbolic state-space sectors, so a
 [`MomentumBlockTensor`][qten.MomentumBlockTensor]
-has dims `(MomentumBlockSpace, HilbertSpace, HilbertSpace)`.
+has dims `(MomentumBlockSpace, StateSpace, StateSpace)`.
 
 Mathematical convention
 -----------------------
@@ -16,8 +16,8 @@ family of matrices
 \(A_{(k_1, k_2)}\), stored as a rank-3 tensor with
 
 Axis `0`: momentum-pair labels `(k1, k2)`.
-Axis `1`: left Hilbert-space basis labels.
-Axis `2`: right Hilbert-space basis labels.
+Axis `1`: left symbolic basis labels.
+Axis `2`: right symbolic basis labels.
 
 The specialized `@` rules in this module interpret the pair axis as block
 metadata rather than as a generic batch axis:
@@ -37,7 +37,7 @@ logic. It is intentionally more structured than a plain
 [`Tensor`][qten.linalg.tensors.Tensor]: the rank is fixed to `3`, the first dim
 must be a [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace],
 and the last two dims must be
-[`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] axes.
+[`StateSpace`][qten.symbolics.state_space.StateSpace] axes.
 
 Axis-order restrictions
 -----------------------
@@ -60,14 +60,14 @@ fail validation.
 from dataclasses import dataclass
 from dataclasses import replace
 from collections import OrderedDict
-from typing import Tuple, cast
+from typing import Any, Tuple, cast
 
 import torch
 
 from .tensors import Tensor, permute, strict_dims, transpose
 from ..abstracts import Operable
 from ..geometries import Momentum
-from ..symbolics import HilbertSpace, MomentumSpace, MomentumBlockSpace
+from ..symbolics import MomentumSpace, MomentumBlockSpace, StateSpace
 from ..validations import need_validation
 
 
@@ -141,19 +141,19 @@ def _validate_momentum_block_tensor(tensor: Tensor) -> None:
         raise ValueError(
             "The first dimension of MomentumBlockTensor must be a MomentumBlockSpace."
         )
-    if not isinstance(B1, HilbertSpace) or not isinstance(B2, HilbertSpace):
+    if not isinstance(B1, StateSpace) or not isinstance(B2, StateSpace):
         raise ValueError(
-            "The second and third dimensions of MomentumBlockTensor must be HilbertSpaces."
+            "The second and third dimensions of MomentumBlockTensor must be StateSpaces."
         )
 
 
-def _require_hilbert_space(
+def _require_state_space(
     dim: object, *, axis_name: str, operand_name: str
-) -> HilbertSpace:
-    """Return `dim` as a Hilbert space or raise an operand-specific error."""
-    if not isinstance(dim, HilbertSpace):
+) -> StateSpace:
+    """Return `dim` as a state space or raise an operand-specific error."""
+    if not isinstance(dim, StateSpace):
         raise ValueError(
-            f"The {axis_name} dimension of the {operand_name} operand must be a HilbertSpace."
+            f"The {axis_name} dimension of the {operand_name} operand must be a StateSpace."
         )
     return dim
 
@@ -181,7 +181,7 @@ class MomentumBlockTensor(Tensor):
     stores matrix blocks on its last two axes and a
     [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
     on axis `0`. The common layout is
-    `(MomentumBlockSpace, HilbertSpace, HilbertSpace)`.
+    `(MomentumBlockSpace, StateSpace, StateSpace)`.
 
     Operations such as `transpose(1, 2)` and `h(1, 2)` are specialized so the
     momentum-pair metadata is updated together with the matrix-leg swap.
@@ -209,6 +209,24 @@ class MomentumBlockTensor(Tensor):
         so any forced-device construction logic still applies.
         """
         super().__post_init__()
+
+    def __getitem__(self, key: Any) -> Tensor:
+        """
+        Index the tensor and preserve the block subtype when the layout survives.
+
+        This delegates all indexing semantics to
+        [`Tensor.__getitem__`][qten.linalg.tensors.Tensor.__getitem__], then
+        re-wraps the result as a [`MomentumBlockTensor`][qten.MomentumBlockTensor]
+        only when the indexed output still satisfies the fixed
+        `(MomentumBlockSpace, StateSpace, StateSpace)` layout. Selections that
+        drop an axis or otherwise break that invariant still return a plain
+        [`Tensor`][qten.linalg.tensors.Tensor].
+        """
+        result = super().__getitem__(key)
+        try:
+            return MomentumBlockTensor(data=result.data, dims=result.dims)
+        except ValueError:
+            return result
 
     def __repr__(self) -> str:
         """
@@ -289,7 +307,7 @@ def _(tensor: MomentumBlockTensor, dim0: int, dim1: int) -> MomentumBlockTensor:
     Only matrix-leg swaps are supported in practice. `transpose(1, 2)` is the
     meaningful case and updates the leading momentum-pair axis from `(k1, k2)`
     to `(k2, k1)`. Transposes involving axis `0` are expected to fail because
-    they violate the fixed `(MomentumBlockSpace, HilbertSpace, HilbertSpace)`
+    they violate the fixed `(MomentumBlockSpace, StateSpace, StateSpace)`
     layout.
     """
     order = list(range(tensor.rank()))
@@ -311,10 +329,10 @@ def _(self: MomentumBlockTensor, other: Tensor) -> MomentumBlockTensor:
     Parameters
     ----------
     self : MomentumBlockTensor
-        Left operand with dims `(MomentumBlockSpace, HilbertSpace,
-        HilbertSpace)`.
+        Left operand with dims `(MomentumBlockSpace, StateSpace,
+        StateSpace)`.
     other : Tensor
-        Right operand with dims `(MomentumSpace, HilbertSpace, HilbertSpace)`.
+        Right operand with dims `(MomentumSpace, StateSpace, StateSpace)`.
 
     Returns
     -------
@@ -338,17 +356,13 @@ def _(self: MomentumBlockTensor, other: Tensor) -> MomentumBlockTensor:
         raise ValueError(
             "The first dimension of the right operand must be a MomentumSpace."
         )
-    other_in = _require_hilbert_space(
-        other_in, axis_name="second", operand_name="right"
-    )
-    other_out = _require_hilbert_space(
-        other_out, axis_name="third", operand_name="right"
-    )
+    other_in = _require_state_space(other_in, axis_name="second", operand_name="right")
+    other_out = _require_state_space(other_out, axis_name="third", operand_name="right")
 
     other = other.align(1, self.dims[2])
 
     contract_space = cast(MomentumBlockSpace, self.dims[0])
-    left_in = cast(HilbertSpace, self.dims[1])
+    left_in = cast(StateSpace, self.dims[1])
     gather_indices = _contract_gather_indices(
         contract_space, other_k, 1, device=other.data.device
     )
@@ -375,10 +389,10 @@ def _(self: Tensor, other: MomentumBlockTensor) -> MomentumBlockTensor:
     Parameters
     ----------
     self : Tensor
-        Left operand with dims `(MomentumSpace, HilbertSpace, HilbertSpace)`.
+        Left operand with dims `(MomentumSpace, StateSpace, StateSpace)`.
     other : MomentumBlockTensor
-        Right operand with dims `(MomentumBlockSpace, HilbertSpace,
-        HilbertSpace)`.
+        Right operand with dims `(MomentumBlockSpace, StateSpace,
+        StateSpace)`.
 
     Returns
     -------
@@ -402,15 +416,15 @@ def _(self: Tensor, other: MomentumBlockTensor) -> MomentumBlockTensor:
         raise ValueError(
             "The first dimension of the left operand must be a MomentumSpace."
         )
-    self_out = _require_hilbert_space(self_out, axis_name="second", operand_name="left")
-    self_contract = _require_hilbert_space(
+    self_out = _require_state_space(self_out, axis_name="second", operand_name="left")
+    self_contract = _require_state_space(
         self_contract, axis_name="third", operand_name="left"
     )
 
     self = self.align(2, other.dims[1])
 
     contract_space = cast(MomentumBlockSpace, other.dims[0])
-    right_out = cast(HilbertSpace, other.dims[2])
+    right_out = cast(StateSpace, other.dims[2])
     gather_indices = _contract_gather_indices(
         contract_space, self_k, 0, device=self.data.device
     )
@@ -437,11 +451,11 @@ def _(self: MomentumBlockTensor, other: MomentumBlockTensor) -> Tensor:
     Parameters
     ----------
     self : MomentumBlockTensor
-        Left operand with dims `(MomentumBlockSpace, HilbertSpace,
-        HilbertSpace)`.
+        Left operand with dims `(MomentumBlockSpace, StateSpace,
+        StateSpace)`.
     other : MomentumBlockTensor
-        Right operand with dims `(MomentumBlockSpace, HilbertSpace,
-        HilbertSpace)`.
+        Right operand with dims `(MomentumBlockSpace, StateSpace,
+        StateSpace)`.
 
     Returns
     -------
@@ -454,9 +468,9 @@ def _(self: MomentumBlockTensor, other: MomentumBlockTensor) -> Tensor:
     other = other.align(1, self.dims[2])
 
     left_space = cast(MomentumBlockSpace, self.dims[0])
-    left_out = cast(HilbertSpace, self.dims[1])
+    left_out = cast(StateSpace, self.dims[1])
     right_space = cast(MomentumBlockSpace, other.dims[0])
-    right_out = cast(HilbertSpace, other.dims[2])
+    right_out = cast(StateSpace, other.dims[2])
     left_pairs = tuple(left_space.structure.keys())
     right_pairs = tuple(right_space.structure.keys())
 

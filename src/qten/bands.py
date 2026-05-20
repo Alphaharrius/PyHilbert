@@ -39,6 +39,7 @@ the momentum-sector matrices when filling or selecting bands.
 
 from collections import OrderedDict
 from typing import (
+    Any,
     Callable,
     Dict,
     Literal,
@@ -49,6 +50,7 @@ from typing import (
     cast,
     overload,
 )
+import warnings
 
 import numpy as np
 import sympy as sy
@@ -82,7 +84,9 @@ from .symbolics import (
     StateSpace,
     U1Basis,
     brillouin_zone,
+    fractional_opr,
     interpolate_reciprocal_path,
+    rebase_opr,
     restructure,
 )
 from .utils.devices import Device
@@ -1411,6 +1415,356 @@ def bandfillings(tensor: Tensor, frac: float) -> Tensor:
     return Tensor(data=packed, dims=(kspace, band_space, out_dim))
 
 
+def _wannier_reciprocal_lattice(k_space: MomentumSpace) -> ReciprocalLattice:
+    if not k_space.elements():
+        raise ValueError("MomentumSpace is empty")
+
+    lattice_set = {k.space for k in k_space}
+    if len(lattice_set) != 1:
+        raise ValueError("Invalid BZ")
+
+    reciprocal_lattice = lattice_set.pop()
+    if not isinstance(reciprocal_lattice, ReciprocalLattice):
+        raise TypeError(
+            "Space of momentum should be ReciprocalLattice, but got "
+            f"{type(reciprocal_lattice)}"
+        )
+    return cast(ReciprocalLattice, reciprocal_lattice)
+
+
+def _infer_wannier_bridge(
+    eigenvectors: Tensor, seed_col_space: HilbertSpace
+) -> MomentumBlockTensor | None:
+    try:
+        old_k_space = cast(MomentumSpace, eigenvectors.dims[0])
+        reciprocal_lattice = _wannier_reciprocal_lattice(old_k_space)
+        direct_lattice = reciprocal_lattice.dual
+
+        rebased_seed_space = cast(
+            HilbertSpace, rebase_opr(direct_lattice.affine) @ seed_col_space
+        )
+        fractional_seed_space = cast(
+            HilbertSpace, fractional_opr() @ rebased_seed_space
+        )
+    except Exception:
+        return None
+
+    if not fractional_seed_space:
+        return None
+
+    unique_offsets: "OrderedDict[tuple[sy.Expr, ...], ImmutableDenseMatrix]" = (
+        OrderedDict()
+    )
+    for psi in fractional_seed_space:
+        offset = cast(U1Basis, psi).irrep_of(Offset).fractional()
+        key = tuple(offset.rep)
+        if key not in unique_offsets:
+            unique_offsets[key] = offset.rep
+
+    new_lattice = Lattice(
+        basis=direct_lattice.basis,
+        boundaries=direct_lattice.boundaries,
+        unit_cell=OrderedDict(
+            (f"r{i}", rep) for i, rep in enumerate(unique_offsets.values())
+        ),
+    )
+
+    wannier_hilbert = cast(
+        HilbertSpace, rebase_opr(new_lattice) @ fractional_seed_space
+    )
+
+    new_k_space = brillouin_zone(new_lattice.dual)
+    # Build the Bloch matching labels in the same affine space as the region
+    # labels so Fourier matching does not depend on Offset ambient-space
+    # equality. The output is relabeled back onto the inferred lattice below.
+    affine_wannier_hilbert = fractional_seed_space
+    f = fourier_transform(
+        new_k_space,
+        affine_wannier_hilbert,
+        rebased_seed_space,
+        device=eigenvectors.device,
+    )
+    fh = f.h(-2, -1).replace_dim(1, seed_col_space).replace_dim(2, wannier_hilbert)
+
+    new_by_rep = {
+        tuple(cast(Momentum, new_k).rep): cast(Momentum, new_k)
+        for new_k in new_k_space.elements()
+    }
+    gather_indices = []
+    pair_structure: "OrderedDict[tuple[Momentum, Momentum], int]" = OrderedDict()
+    for i, old_k in enumerate(old_k_space.elements()):
+        new_k = new_by_rep.get(tuple(old_k.rep))
+        if new_k is None:
+            return None
+        gather_indices.append(new_k_space.structure[new_k])
+        pair_structure[(old_k, new_k)] = i
+
+    gathered = fh.data[
+        torch.tensor(gather_indices, dtype=torch.long, device=fh.data.device)
+    ]
+    return MomentumBlockTensor(
+        data=gathered,
+        dims=(
+            MomentumBlockSpace(structure=pair_structure),
+            seed_col_space,
+            wannier_hilbert,
+        ),
+    )
+
+
+def svd_projection(
+    target: Tensor[Any],
+    source: Tensor[Any],
+    svd_threshold: float = 1e-1,
+    infer_lattice: bool = False,
+) -> Tensor[Any]:
+    r"""
+    Align target states to a source-defined gauge via sectorwise SVD.
+
+    This function computes the sectorwise overlap between target and source
+    states, extracts the polar/unitary factor of that overlap via SVD, and
+    rotates the target columns into the source-selected gauge.
+
+    Mathematical convention
+    -----------------------
+    For each momentum sector \(k\), collect the target columns into a matrix
+    \(T(k)\) and the source columns into a matrix \(S(k)\). If the target
+    Hilbert dimension is \(N\), the target rank is \(r_t\), and the source
+    rank is \(r_s\), then
+    \(T(k) \in \mathbb{C}^{N \times r_t}\) and
+    \(S(k) \in \mathbb{C}^{N \times r_s}\).
+
+    The method proceeds sector by sector:
+
+    1. Form the overlap matrix
+       \(M(k) = T(k)^\dagger S(k)\), so
+       \(M(k) \in \mathbb{C}^{r_t \times r_s}\).
+
+    2. Compute the singular value decomposition
+       \(M(k) = U(k)\,\Sigma(k)\,V(k)^\dagger\).
+
+    3. Discard the singular values and keep only the unitary/polar factor
+       \(Q(k) = U(k)\,V(k)^\dagger\).
+
+    4. Rotate the target states by that factor:
+       \(T_{\mathrm{proj}}(k) = T(k)\,Q(k)\).
+
+    This output has the same row space as the target states, but its column
+    gauge is chosen to optimally match the source states in the orthogonal
+    Procrustes sense. Equivalently, \(Q(k)\) solves
+    \(\min_Q \|T(k)Q - S(k)\|_F\) over partial isometries \(Q\) of the form
+    \(Q = U V^\dagger\) induced by the SVD of \(T(k)^\dagger S(k)\).
+
+    When \(r_t \neq r_s\), the overlap \(M(k)\) is rectangular, so the method
+    still makes sense: it returns the best SVD-induced alignment from the
+    target column space toward the source column space without requiring equal
+    rank.
+
+    If either `target` or `source` uses zero-padded columns to represent
+    an inconsistent number of states across the Brillouin zone, those padded
+    columns are ignored on a per-momentum basis when forming the SVD. The
+    projection therefore acts only on the intersection of nonzero target
+    columns and nonzero source columns at each momentum sector.
+
+    In the default branch, or whenever the source metadata is insufficient to
+    infer a lattice-backed column space, the result is a plain rank-3
+    [`Tensor`][qten.linalg.tensors.Tensor] with the input
+    [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace] axis preserved.
+
+    If `infer_lattice=True` and the source column space is a
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] carrying
+    [`Offset`][qten.geometries.spatials.Offset] labels, the function tries to
+    build a lattice description directly from those labels.
+
+    A simple example is:
+
+    - suppose the source-side basis contains states such as
+      \(|r_1\rangle \otimes |\alpha\rangle\),
+      \(|r_2\rangle \otimes |\beta\rangle\),
+      \(|r_1\rangle \otimes |\gamma\rangle\);
+    - then the new unit cell is built from the distinct site positions
+      \(r_1, r_2\) in the order they first appear;
+    - the extra labels \(|\alpha\rangle\), \(|\beta\rangle\),
+      \(|\gamma\rangle\) are kept, but they are now understood as living on
+      that newly built unit cell.
+
+    More concretely, the construction:
+
+    - rebases the source offsets onto the direct lattice of the input momentum
+      grid;
+    - converts those offsets to fractional coordinates;
+    - uses the distinct fractional positions as the sites of a new unit cell;
+    - keeps the same overall lattice basis and boundary conditions, so only the
+      unit-cell contents are being rebuilt.
+
+    In that branch, the return value becomes a
+    [`MomentumBlockTensor`][qten.MomentumBlockTensor]. Its leading
+    [`MomentumBlockSpace`][qten.symbolics.state_space.MomentumBlockSpace]
+    stores pairs `(k_old, k_new)`, where `k_old` is the original momentum
+    sector from the input tensor and `k_new` is the momentum sector in the
+    newly created reciprocal lattice with the same fractional momentum
+    coordinate.
+
+    The last two tensor legs also become more specific:
+
+    - the middle leg stays in the original target/band Hilbert space;
+    - the last leg becomes the Bloch space built from the newly created
+      lattice, so its basis states now refer to the newly constructed unit-cell
+      sites rather than the original source labels.
+
+    If this lattice inference cannot be carried out, the function simply falls
+    back to the plain rank-3 projected tensor.
+
+    Parameters
+    ----------
+    target : Tensor
+        Target states with dims
+        `(MomentumSpace, HilbertSpace, IndexSpace)`.
+    source : Tensor
+        Source states with dims `(MomentumSpace, HilbertSpace, D)`, where `D`
+        may
+        be an [`IndexSpace`][qten.symbolics.state_space.IndexSpace] or a
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+    svd_threshold : float, optional
+        Warn if the minimum singular value of the overlap drops below this
+        threshold, which signals linearly dependent source states or poor projection
+        onto the target subspace after zero-padded columns have been ignored.
+    infer_lattice : bool, optional
+        If `True`, try to build a new unit cell from the source-side offset
+        labels by taking their distinct fractional positions. When this
+        succeeds, the output is no longer a plain `(k, band, column)` tensor:
+        it becomes a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor] whose momentum axis
+        records how each original momentum sector matches a momentum sector in
+        the reciprocal lattice of that new unit cell, and whose final
+        Hilbert-space leg is rebuilt on that lattice. If inference fails, the
+        function falls back to the plain-tensor result.
+
+    Returns
+    -------
+    Tensor
+        Projected states. The fallback result has dims
+        `(MomentumSpace, HilbertSpace, D)`. The lattice-aware result is a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor] with dims
+        `(MomentumBlockSpace(k_old, k_new), HilbertSpace, InferredHilbertSpace)`,
+        where `k_old` is the original momentum label, `k_new` is the momentum
+        label in the reciprocal lattice built from the new unit cell, and
+        `InferredHilbertSpace` is the source-side Bloch space rewritten on that
+        lattice.
+
+    Raises
+    ------
+    ValueError
+        If either input tensor is not rank 3.
+    TypeError
+        If either input tensor does not have
+        `MomentumSpace/HilbertSpace/...` leading dimensions.
+    """
+    if target.rank() != 3 or source.rank() != 3:
+        raise ValueError("Both target and source must be rank-3 Tensors.")
+    if not isinstance(target.dims[0], MomentumSpace):
+        raise TypeError("The first dimension of target must be a MomentumSpace.")
+    if not isinstance(source.dims[0], MomentumSpace):
+        raise TypeError("The first dimension of source must be a MomentumSpace.")
+    if not isinstance(target.dims[1], HilbertSpace):
+        raise TypeError("The second dimension of target must be a HilbertSpace.")
+    if not isinstance(source.dims[1], HilbertSpace):
+        raise TypeError("The second dimension of source must be a HilbertSpace.")
+
+    eps = torch.finfo(target.data.real.dtype).eps
+
+    def _valid_column_mask(data: torch.Tensor) -> torch.Tensor:
+        norms = (data.abs() ** 2).sum(dim=1)
+        if not norms.numel():
+            return torch.zeros_like(norms, dtype=torch.bool)
+        scale = norms.amax(dim=1, keepdim=True).clamp_min(1.0)
+        # Zero-padded columns are expected to have vanishing norm compared to
+        # genuine state columns. Use a noticeably looser threshold than machine
+        # epsilon so tiny numerical leakage does not resurrect padded bands.
+        tol = scale * (eps**0.5) * max(data.shape[1], 1) * 8
+        return norms > tol
+
+    valid_target_mask = _valid_column_mask(target.data)
+    valid_source_mask = _valid_column_mask(source.data)
+
+    def _pack_active_columns(
+        data: torch.Tensor, mask: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        order = torch.argsort(mask.to(torch.int8), dim=1, descending=True, stable=True)
+        packed = data.gather(2, order[:, None, :].expand(-1, data.shape[1], -1))
+        packed_mask = mask.gather(1, order)
+        packed = packed * packed_mask[:, None, :].to(dtype=data.dtype)
+        return packed, packed_mask.sum(dim=1), order
+
+    packed_target, target_counts, _ = _pack_active_columns(
+        target.data, valid_target_mask
+    )
+    packed_source, source_counts, source_order = _pack_active_columns(
+        source.data, valid_source_mask
+    )
+
+    projected_packed = target.data.new_zeros(
+        target.data.shape[0],
+        target.data.shape[1],
+        source.data.shape[2],
+    )
+    min_svd_val = float("inf")
+    count_pairs = torch.stack((target_counts, source_counts), dim=1)
+
+    for target_count, source_count in torch.unique(count_pairs, dim=0):
+        n_target = int(target_count.item())
+        n_source = int(source_count.item())
+        if n_target == 0 or n_source == 0:
+            continue
+
+        pair_mask = (target_counts == target_count) & (source_counts == source_count)
+        local_target = packed_target[pair_mask, :, :n_target]
+        local_source = packed_source[pair_mask, :, :n_source]
+        overlap = local_target.conj().transpose(1, 2) @ local_source
+        u_data, s_data, vh_data = torch.linalg.svd(overlap, full_matrices=False)
+        if s_data.numel():
+            min_svd_val = min(min_svd_val, float(s_data.min().item()))
+
+        # Match the Julia wannierprojection contract: ignore padded zero
+        # columns, warn on small singular values, and always build the active
+        # block from the full thin polar factor of the overlap. This preserves
+        # the active source column count while giving an effective support of
+        # min(rank(target), rank(source)) sectorwise.
+        projected_packed[pair_mask, :, :n_source] = local_target @ (u_data @ vh_data)
+
+    projected_data = target.data.new_zeros(
+        target.data.shape[0],
+        target.data.shape[1],
+        source.data.shape[2],
+    )
+    projected_data.scatter_(
+        2,
+        source_order[:, None, :].expand(-1, projected_data.shape[1], -1),
+        projected_packed,
+    )
+
+    if min_svd_val < svd_threshold:
+        warnings.warn(
+            f"Precarious SVD projection with minimum singular value of {min_svd_val:.4g}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    projected = Tensor(
+        data=projected_data,
+        dims=(target.dims[0], target.dims[1], source.dims[2]),
+    )
+
+    if not infer_lattice or not isinstance(source.dims[2], HilbertSpace):
+        return projected
+
+    bridge = _infer_wannier_bridge(projected, cast(HilbertSpace, source.dims[2]))
+    if bridge is None:
+        return projected
+
+    return cast(Tensor[Any], projected @ bridge)
+
+
 def bandselect(
     tensor: Tensor,
     **kwargs: Dict[
@@ -1705,3 +2059,256 @@ def nearest_bands(
 
     out_space = IndexSpace.linear(n_selected)
     return Tensor(data=projected, dims=(kspace, out_space, out_space))
+
+
+def proj_wannierization(
+    eigenvectors: Tensor[Any],
+    seeds: Tensor[Any],
+    svd_threshold: float = 1e-1,
+    wannierize_lattice: bool = True,
+) -> Tensor[Any]:
+    r"""
+    Perform projective Wannierization from localized real-space trial orbitals.
+
+    This helper implements the standard two-stage projective-Wannier workflow:
+
+    1. Fourier transform localized seed states into momentum space.
+    2. At each momentum sector, rotate the target band subspace into the gauge
+       that best matches those transformed seeds via the polar/SVD factor of
+       the overlap matrix.
+
+    The function is therefore a thin orchestration layer around
+    [`fourier_transform()`][qten.geometries.fourier.fourier_transform] and
+    [`svd_projection()`][qten.bands.svd_projection].
+
+    Mathematical convention
+    -----------------------
+    Let
+    \(k \in \mathcal{K}\) denote a sampled momentum,
+    let \(\{|b\rangle\}_{b=1}^{N_b}\) be the Bloch basis stored on the second
+    axis of `eigenvectors`, and let
+    \(\{|r\rangle\}_{r=1}^{N_r}\) be the localized basis stored on the first
+    axis of `seeds`.
+
+    Suppose the seed tensor stores coefficients
+    \(A_{r n}\), where \(n = 1, \dots, N_s\) labels the trial orbitals. In
+    matrix form,
+    \(A \in \mathbb{C}^{N_r \times N_s}\).
+
+    The discrete Fourier-transform tensor returned by
+    [`fourier_transform(k_space, bloch_space, local_seed_space)`][qten.geometries.fourier.fourier_transform]
+    is a rank-3 object with entries
+
+    \[
+    F(k)_{b r} =
+    \delta_{\text{internal}(b),\,\text{internal}(r)}
+    \exp(-\mathrm{i}\, k \cdot r),
+    \]
+
+    where the Kronecker-style matching factor indicates that only localized and
+    Bloch basis states with matching non-offset irreps are connected. In the
+    repository's fractional-coordinate convention, this phase is equivalently
+    \(\exp(-2\pi\mathrm{i}\,\kappa \cdot n)\).
+
+    For each momentum sector, the real-space seeds are lifted to Bloch form as
+
+    \[
+    S(k) = F(k)\,A,
+    \]
+
+    with
+    \(S(k) \in \mathbb{C}^{N_b \times N_s}\).
+
+    The input `eigenvectors` stores the target subspace as matrices
+
+    \[
+    U(k) \in \mathbb{C}^{N_b \times N_t},
+    \]
+
+    whose columns span the band manifold to be Wannierized.
+
+    The gauge-fixing step then forms the overlap
+
+    \[
+    M(k) = U(k)^\dagger S(k)
+    \in \mathbb{C}^{N_t \times N_s},
+    \]
+
+    computes its singular value decomposition
+
+    \[
+    M(k) = X(k)\,\Sigma(k)\,Y(k)^\dagger,
+    \]
+
+    discards the singular values, and keeps only the polar/unitary factor
+
+    \[
+    Q(k) = X(k)\,Y(k)^\dagger.
+    \]
+
+    The projected Wannier-gauge states are then
+
+    \[
+    \widetilde{U}(k) = U(k)\,Q(k).
+    \]
+
+    This is exactly the orthogonal-Procrustes solution used by
+    [`svd_projection()`][qten.bands.svd_projection]: it preserves the target
+    column space while choosing the column gauge that best aligns the target
+    states with the Fourier-transformed trial orbitals.
+
+    Step-by-step behavior
+    ---------------------
+    Given `eigenvectors` and `seeds`, the code performs:
+
+    1. Read the shared momentum grid `k_space = eigenvectors.dims[0]`.
+    2. Read the Bloch Hilbert space
+       `bloch_space = eigenvectors.dims[1]`.
+    3. Read the localized seed row basis
+       `local_seed_space = seeds.dims[0]`.
+    4. Build the discrete Fourier transform tensor
+       `F = fourier_transform(k_space, bloch_space, local_seed_space)`.
+    5. Convert localized trial orbitals into momentum-resolved trial orbitals
+       by the tensor contraction `crystal_seeds = F @ seeds`.
+    6. Call
+       `svd_projection(eigenvectors, crystal_seeds, svd_threshold, infer_lattice=wannierize_lattice)`.
+    7. Return the projected states.
+
+    Interpretation of the tensor legs
+    ---------------------------------
+    - `eigenvectors` must have dims
+      `(MomentumSpace, HilbertSpace, D_target)`, where the first two axes
+      represent momentum and Bloch basis, and the last axis enumerates the
+      target band columns.
+    - `seeds` must have dims
+      `(HilbertSpace_local, D_seed)`, where the first axis is a localized
+      real-space basis containing [`Offset`][qten.geometries.spatials.Offset]
+      labels, and the second axis enumerates trial orbitals.
+    - After Fourier transformation, `crystal_seeds` has dims
+      `(MomentumSpace, HilbertSpace, D_seed)`.
+
+    Here `D_target` and `D_seed` may be different state-space types. The most
+    common case is that both are
+    [`IndexSpace`][qten.symbolics.state_space.IndexSpace], but the seed-column
+    space may also be a
+    [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+
+    Lattice-aware output
+    --------------------
+    The `wannierize_lattice` flag is forwarded to
+    [`svd_projection()`][qten.bands.svd_projection], but lattice rebuilding is
+    only possible when the **column space of the transformed seeds** still
+    carries a [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace]
+    with meaningful [`Offset`][qten.geometries.spatials.Offset] labels.
+
+    Concretely:
+
+    - if `seeds.dims[1]` is an
+      [`IndexSpace`][qten.symbolics.state_space.IndexSpace], projection still
+      works exactly as described above, but no lattice-backed output basis can
+      be inferred, so the result remains a plain rank-3 tensor;
+    - if `seeds.dims[1]` is a
+      [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace], then after
+      Fourier transformation the source columns retain those symbolic labels,
+      and `svd_projection(..., infer_lattice=True)` may return a
+      [`MomentumBlockTensor`][qten.MomentumBlockTensor] whose final Hilbert leg
+      has been rebuilt on the inferred Wannier lattice.
+
+    Numerical behavior
+    ------------------
+    The SVD warning threshold is interpreted exactly as in
+    [`svd_projection()`][qten.bands.svd_projection]: if the minimum singular
+    value of the overlap becomes smaller than `svd_threshold`, a warning is
+    emitted because the trial orbitals may poorly span the target subspace or
+    may be nearly linearly dependent after projection. Zero-padded columns, if
+    present in the target or source, are ignored sector by sector by the
+    underlying projection routine.
+
+    Parameters
+    ----------
+    eigenvectors : Tensor
+        Target band states with dims
+        `(MomentumSpace, HilbertSpace, D_target)`.
+    seeds : Tensor
+        Localized trial orbitals with dims `(HilbertSpace_local, D_seed)`.
+        The first axis is the localized real-space basis to be Fourier
+        transformed; the second axis enumerates the trial orbitals themselves.
+        `D_seed` does not have to be an
+        [`IndexSpace`][qten.symbolics.state_space.IndexSpace]: it may also be a
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+        This distinction controls whether `wannierize_lattice` can do
+        anything:
+
+        - if `D_seed` is an
+          [`IndexSpace`][qten.symbolics.state_space.IndexSpace], the function
+          still performs the full projective Wannierization, but the output
+          remains a plain rank-3 tensor because there is no symbolic
+          seed-column geometry to rebuild into a Wannier lattice;
+        - if `D_seed` is a
+          [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace], the
+          transformed seed columns retain their symbolic offset labels, so
+          `wannierize_lattice=True` may trigger lattice inference in the final
+          projection step.
+    svd_threshold : float, optional
+        Warning threshold passed to
+        [`svd_projection()`][qten.bands.svd_projection].
+    wannierize_lattice : bool, optional
+        Forwarded as `infer_lattice` to
+        [`svd_projection()`][qten.bands.svd_projection]. This only has an
+        effect when the transformed seed columns carry a
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace] label.
+
+    Returns
+    -------
+    Tensor
+        Projected Wannier-gauge states. Usually this is a rank-3 tensor with
+        dims `(MomentumSpace, HilbertSpace, D_seed)`. If lattice inference is
+        enabled and succeeds, the result may instead be a
+        [`MomentumBlockTensor`][qten.MomentumBlockTensor].
+
+    Raises
+    ------
+    ValueError
+        If `eigenvectors` is not rank 3 or `seeds` is not rank 2.
+    TypeError
+        If `eigenvectors.dims[0]` is not a
+        [`MomentumSpace`][qten.symbolics.state_space.MomentumSpace], or if
+        `eigenvectors.dims[1]` / `seeds.dims[0]` are not
+        [`HilbertSpace`][qten.symbolics.hilbert_space.HilbertSpace].
+    """
+    if eigenvectors.rank() != 3:
+        raise ValueError("eigenvectors must be a rank-3 Tensor.")
+    if seeds.rank() != 2:
+        raise ValueError("seeds must be a rank-2 Tensor.")
+    if not isinstance(eigenvectors.dims[0], MomentumSpace):
+        raise TypeError(
+            "The first dimension of the eigenvectors must be a MomentumSpace."
+        )
+
+    kspace = eigenvectors.dims[0]
+    bloch_space = eigenvectors.dims[1]
+    local_seed_space = seeds.dims[0]
+    if not isinstance(bloch_space, HilbertSpace) or not isinstance(
+        local_seed_space, HilbertSpace
+    ):
+        raise TypeError(
+            "The second dimension of eigenvectors and first dimension "
+            "of seeds must be HilbertSpace."
+        )
+
+    # Perform Fourier transform on local seeds to move them to momentum space
+    # `f` has dims `(MomentumSpace, BlochHilbertSpace, LocalSeedHilbertSpace)`.
+    f = fourier_transform(
+        kspace, bloch_space, local_seed_space, device=eigenvectors.device
+    )
+
+    # Map the seeds to crystal momentum seeds
+    # f @ local_seeds -> (MomentumSpace, HilbertSpace_out, IndexSpace)
+    crystal_seeds = f @ seeds
+
+    return svd_projection(
+        eigenvectors,
+        crystal_seeds,
+        svd_threshold,
+        infer_lattice=wannierize_lattice,
+    )
