@@ -7,13 +7,14 @@ import numpy as np
 import plotly.graph_objects as go  # type: ignore[import-untyped]
 import plotly.figure_factory as ff  # type: ignore[import-untyped]
 import sympy as sy
+from scipy.interpolate import griddata
 from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
 from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
-from qten.symbolics.state_space import BzPath, StateSpace
+from qten.symbolics.state_space import BzPath, MomentumSpace, StateSpace
 from ._utils import (
     analyze_bandstructure_sampling,
     band_path_positions,
@@ -128,6 +129,270 @@ def _subplot_grid(n_items: int, ncols: int) -> tuple[int, int]:
 
 def _column_label(col_dim: StateSpace, index: int) -> str:
     return str(col_dim.elements()[index])
+
+
+def _phase_value_colors(values: np.ndarray, magnitudes: np.ndarray) -> list[str]:
+    max_mag = float(np.max(magnitudes)) if magnitudes.size > 0 else 0.0
+    if max_mag <= 0.0:
+        value_scale = np.zeros_like(magnitudes, dtype=float)
+    else:
+        value_scale = magnitudes / max_mag
+
+    colors: list[str] = []
+    for i, value in enumerate(values):
+        phase = float(np.angle(value))
+        hue = (phase + np.pi) / (2.0 * np.pi)
+        sat = 0.95
+        val = 0.2 + 0.8 * float(value_scale[i])
+        r, g, b = colorsys.hsv_to_rgb(hue % 1.0, sat, val)
+        colors.append(f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})")
+    return colors
+
+
+def _extract_kspace_cartesian(k_space: MomentumSpace) -> np.ndarray:
+    k_points = list(k_space)
+    if len(k_points) == 0:
+        return np.empty((0, 0), dtype=float)
+    basis_mat = np.array(k_points[0].space.basis.evalf(), dtype=float)
+    k_fracs = np.stack(
+        [np.array(k.rep.evalf(), dtype=float).reshape(-1) for k in k_points], axis=0
+    )
+    return k_fracs @ basis_mat.T
+
+
+@Tensor.register_plot_method("kcontour", backend="plotly")
+def plot_tensor_kcontour(
+    obj: Tensor,
+    title: str = "Momentum Contour",
+    show: bool = True,
+    fig: Optional[go.Figure] = None,
+    levels: int = 40,
+    default_size: float = 12.0,
+    grid_resolution: int = 120,
+    **kwargs,
+) -> go.Figure:
+    if obj.rank() != 1:
+        raise ValueError(
+            "kcontour requires a rank-1 tensor with dims (MomentumSpace,), got "
+            f"rank {obj.rank()}."
+        )
+    if len(obj.dims) != 1 or not isinstance(obj.dims[0], MomentumSpace):
+        raise ValueError(
+            "kcontour requires dims (MomentumSpace,), got "
+            f"{tuple(type(dim).__name__ for dim in obj.dims)}."
+        )
+    if levels <= 0:
+        raise ValueError(f"levels must be positive, got {levels}.")
+    if default_size <= 0:
+        raise ValueError(f"default_size must be positive, got {default_size}.")
+    if grid_resolution <= 1:
+        raise ValueError(f"grid_resolution must be > 1, got {grid_resolution}.")
+
+    k_space = cast(MomentumSpace, obj.dims[0])
+    coords = _extract_kspace_cartesian(k_space)
+    if coords.size == 0:
+        raise ValueError("kcontour cannot plot an empty MomentumSpace.")
+
+    spatial_dim = coords.shape[1]
+    if spatial_dim not in (1, 2, 3):
+        raise ValueError(
+            "kcontour only supports MomentumSpace coordinates of dimension 1, 2, or 3; "
+            f"got {spatial_dim}."
+        )
+
+    values = obj.data.detach().cpu().numpy().reshape(-1)
+    if values.shape[0] != coords.shape[0]:
+        raise ValueError(
+            "Tensor data length does not match MomentumSpace size: "
+            f"{values.shape[0]} vs {coords.shape[0]}."
+        )
+    magnitudes = np.abs(values)
+    is_complex = np.iscomplexobj(values)
+
+    if fig is None:
+        fig = go.Figure()
+
+    if spatial_dim == 1:
+        x = coords[:, 0]
+        order = np.argsort(x)
+        x_plot = x[order]
+        mag_plot = magnitudes[order]
+        values_plot = values[order]
+        if is_complex:
+            colors = _phase_value_colors(values_plot, mag_plot)
+            if len(x_plot) <= 1:
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_plot,
+                        y=mag_plot,
+                        mode="markers",
+                        marker=dict(size=default_size, color=colors),
+                        name="|value| (phase-colored)",
+                    )
+                )
+            else:
+                for i in range(len(x_plot) - 1):
+                    z0 = values_plot[i]
+                    z1 = values_plot[i + 1]
+                    seg_phase = float(np.angle(0.5 * (z0 + z1)))
+                    seg_mag = 0.5 * (float(np.abs(z0)) + float(np.abs(z1)))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x_plot[i], x_plot[i + 1]],
+                            y=[mag_plot[i], mag_plot[i + 1]],
+                            mode="lines",
+                            line=dict(color=colors[i], width=3),
+                            name="|value| (phase-colored)" if i == 0 else None,
+                            showlegend=(i == 0),
+                            hovertemplate=(
+                                "k: %{x:.6g}<br>"
+                                "|value|: %{y:.6g}<br>"
+                                f"phase≈{seg_phase:.6g}<br>"
+                                f"segment |value|≈{seg_mag:.6g}<extra></extra>"
+                            ),
+                        )
+                    )
+            fig.update_layout(xaxis_title="k", yaxis_title="|value|")
+        else:
+            fig.add_trace(
+                go.Scatter(
+                    x=x_plot,
+                    y=np.real(values_plot),
+                    mode="lines",
+                    line=dict(width=2, color="#2f4f9e"),
+                    name="value",
+                )
+            )
+            fig.update_layout(xaxis_title="k", yaxis_title="value")
+
+    elif spatial_dim == 2:
+        x = coords[:, 0]
+        y = coords[:, 1]
+        grid_x = np.linspace(float(np.min(x)), float(np.max(x)), grid_resolution)
+        grid_y = np.linspace(float(np.min(y)), float(np.max(y)), grid_resolution)
+        gx, gy = np.meshgrid(grid_x, grid_y)
+
+        if is_complex:
+            mag_grid = griddata((x, y), magnitudes, (gx, gy), method="linear")
+            if np.all(np.isnan(mag_grid)):
+                mag_grid = griddata((x, y), magnitudes, (gx, gy), method="nearest")
+            phase_grid = griddata((x, y), np.angle(values), (gx, gy), method="linear")
+            if np.all(np.isnan(phase_grid)):
+                phase_grid = griddata(
+                    (x, y), np.angle(values), (gx, gy), method="nearest"
+                )
+            phase_grid = np.nan_to_num(phase_grid, nan=0.0)
+            mag_grid = np.nan_to_num(mag_grid, nan=0.0)
+
+            phase_norm = (phase_grid + np.pi) / (2.0 * np.pi)
+            mag_max = float(np.max(mag_grid))
+            if mag_max > 0:
+                mag_norm = np.clip(mag_grid / mag_max, 0.0, 1.0)
+            else:
+                mag_norm = np.zeros_like(mag_grid)
+
+            hue = np.mod(phase_norm, 1.0)
+            sat = np.full_like(hue, 0.95, dtype=float)
+            val = 0.2 + 0.8 * mag_norm
+            rgb_grid = np.empty((*hue.shape, 3), dtype=np.uint8)
+            for i in range(hue.shape[0]):
+                for j in range(hue.shape[1]):
+                    r, g, b = colorsys.hsv_to_rgb(
+                        float(hue[i, j]), float(sat[i, j]), float(val[i, j])
+                    )
+                    rgb_grid[i, j] = (
+                        int(np.clip(round(r * 255), 0, 255)),
+                        int(np.clip(round(g * 255), 0, 255)),
+                        int(np.clip(round(b * 255), 0, 255)),
+                    )
+            fig.add_trace(
+                go.Image(
+                    z=rgb_grid,
+                    x0=float(grid_x[0]),
+                    dx=float(grid_x[1] - grid_x[0]) if len(grid_x) > 1 else 1.0,
+                    y0=float(grid_y[0]),
+                    dy=float(grid_y[1] - grid_y[0]) if len(grid_y) > 1 else 1.0,
+                    colormodel="rgb",
+                    name="phase|magnitude",
+                )
+            )
+        else:
+            real_grid = griddata((x, y), np.real(values), (gx, gy), method="linear")
+            if np.all(np.isnan(real_grid)):
+                real_grid = griddata(
+                    (x, y), np.real(values), (gx, gy), method="nearest"
+                )
+            real_grid = np.nan_to_num(real_grid, nan=0.0)
+            fig.add_trace(
+                go.Contour(
+                    x=grid_x,
+                    y=grid_y,
+                    z=real_grid,
+                    ncontours=levels,
+                    colorscale="Viridis",
+                    colorbar=dict(title="value"),
+                    name="value",
+                )
+            )
+        fig.update_layout(
+            xaxis_title="kx",
+            yaxis_title="ky",
+            yaxis=dict(scaleanchor="x", scaleratio=1),
+        )
+        # Keep Cartesian orientation (ky increases upward) even for go.Image traces.
+        fig.update_yaxes(autorange=True)
+
+    else:
+        x = coords[:, 0]
+        y = coords[:, 1]
+        z = coords[:, 2]
+        if is_complex:
+            colors = _phase_value_colors(values, magnitudes)
+            max_mag = float(np.max(magnitudes)) if magnitudes.size > 0 else 0.0
+            if max_mag > 0:
+                sizes = default_size * magnitudes / max_mag
+            else:
+                sizes = np.full_like(magnitudes, fill_value=default_size, dtype=float)
+            fig.add_trace(
+                go.Scatter3d(
+                    x=x,
+                    y=y,
+                    z=z,
+                    mode="markers",
+                    marker=dict(size=sizes.tolist(), color=colors, opacity=0.9),
+                    name="kcontour",
+                )
+            )
+        else:
+            fig.add_trace(
+                go.Scatter3d(
+                    x=x,
+                    y=y,
+                    z=z,
+                    mode="markers",
+                    marker=dict(
+                        size=default_size,
+                        color=np.real(values),
+                        colorscale="Viridis",
+                        colorbar=dict(title="value"),
+                        opacity=0.9,
+                    ),
+                    name="kcontour",
+                )
+            )
+        fig.update_layout(
+            scene=dict(
+                xaxis_title="kx",
+                yaxis_title="ky",
+                zaxis_title="kz",
+                aspectmode="data",
+            )
+        )
+
+    fig.update_layout(title=title, showlegend=False, **kwargs)
+    if show:
+        fig.show()
+    return fig
 
 
 # --- Registered Plot Methods ---

@@ -3,12 +3,16 @@ import math
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.tri as mtri
+from matplotlib.collections import LineCollection
+from scipy.interpolate import griddata
 from typing import Optional, Union, Any, cast, Tuple, Sequence
 from qten.geometries.boundary import PeriodicBoundary
 from qten.geometries.spatials import Lattice, Offset
 from qten.linalg.tensors import Tensor
 from qten.symbolics.state_space import (
     BzPath,
+    MomentumSpace,
     StateSpace,
 )
 from qten.symbolics.hilbert_space import HilbertSpace, U1Basis
@@ -89,6 +93,205 @@ def _subplot_grid(n_items: int, ncols: int) -> tuple[int, int]:
 
 def _column_label(col_dim: StateSpace, index: int) -> str:
     return str(col_dim.elements()[index])
+
+
+def _phase_value_colors(values: np.ndarray, magnitudes: np.ndarray) -> np.ndarray:
+    max_mag = float(np.max(magnitudes)) if magnitudes.size > 0 else 0.0
+    if max_mag <= 0.0:
+        value_scale = np.zeros_like(magnitudes, dtype=float)
+    else:
+        value_scale = magnitudes / max_mag
+
+    colors = np.zeros((len(values), 3), dtype=float)
+    for i, value in enumerate(values):
+        phase = float(np.angle(value))
+        hue = (phase + np.pi) / (2.0 * np.pi)
+        sat = 0.95
+        val = 0.2 + 0.8 * float(value_scale[i])
+        colors[i] = colorsys.hsv_to_rgb(hue % 1.0, sat, val)
+    return colors
+
+
+def _extract_kspace_cartesian(k_space: MomentumSpace) -> np.ndarray:
+    k_points = list(k_space)
+    if len(k_points) == 0:
+        return np.empty((0, 0), dtype=float)
+    basis_mat = np.array(k_points[0].space.basis.evalf(), dtype=float)
+    k_fracs = np.stack(
+        [np.array(k.rep.evalf(), dtype=float).reshape(-1) for k in k_points], axis=0
+    )
+    return k_fracs @ basis_mat.T
+
+
+@Tensor.register_plot_method("kcontour", backend="matplotlib")
+def plot_tensor_kcontour_mpl(
+    obj: Tensor,
+    title: str = "Momentum Contour",
+    save_path: Optional[str] = None,
+    levels: int = 40,
+    default_size: float = 18.0,
+    ax: Optional[Any] = None,
+    **kwargs,
+) -> plt.Figure:
+    if obj.rank() != 1:
+        raise ValueError(
+            "kcontour requires a rank-1 tensor with dims (MomentumSpace,), got "
+            f"rank {obj.rank()}."
+        )
+    if len(obj.dims) != 1 or not isinstance(obj.dims[0], MomentumSpace):
+        raise ValueError(
+            "kcontour requires dims (MomentumSpace,), got "
+            f"{tuple(type(dim).__name__ for dim in obj.dims)}."
+        )
+    if levels <= 0:
+        raise ValueError(f"levels must be positive, got {levels}.")
+    if default_size <= 0:
+        raise ValueError(f"default_size must be positive, got {default_size}.")
+
+    k_space = cast(MomentumSpace, obj.dims[0])
+    coords = _extract_kspace_cartesian(k_space)
+    if coords.size == 0:
+        raise ValueError("kcontour cannot plot an empty MomentumSpace.")
+
+    spatial_dim = coords.shape[1]
+    if spatial_dim not in (1, 2, 3):
+        raise ValueError(
+            "kcontour only supports MomentumSpace coordinates of dimension 1, 2, or 3; "
+            f"got {spatial_dim}."
+        )
+
+    values = obj.data.detach().cpu().numpy().reshape(-1)
+    if values.shape[0] != coords.shape[0]:
+        raise ValueError(
+            "Tensor data length does not match MomentumSpace size: "
+            f"{values.shape[0]} vs {coords.shape[0]}."
+        )
+
+    magnitudes = np.abs(values)
+    is_complex = np.iscomplexobj(values)
+
+    if ax is None:
+        fig = plt.figure(figsize=kwargs.get("figsize", (8, 6)))
+        if spatial_dim == 3:
+            ax = fig.add_subplot(111, projection="3d")
+        else:
+            ax = fig.add_subplot(111)
+    else:
+        fig = ax.get_figure()
+
+    if spatial_dim == 1:
+        x = coords[:, 0]
+        order = np.argsort(x)
+        x_plot = x[order]
+        mag_plot = magnitudes[order]
+        values_plot = values[order]
+
+        if is_complex:
+            if len(x_plot) <= 1:
+                colors = _phase_value_colors(values_plot, mag_plot)
+                ax.scatter(x_plot, mag_plot, c=colors, s=default_size)
+            else:
+                points = np.column_stack((x_plot, mag_plot))
+                segments = np.stack([points[:-1], points[1:]], axis=1)
+                mid_values = 0.5 * (values_plot[:-1] + values_plot[1:])
+                mid_magnitudes = 0.5 * (mag_plot[:-1] + mag_plot[1:])
+                seg_colors = _phase_value_colors(mid_values, mid_magnitudes)
+                collection = LineCollection(segments, colors=seg_colors, linewidths=2.5)
+                ax.add_collection(collection)
+                ax.autoscale_view()
+            ax.set_ylabel("|value|")
+        else:
+            ax.plot(x_plot, np.real(values_plot), color="#2f4f9e", linewidth=1.5)
+            ax.set_ylabel("value")
+        ax.set_xlabel("k")
+        ax.grid(True, alpha=0.25)
+
+    elif spatial_dim == 2:
+        x = coords[:, 0]
+        y = coords[:, 1]
+        triang = mtri.Triangulation(x, y)
+
+        if is_complex:
+            grid_resolution = int(kwargs.get("grid_resolution", 120))
+            if grid_resolution <= 1:
+                raise ValueError(f"grid_resolution must be > 1, got {grid_resolution}.")
+            grid_x = np.linspace(float(np.min(x)), float(np.max(x)), grid_resolution)
+            grid_y = np.linspace(float(np.min(y)), float(np.max(y)), grid_resolution)
+            gx, gy = np.meshgrid(grid_x, grid_y)
+
+            mag_grid = griddata((x, y), magnitudes, (gx, gy), method="linear")
+            if np.all(np.isnan(mag_grid)):
+                mag_grid = griddata((x, y), magnitudes, (gx, gy), method="nearest")
+            phase_grid = griddata((x, y), np.angle(values), (gx, gy), method="linear")
+            if np.all(np.isnan(phase_grid)):
+                phase_grid = griddata(
+                    (x, y), np.angle(values), (gx, gy), method="nearest"
+                )
+            phase_grid = np.nan_to_num(phase_grid, nan=0.0)
+            mag_grid = np.nan_to_num(mag_grid, nan=0.0)
+
+            phase_norm = (phase_grid + np.pi) / (2.0 * np.pi)
+            mag_max = float(np.max(mag_grid))
+            if mag_max > 0:
+                mag_norm = np.clip(mag_grid / mag_max, 0.0, 1.0)
+            else:
+                mag_norm = np.zeros_like(mag_grid)
+
+            hue = np.mod(phase_norm, 1.0)
+            sat = np.full_like(hue, 0.95, dtype=float)
+            val = 0.2 + 0.8 * mag_norm
+            rgb_grid = np.empty((*hue.shape, 3), dtype=float)
+            for i in range(hue.shape[0]):
+                for j in range(hue.shape[1]):
+                    rgb_grid[i, j] = colorsys.hsv_to_rgb(
+                        float(hue[i, j]), float(sat[i, j]), float(val[i, j])
+                    )
+
+            ax.imshow(
+                rgb_grid,
+                origin="lower",
+                extent=[
+                    float(grid_x[0]),
+                    float(grid_x[-1]),
+                    float(grid_y[0]),
+                    float(grid_y[-1]),
+                ],
+                aspect="equal",
+                interpolation="bilinear",
+            )
+        else:
+            contourf = ax.tricontourf(
+                triang, np.real(values), levels=levels, cmap="viridis"
+            )
+            fig.colorbar(contourf, ax=ax, label="value")
+        ax.set_aspect("equal")
+        ax.set_xlabel("kx")
+        ax.set_ylabel("ky")
+
+    else:
+        x = coords[:, 0]
+        y = coords[:, 1]
+        z = coords[:, 2]
+        if is_complex:
+            colors = _phase_value_colors(values, magnitudes)
+            max_mag = float(np.max(magnitudes)) if magnitudes.size > 0 else 0.0
+            if max_mag > 0:
+                sizes = default_size * magnitudes / max_mag
+            else:
+                sizes = np.full_like(magnitudes, fill_value=default_size, dtype=float)
+            cast(Any, ax).scatter(x, y, z, s=sizes, c=colors)
+            cast(Any, ax).set_zlabel("kz")
+        else:
+            scatter = cast(Any, ax).scatter(x, y, z, c=np.real(values), cmap="viridis")
+            fig.colorbar(scatter, ax=ax, label="value")
+            cast(Any, ax).set_zlabel("kz")
+        ax.set_xlabel("kx")
+        ax.set_ylabel("ky")
+
+    ax.set_title(title)
+    if save_path:
+        fig.savefig(save_path, bbox_inches="tight")
+    return fig
 
 
 @Lattice.register_plot_method("structure", backend="matplotlib")
