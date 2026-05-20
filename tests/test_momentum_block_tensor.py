@@ -20,6 +20,11 @@ from qten.symbolics.state_space import (
 )
 
 
+class _FakeDim:
+    def __init__(self, dim: int):
+        self.dim = dim
+
+
 def _band_space(name: str, size: int) -> HilbertSpace:
     return HilbertSpace.new(
         U1Basis(coef=sy.Integer(1), base=((name, i),)) for i in range(size)
@@ -64,6 +69,46 @@ def test_momentum_block_transpose_updates_pair_axis_when_band_dims_match():
     assert tuple(transposed.dims[0].elements()) == ((k1, k0), (k0, k1))
     assert transposed.dims[1:] == (band, band)
     assert torch.allclose(transposed.data, tensor.data.transpose(1, 2))
+
+
+def test_momentum_block_getitem_preserves_subtype_for_layout_preserving_selection():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    left_band = _band_space("left", 3)
+    right_band = _band_space("right", 4)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+
+    tensor = MomentumBlockTensor(
+        data=torch.arange(24, dtype=torch.float64)
+        .reshape(2, 3, 4)
+        .to(torch.complex128),
+        dims=(pair_space, left_band, right_band),
+    )
+
+    out = tensor[:, :, :2]
+
+    assert isinstance(out, MomentumBlockTensor)
+    assert out.dims == (pair_space, left_band, right_band[:2])
+    assert torch.equal(out.data, tensor.data[:, :, :2])
+
+
+def test_momentum_block_getitem_downgrades_when_selection_breaks_layout():
+    k_space = _k_space()
+    k0, k1 = k_space.elements()
+    band = _band_space("band", 2)
+    pair_space = _pair_space((k0, k1), (k1, k0))
+
+    tensor = MomentumBlockTensor(
+        data=torch.arange(8, dtype=torch.float64).reshape(2, 2, 2).to(torch.complex128),
+        dims=(pair_space, band, band),
+    )
+
+    out = tensor[0]
+
+    assert isinstance(out, Tensor)
+    assert not isinstance(out, MomentumBlockTensor)
+    assert out.dims == (band, band)
+    assert torch.equal(out.data, tensor.data[0])
 
 
 def test_momentum_block_tensor_inherits_tensor_equality_and_hash():
@@ -145,7 +190,7 @@ def test_momentum_block_right_matmul_uses_pair_second_momentum():
     assert torch.allclose(out.data, expected)
 
 
-def test_momentum_block_right_matmul_rejects_non_hilbert_contract_axis():
+def test_momentum_block_right_matmul_rejects_non_state_space_contract_axis():
     k_space = _k_space()
     k0, k1 = k_space.elements()
     left_band = _band_space("left", 2)
@@ -158,17 +203,17 @@ def test_momentum_block_right_matmul_rejects_non_hilbert_contract_axis():
     )
     right = Tensor(
         data=torch.randn(2, 2, 2, dtype=torch.complex128),
-        dims=(k_space, k_space, mid_band),
+        dims=(k_space, _FakeDim(2), mid_band),
     )
 
     with pytest.raises(
         ValueError,
-        match="The second dimension of the right operand must be a HilbertSpace.",
+        match="The second dimension of the right operand must be a StateSpace.",
     ):
         left @ right
 
 
-def test_momentum_block_right_matmul_rejects_non_hilbert_output_axis():
+def test_momentum_block_right_matmul_rejects_non_state_space_output_axis():
     k_space = _k_space()
     k0, k1 = k_space.elements()
     left_band = _band_space("left", 2)
@@ -181,12 +226,12 @@ def test_momentum_block_right_matmul_rejects_non_hilbert_output_axis():
     )
     right = Tensor(
         data=torch.randn(2, 2, 2, dtype=torch.complex128),
-        dims=(k_space, left_band, k_space),
+        dims=(k_space, left_band, _FakeDim(2)),
     )
 
     with pytest.raises(
         ValueError,
-        match="The third dimension of the right operand must be a HilbertSpace.",
+        match="The third dimension of the right operand must be a StateSpace.",
     ):
         left @ right
 
@@ -235,7 +280,7 @@ def test_momentum_block_left_matmul_uses_pair_first_momentum():
     assert torch.allclose(out.data, expected)
 
 
-def test_momentum_block_left_matmul_rejects_non_hilbert_output_axis():
+def test_momentum_block_left_matmul_rejects_non_state_space_output_axis():
     k_space = _k_space()
     k0, k1 = k_space.elements()
     mid_band = _band_space("mid", 2)
@@ -244,7 +289,7 @@ def test_momentum_block_left_matmul_rejects_non_hilbert_output_axis():
 
     left = Tensor(
         data=torch.randn(2, 2, 2, dtype=torch.complex128),
-        dims=(k_space, k_space, mid_band),
+        dims=(k_space, _FakeDim(2), mid_band),
     )
     right = MomentumBlockTensor(
         data=torch.randn(2, 2, 2, dtype=torch.complex128),
@@ -253,12 +298,12 @@ def test_momentum_block_left_matmul_rejects_non_hilbert_output_axis():
 
     with pytest.raises(
         ValueError,
-        match="The second dimension of the left operand must be a HilbertSpace.",
+        match="The second dimension of the left operand must be a StateSpace.",
     ):
         left @ right
 
 
-def test_momentum_block_left_matmul_rejects_non_hilbert_contract_axis():
+def test_momentum_block_left_matmul_rejects_non_state_space_contract_axis():
     k_space = _k_space()
     k0, k1 = k_space.elements()
     left_band = _band_space("left", 2)
@@ -267,7 +312,7 @@ def test_momentum_block_left_matmul_rejects_non_hilbert_contract_axis():
 
     left = Tensor(
         data=torch.randn(2, 2, 2, dtype=torch.complex128),
-        dims=(k_space, left_band, k_space),
+        dims=(k_space, left_band, _FakeDim(2)),
     )
     right = MomentumBlockTensor(
         data=torch.randn(2, 2, 2, dtype=torch.complex128),
@@ -276,7 +321,7 @@ def test_momentum_block_left_matmul_rejects_non_hilbert_contract_axis():
 
     with pytest.raises(
         ValueError,
-        match="The third dimension of the left operand must be a HilbertSpace.",
+        match="The third dimension of the left operand must be a StateSpace.",
     ):
         left @ right
 
